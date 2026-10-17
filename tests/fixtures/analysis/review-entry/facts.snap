@@ -1,0 +1,26 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-entry
+input_file: tests/fixtures/analysis/review-entry/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  helper (1:8) open: throws calls-unknown (declared: pure)
+  main (5:8) open: reads writes allocates throws calls-unknown
+    calls 7:18 -> helper
+nodes:
+  1:17 bind `helper`: function@proven
+  1:24 bind `n`: number@declared
+  2:10 binary `n * 2`: number@proven
+  2:10 ref `n`: number@declared
+  5:17 bind `main`: function@proven
+  5:22 bind `flag`: undefined | number@declared
+  6:9 bind `v`: undefined | number@declared
+  6:13 ref `flag`: undefined | number@declared
+  7:3 call `console.log(v, helper(3))`: unknown
+  7:3 member `console.log`: unknown
+  7:3 ref `console`: unknown
+  7:15 ref `v`: undefined | number@declared
+  7:18 call `helper(3)`: number@proven
+  7:18 ref `helper`: function@proven

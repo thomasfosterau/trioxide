@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/optional-chaining/input.ts
 functions:
   <module> (1:1): allocates
   second (5:1): reads
-  main (9:8): reads writes allocates throws calls-unknown
+  main (9:8) open: reads writes allocates throws calls-unknown
     calls 11:17 -> second
     calls 12:40 -> second
 nodes:

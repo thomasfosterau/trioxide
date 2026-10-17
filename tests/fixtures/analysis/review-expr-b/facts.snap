@@ -1,0 +1,119 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-expr-b
+input_file: tests/fixtures/analysis/review-expr-b/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  truncate (2:1): pure
+  Popper.<fields> (13:14): pure
+  Popper.constructor (14:14): writes
+  Popper.top (15:10): reads writes
+  viaGetter (21:1): reads writes allocates throws
+    calls 23:13 -> Popper.<fields>
+    calls 23:13 -> Popper.constructor
+    calls 26:15 -> Popper.top
+  viaValueOf (33:1): reads allocates throws calls-unknown
+  valueOf (36:12): reads writes
+  main (50:8) open: reads writes allocates throws calls-unknown
+    calls 51:15 -> truncate
+    calls 51:27 -> viaGetter
+    calls 51:40 -> viaValueOf
+classes:
+  Popper (13:1): fields [arr] stable
+nodes:
+  2:10 bind `truncate`: function@proven
+  3:9 bind `a`: unknown[]@proven
+  3:13 array `[1, 2, 3]`: unknown[]@proven escape=none stable-shape
+  4:7 bind `sum`: 0@proven
+  5:12 bind `i`: 0@proven
+  5:19 binary `i < a.length`: boolean@proven
+  5:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  5:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  5:23 ref `a`: unknown[]@proven
+  5:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  5:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  6:5 assign `a.length = 0`: 0@proven
+  6:5 member `a.length`: unknown
+  6:5 ref `a`: unknown[]@proven
+  7:11 bind `v`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  7:15 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  7:15 ref `a`: unknown[]@proven
+  7:17 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  8:5 assign `sum += v`: number nonNegZero@proven
+  8:5 ref `sum`: number nonNegZero@proven
+  8:12 ref `v`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  10:10 ref `sum`: number nonNegZero@proven
+  13:7 bind `Popper`: function@proven
+  14:32 bind `arr`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  16:5 call `this.arr.pop()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  16:5 member `this.arr.pop`: unknown
+  16:5 member `this.arr`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  16:5 this `this`: Popper@proven
+  21:10 bind `viaGetter`: function@proven
+  22:9 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  22:13 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  23:9 bind `p`: Popper@proven
+  23:13 new `new Popper(a)`: Popper@proven escape=known
+  23:17 ref `Popper`: function@proven
+  23:24 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  24:7 bind `sum`: 0@proven
+  25:12 bind `i`: 0@proven
+  25:19 binary `i < a.length`: boolean@proven
+  25:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  25:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  25:23 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  25:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  25:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  26:11 bind `t`: 0@proven
+  26:15 member `p.top`: 0@proven
+  26:15 ref `p`: Popper@proven
+  27:11 bind `v`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  27:15 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  27:15 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  27:17 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  28:5 assign `sum += v + t`: number nonNegZero@proven
+  28:5 ref `sum`: number nonNegZero@proven
+  28:12 binary `v + t`: number nonNegZero@proven
+  28:12 ref `v`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  28:16 ref `t`: 0@proven
+  30:10 ref `sum`: number nonNegZero@proven
+  33:10 bind `viaValueOf`: function@proven
+  34:9 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  34:13 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  35:9 bind `o`: {| valueOf: function |}@proven
+  35:13 object `{ valueOf(): number { a.pop(); return...`: {| valueOf: function |}@proven escape=known stable-shape
+  37:7 call `a.pop()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  37:7 member `a.pop`: unknown
+  37:7 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  41:7 bind `s`: string@proven
+  42:12 bind `i`: 0@proven
+  42:19 binary `i < a.length`: boolean@proven
+  42:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  42:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  42:23 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  42:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  42:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  43:11 bind `n`: number@proven
+  43:15 unary `+o`: number@proven
+  43:16 ref `o`: {| valueOf: function |}@proven
+  44:11 bind `v`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  44:15 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  44:15 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  44:17 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  45:5 assign `s += `${v}${n}``: string@proven
+  45:5 ref `s`: string@proven
+  45:13 ref `v`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  45:17 ref `n`: number@proven
+  47:10 ref `s`: string@proven
+  50:17 bind `main`: function@proven
+  51:3 call `console.log(truncate(), viaGetter(), ...`: unknown
+  51:3 member `console.log`: unknown
+  51:3 ref `console`: unknown
+  51:15 call `truncate()`: number nonNegZero@proven
+  51:15 ref `truncate`: function@proven
+  51:27 call `viaGetter()`: number nonNegZero@proven
+  51:27 ref `viaGetter`: function@proven
+  51:40 call `viaValueOf()`: string@proven
+  51:40 ref `viaValueOf`: function@proven

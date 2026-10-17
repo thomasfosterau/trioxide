@@ -6,15 +6,15 @@ input_file: tests/fixtures/analysis/closures/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  counter (3:8): allocates
-  <anonymous> (5:10): reads writes
-  sharedWrite (11:8): reads writes
+  counter (3:8) open: allocates
+  <anonymous> (5:10) open: reads writes
+  sharedWrite (11:8) open: reads writes
     calls 16:3 -> set
   set (13:15): writes
-  readOnlyCapture (21:8): pure
+  readOnlyCapture (21:8) open: pure
     calls 24:10 -> add
   add (23:15): pure
-  main (27:8): reads writes allocates throws calls-unknown
+  main (27:8) open: reads writes allocates throws calls-unknown
     calls 28:16 -> counter
     calls 29:3 -> <anonymous>
     calls 30:15 -> <anonymous>

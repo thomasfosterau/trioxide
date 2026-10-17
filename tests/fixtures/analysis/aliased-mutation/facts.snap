@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/aliased-mutation/input.ts
 functions:
   <module> (1:1): allocates
   poke (3:1): writes
-  main (7:8): reads writes allocates throws calls-unknown
+  main (7:8) open: reads writes allocates throws calls-unknown
     calls 14:3 -> poke
 nodes:
   3:10 bind `poke`: function@proven

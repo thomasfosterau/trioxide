@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/narrowing-values/input.ts
 functions:
   <module> (1:1): reads writes allocates throws calls-unknown
   sink (4:1): pure
-  main (8:8): reads writes allocates throws calls-unknown
+  main (8:8) open: reads writes allocates throws calls-unknown
     calls 21:5 -> sink
     calls 24:5 -> sink
     calls 32:5 -> sink

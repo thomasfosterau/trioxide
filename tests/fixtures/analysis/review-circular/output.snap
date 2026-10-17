@@ -1,0 +1,23 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-circular
+input_file: tests/fixtures/analysis/review-circular/input.ts
+---
+//- input.ts
+import { readA } from "./b.js";
+export const a = 1;
+export function main() {
+	console.log(readA());
+}
+
+//- b.ts
+import { a } from "./input.js";
+let seen = "unset";
+try {
+	seen = String(a);
+} catch {
+	seen = "tdz";
+}
+export function readA() {
+	return seen;
+}

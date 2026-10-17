@@ -4,7 +4,7 @@ description: tests/fixtures/analysis/casts
 input_file: tests/fixtures/analysis/casts/input.ts
 ---
 //- input.ts
-export function width(value) {
+function width(value) {
 	// Every caller is known (app mode) and passes 5, so the cast is irrelevant here.
 	return value * 2;
 }

@@ -1,0 +1,34 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-strproto
+input_file: tests/fixtures/analysis/review-strproto/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  patch (1:1): reads writes allocates throws calls-unknown
+  <anonymous> (2:42) open: pure
+  use (4:1): reads writes allocates throws calls-unknown
+  main (7:8) open: reads writes allocates throws calls-unknown
+    calls 8:3 -> patch
+    calls 9:15 -> use
+nodes:
+  1:10 bind `patch`: function@proven
+  2:3 assign `(String.prototype as any).charCodeAt ...`: function@proven
+  2:3 member `(String.prototype as any).charCodeAt`: unknown
+  2:4 cast `String.prototype as any`: unknown
+  2:4 member `String.prototype`: unknown
+  2:4 ref `String`: unknown
+  4:10 bind `use`: function@proven
+  4:14 bind `s`: string@proven
+  5:10 call `s.charCodeAt(0)`: number@declared
+  5:10 member `s.charCodeAt`: unknown
+  5:10 ref `s`: string@proven
+  7:17 bind `main`: function@proven
+  8:3 call `patch()`: undefined@proven
+  8:3 ref `patch`: function@proven
+  9:3 call `console.log(use("abc"))`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 call `use("abc")`: number@declared
+  9:15 ref `use`: function@proven

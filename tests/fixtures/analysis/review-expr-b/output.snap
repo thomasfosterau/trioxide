@@ -1,0 +1,67 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-expr-b
+input_file: tests/fixtures/analysis/review-expr-b/input.ts
+---
+//- input.ts
+// Array lengths changed inside a bounded loop.
+function truncate() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	let sum = 0;
+	for (let i = 0; i < a.length; i++) {
+		a.length = 0;
+		const v = a[i];
+		sum += v;
+	}
+	return sum;
+}
+class Popper {
+	arr;
+	constructor(arr) {
+		this.arr = arr;
+	}
+	get top() {
+		this.arr.pop();
+		return 0;
+	}
+}
+function viaGetter() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const p = new Popper(a);
+	let sum = 0;
+	for (let i = 0; i < a.length; i++) {
+		const t = p.top;
+		const v = a[i];
+		sum += v + t;
+	}
+	return sum;
+}
+function viaValueOf() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const o = { valueOf() {
+		a.pop();
+		return 1;
+	} };
+	let s = "";
+	for (let i = 0; i < a.length; i++) {
+		const n = +o;
+		const v = a[i];
+		s += `${v}${n}`;
+	}
+	return s;
+}
+export function main() {
+	console.log(truncate(), viaGetter(), viaValueOf());
+}

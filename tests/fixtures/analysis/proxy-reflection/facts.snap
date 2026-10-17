@@ -5,8 +5,8 @@ input_file: tests/fixtures/analysis/proxy-reflection/input.ts
 ---
 //- input.ts
 functions:
-  <module> (1:1): pure
-  main (3:8): reads writes allocates throws calls-unknown
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
   get (6:10) open: pure
   get (11:48) open: pure
 nodes:

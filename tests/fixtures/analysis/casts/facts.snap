@@ -6,14 +6,14 @@ input_file: tests/fixtures/analysis/casts/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  width (5:8): pure
-  main (10:8): reads writes allocates throws calls-unknown
+  width (5:1): pure
+  main (10:8) open: reads writes allocates throws calls-unknown
     calls 23:15 -> width
 nodes:
   3:18 bind `lookup`: unknown
   3:25 bind `key`: unknown
-  5:17 bind `width`: function@proven
-  5:23 bind `value`: 5@proven
+  5:10 bind `width`: function@proven
+  5:16 bind `value`: 5@proven
   7:10 binary `(value as number) /*@proven number in...`: 10@proven
   7:11 cast `value as number`: 5@proven
   7:11 ref `value`: 5@proven

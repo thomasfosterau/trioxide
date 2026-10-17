@@ -8,7 +8,7 @@ functions:
   <module> (1:1): allocates
   keep (5:1): writes
   read (9:1): reads
-  main (13:8): reads writes allocates throws calls-unknown
+  main (13:8) open: reads writes allocates throws calls-unknown
     calls 18:25 -> read
     calls 19:3 -> keep
 nodes:

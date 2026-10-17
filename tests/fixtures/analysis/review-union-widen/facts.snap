@@ -1,0 +1,43 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-union-widen
+input_file: tests/fixtures/analysis/review-union-widen/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  step (3:1): reads writes
+  plain (8:8) open: pure
+  main (13:8) open: reads writes allocates throws calls-unknown
+    calls 14:31 -> step
+    calls 15:18 -> plain
+nodes:
+  1:5 bind `s`: null@proven
+  3:10 bind `step`: function@proven
+  4:9 bind `v`: null | (number[0, inf] int nonNaN nonNegZero)@proven
+  4:13 ref `s`: null | (number[0, inf] int nonNaN nonNegZero)@proven
+  5:3 assign `s = v === null ? 0 : v + 1`: number[0, inf] int nonNaN nonNegZero@proven
+  5:3 ref `s`: number[0, inf] int nonNaN nonNegZero@proven
+  5:7 cond `v === null ? 0 : v + 1`: number[0, inf] int nonNaN nonNegZero@proven
+  5:7 binary `v === null`: boolean@proven
+  5:7 ref `v`: null | (number[0, inf] int nonNaN nonNegZero)@proven
+  5:24 binary `v + 1`: number[1, inf] int nonNaN nonNegZero@proven
+  5:24 ref `v`: number[0, inf] int nonNaN nonNegZero@proven
+  8:17 bind `plain`: function@proven
+  9:9 bind `a`: 3@proven
+  9:13 binary `1 + 2`: 3@proven
+  10:10 ref `a`: 3@proven
+  13:17 bind `main`: function@proven
+  14:12 bind `i`: 0@proven
+  14:19 binary `i < 5`: boolean@proven
+  14:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  14:26 unary `i++`: number[0, 4] int nonNaN nonNegZero@proven
+  14:26 ref `i`: number[0, 5] int nonNaN nonNegZero@proven
+  14:31 call `step()`: undefined@proven
+  14:31 ref `step`: function@proven
+  15:3 call `console.log(s, plain())`: unknown
+  15:3 member `console.log`: unknown
+  15:3 ref `console`: unknown
+  15:15 ref `s`: null | (number[0, inf] int nonNaN nonNegZero)@proven
+  15:18 call `plain()`: 3@proven
+  15:18 ref `plain`: function@proven

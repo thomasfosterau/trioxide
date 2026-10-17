@@ -9,7 +9,7 @@ functions:
   Greeter.<fields> (3:15): pure
   Greeter.greet (4:8): pure
   <anonymous> (9:57): pure
-  main (11:8): reads writes allocates throws calls-unknown
+  main (11:8) open: reads writes allocates throws calls-unknown
     calls 12:19 -> Greeter.<fields>
     calls 14:15 -> Greeter.greet
     calls 14:15 -> <anonymous>

@@ -1,0 +1,30 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-thisarg
+input_file: tests/fixtures/analysis/review-thisarg/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  each (1:1): reads writes allocates throws
+    calls 3:3 -> <anonymous>
+  <anonymous> (3:15): writes
+  main (6:8) open: reads writes allocates throws calls-unknown
+    calls 7:15 -> each
+nodes:
+  1:10 bind `each`: function@proven
+  2:7 bind `got`: 0@proven
+  3:3 call `[1].forEach(function (this: unknown) ...`: undefined@proven
+  3:3 member `[1].forEach`: unknown
+  3:3 array `[1]`: 1[]@proven escape=known stable-shape
+  3:42 assign `got = this`: object@proven
+  3:42 ref `got`: object@proven
+  3:48 this `this`: object@proven
+  3:57 object `{ x: 1 }`: object@proven escape=unknown
+  4:10 ref `got`: 0 | object@proven
+  6:17 bind `main`: function@proven
+  7:3 call `console.log(each())`: unknown
+  7:3 member `console.log`: unknown
+  7:3 ref `console`: unknown
+  7:15 call `each()`: 0 | object@proven
+  7:15 ref `each`: function@proven

@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/try-finally/input.ts
 functions:
   <module> (1:1): allocates
   risky (3:1): allocates throws calls-unknown
-  main (8:8): reads writes allocates throws calls-unknown
+  main (8:8) open: reads writes allocates throws calls-unknown
     calls 12:5 -> risky
     calls 21:5 -> risky
 nodes:

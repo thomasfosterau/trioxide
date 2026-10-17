@@ -1,0 +1,83 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-holes
+input_file: tests/fixtures/analysis/review-holes/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  mapped (1:1): reads writes allocates throws
+    calls 4:10 -> <anonymous>
+  <anonymous> (4:16): pure
+  sliced (6:1): allocates (declared: allocates throws)
+  found (11:1): reads writes allocates throws
+    calls 15:3 -> <anonymous>
+  <anonymous> (15:10): writes
+  idx (18:1): pure
+  main (23:8) open: reads writes allocates throws calls-unknown
+    calls 24:13 -> mapped
+    calls 25:21 -> sliced
+    calls 25:34 -> found
+    calls 25:43 -> idx
+nodes:
+  1:10 bind `mapped`: function@proven
+  2:9 bind `a`: unknown[]@proven
+  2:23 array `[1, 2, 3]`: unknown[]@proven escape=known stable-shape
+  3:3 assign `a.length = 5`: 5@proven
+  3:3 member `a.length`: unknown
+  3:3 ref `a`: unknown[]@proven
+  4:10 call `a.map((x) => x * 2)`: number[]@proven escape=known stable-shape
+  4:10 member `a.map`: unknown
+  4:10 ref `a`: unknown[]@proven
+  4:17 bind `x`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  4:23 binary `x * 2`: number@proven
+  4:23 ref `x`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  6:10 bind `sliced`: function@proven
+  7:9 bind `a`: unknown[]@proven
+  7:23 new `new Array(3)`: unknown[]@proven escape=none stable-shape
+  7:27 ref `Array`: unknown
+  8:3 assign `a[0] = 1`: 1@proven
+  8:3 member `a[0]`: unknown
+  8:3 ref `a`: unknown[]@proven
+  9:10 call `a.slice()`: (undefined | 1)[]@proven escape=known stable-shape
+  9:10 member `a.slice`: unknown
+  9:10 ref `a`: unknown[]@proven
+  11:10 bind `found`: function@proven
+  12:9 bind `a`: unknown[]@proven
+  12:23 array `[1, 2, 3]`: unknown[]@proven escape=known stable-shape
+  13:3 assign `a.length = 5`: 5@proven
+  13:3 member `a.length`: unknown
+  13:3 ref `a`: unknown[]@proven
+  14:7 bind `seen`: 0@proven
+  15:3 call `a.find((x) => { seen = x; return fals...`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  15:3 member `a.find`: unknown
+  15:3 ref `a`: unknown[]@proven
+  15:11 bind `x`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  15:19 assign `seen = x`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  15:19 ref `seen`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  15:26 ref `x`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  16:10 ref `seen`: undefined | (number[0, 3] int nonNaN nonNegZero)@proven
+  18:10 bind `idx`: function@proven
+  19:9 bind `a`: unknown[]@proven
+  19:13 array `[1, 2, 3]`: unknown[]@proven escape=none stable-shape
+  20:3 assign `a.length = 2`: 2@proven
+  20:3 member `a.length`: unknown
+  20:3 ref `a`: unknown[]@proven
+  21:10 member `a[2]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  21:10 ref `a`: unknown[]@proven
+  23:17 bind `main`: function@proven
+  24:9 bind `m`: number[]@proven
+  24:13 call `mapped()`: number[]@proven
+  24:13 ref `mapped`: function@proven
+  25:3 call `console.log(m[4], sliced()[1], found(...`: unknown
+  25:3 member `console.log`: unknown
+  25:3 ref `console`: unknown
+  25:15 member `m[4]`: undefined | number@proven
+  25:15 ref `m`: number[]@proven
+  25:21 member `sliced()[1]`: undefined | 1@proven
+  25:21 call `sliced()`: (undefined | 1)[]@proven
+  25:21 ref `sliced`: function@proven
+  25:34 call `found()`: undefined | (number[0, 3] int nonNaN nonNegZero)@proven
+  25:34 ref `found`: function@proven
+  25:43 call `idx()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  25:43 ref `idx`: function@proven

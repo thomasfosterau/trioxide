@@ -1,0 +1,38 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-taproto
+input_file: tests/fixtures/analysis/review-taproto/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  patch (1:1): reads writes allocates throws calls-unknown
+  <anonymous> (2:43) open: pure
+  use (4:1): reads writes allocates throws calls-unknown
+  main (7:8) open: reads writes allocates throws calls-unknown
+    calls 8:3 -> patch
+    calls 9:15 -> use
+nodes:
+  1:10 bind `patch`: function@proven
+  2:3 assign `(Uint8Array.prototype as any).indexOf...`: function@proven
+  2:3 member `(Uint8Array.prototype as any).indexOf`: unknown
+  2:4 cast `Uint8Array.prototype as any`: Uint8Array@declared
+  2:4 member `Uint8Array.prototype`: Uint8Array@declared
+  2:4 ref `Uint8Array`: unknown
+  4:10 bind `use`: function@proven
+  4:14 bind `a`: Uint8Array@proven
+  4:17 ref `Uint8Array`: unknown
+  5:10 call `a.indexOf(3)`: number@declared
+  5:10 member `a.indexOf`: unknown
+  5:10 ref `a`: Uint8Array@proven
+  7:17 bind `main`: function@proven
+  8:3 call `patch()`: undefined@proven
+  8:3 ref `patch`: function@proven
+  9:3 call `console.log(use(new Uint8Array([1, 2,...`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 call `use(new Uint8Array([1, 2, 3]))`: number@declared
+  9:15 ref `use`: function@proven
+  9:19 new `new Uint8Array([1, 2, 3])`: Uint8Array@proven escape=unknown
+  9:23 ref `Uint8Array`: unknown
+  9:34 array `[1, 2, 3]`: unknown[]@proven escape=unknown

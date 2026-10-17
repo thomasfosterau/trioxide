@@ -1,0 +1,35 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-catch-finally
+input_file: tests/fixtures/analysis/review-catch-finally/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  catchThenFinally (1:8) open: reads writes allocates calls-unknown
+  main (20:8) open: reads writes allocates throws calls-unknown
+    calls 21:15 -> catchThenFinally
+nodes:
+  1:17 bind `catchThenFinally`: function@proven
+  2:7 bind `x`: 1@proven
+  3:7 bind `out`: string@proven
+  6:13 new `new Error("a")`: unknown escape=unknown
+  6:17 ref `Error`: unknown
+  8:7 assign `x = "s"`: string@proven
+  8:7 ref `x`: string@proven
+  9:13 new `new Error("b")`: unknown escape=unknown
+  9:17 ref `Error`: unknown
+  11:13 bind `seen`: 1 | string@proven
+  11:20 ref `x`: 1 | string@proven
+  12:7 assign `out = String(seen)`: string@declared
+  12:7 ref `out`: string@declared
+  12:13 call `String(seen)`: string@declared
+  12:13 ref `String`: unknown
+  12:20 ref `seen`: 1 | string@proven
+  17:10 ref `out`: string@declared
+  20:17 bind `main`: function@proven
+  21:3 call `console.log(catchThenFinally())`: unknown
+  21:3 member `console.log`: unknown
+  21:3 ref `console`: unknown
+  21:15 call `catchThenFinally()`: string@declared
+  21:15 ref `catchThenFinally`: function@proven

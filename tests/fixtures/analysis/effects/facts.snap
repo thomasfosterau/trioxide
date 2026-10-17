@@ -17,7 +17,7 @@ functions:
     calls 30:10 -> reader
   catches (33:1): allocates throws calls-unknown
     calls 35:12 -> thrower
-  main (41:8): reads writes allocates throws calls-unknown
+  main (41:8) open: reads writes allocates throws calls-unknown
     calls 42:15 -> pure
     calls 42:27 -> caller
     calls 42:37 -> catches

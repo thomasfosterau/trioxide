@@ -9,7 +9,7 @@ functions:
   Temperature.<fields> (3:19): writes
   Temperature.fahrenheit (5:17): reads
   Temperature.fahrenheit (8:17): writes
-  main (13:8): reads writes allocates throws calls-unknown
+  main (13:8) open: reads writes allocates throws calls-unknown
     calls 14:13 -> Temperature.<fields>
     calls 15:3 -> Temperature.fahrenheit
     calls 16:15 -> Temperature.fahrenheit

@@ -1,0 +1,13 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-entry
+input_file: tests/fixtures/analysis/review-entry/input.ts
+---
+//- input.ts
+export function helper(n) {
+	return n * 2;
+}
+export function main(flag) {
+	const v = flag;
+	console.log(v, helper(3));
+}

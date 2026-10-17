@@ -5,8 +5,8 @@ input_file: tests/fixtures/analysis/strings/input.ts
 ---
 //- input.ts
 functions:
-  <module> (1:1): pure
-  main (3:8): reads writes allocates throws calls-unknown
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
 nodes:
   3:17 bind `main`: function@proven
   4:9 bind `text`: string@proven

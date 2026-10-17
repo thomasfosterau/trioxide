@@ -1,0 +1,30 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-tdz
+input_file: tests/fixtures/analysis/review-tdz/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates throws
+    calls 6:3 -> early
+  early (1:1): throws
+  main (13:8) open: reads writes allocates throws calls-unknown
+    calls 14:23 -> early
+nodes:
+  1:10 bind `early`: function@proven
+  2:10 ref `late`: 1@proven
+  4:5 bind `result`: string@proven
+  6:3 call `early()`: 1@proven
+  6:3 ref `early`: function@proven
+  7:3 assign `result = "no throw"`: string@proven
+  7:3 ref `result`: string@proven
+  9:3 assign `result = "threw"`: string@proven
+  9:3 ref `result`: string@proven
+  11:7 bind `late`: 1@proven
+  13:17 bind `main`: function@proven
+  14:3 call `console.log(result, early())`: unknown
+  14:3 member `console.log`: unknown
+  14:3 ref `console`: unknown
+  14:15 ref `result`: string@proven
+  14:23 call `early()`: 1@proven
+  14:23 ref `early`: function@proven

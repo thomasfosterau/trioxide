@@ -1,0 +1,44 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-expr-a
+input_file: tests/fixtures/analysis/review-expr-a/input.ts
+---
+//- input.ts
+// A parent constructor calls an overridden method before the subclass's fields exist.
+class Parent {
+	constructor() {
+		this.show();
+	}
+	show() {}
+}
+class Child extends Parent {
+	y = 5;
+	show() {
+		const v = this.y;
+		console.log(v);
+	}
+}
+// A method called from the constructor before an assignment.
+class Early {
+	x;
+	constructor() {
+		this.peek();
+		this.x = 1;
+	}
+	peek() {
+		const v = this.x;
+		console.log(v);
+	}
+}
+// A static getter.
+class Statics {
+	static get label() {
+		return "s";
+	}
+}
+export function main() {
+	new Child();
+	new Early();
+	const l = Statics.label;
+	console.log(l);
+}

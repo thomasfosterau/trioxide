@@ -4,12 +4,13 @@ description: tests/fixtures/analysis/closed-world
 input_file: tests/fixtures/analysis/closed-world/input.ts
 ---
 //- input.ts
-// App mode: every caller is visible, so parameters are what the calls pass.
-export function scale(value, factor) {
+// App mode: every caller of a module-private function is visible, so its parameters are
+// what the calls pass. (The entry's own exports are open: the host may call them.)
+function scale(value, factor) {
 	return value * factor;
 }
-export const shared = { count: 0 };
-export function bump() {
+const shared = { count: 0 };
+function bump() {
 	shared.count++;
 	return shared.count;
 }

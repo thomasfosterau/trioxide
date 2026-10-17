@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/any-laundering/input.ts
 functions:
   <module> (1:1): allocates
   fromAny (3:1): pure
-  main (7:8): reads writes allocates throws calls-unknown
+  main (7:8) open: reads writes allocates throws calls-unknown
     calls 13:21 -> fromAny
 nodes:
   3:10 bind `fromAny`: function@proven

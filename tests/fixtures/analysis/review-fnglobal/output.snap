@@ -1,0 +1,17 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-fnglobal
+input_file: tests/fixtures/analysis/review-fnglobal/input.ts
+---
+//- input.ts
+function patch() {
+	const g = Function("return this")();
+	g.Math.floor = () => "patched";
+}
+function use(x) {
+	return Math.floor(x);
+}
+export function main() {
+	patch();
+	console.log(use(1.5));
+}

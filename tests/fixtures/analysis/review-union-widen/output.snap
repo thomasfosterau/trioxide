@@ -1,0 +1,19 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-union-widen
+input_file: tests/fixtures/analysis/review-union-widen/input.ts
+---
+//- input.ts
+let s = null;
+function step() {
+	const v = s;
+	s = v === null ? 0 : v + 1;
+}
+export function plain() {
+	const a = 1 + 2;
+	return a;
+}
+export function main() {
+	for (let i = 0; i < 5; i++) step();
+	console.log(s, plain());
+}

@@ -5,14 +5,14 @@ input_file: tests/fixtures/analysis/loop-bounds/input.ts
 ---
 //- input.ts
 // Array reads bounded by `.length` in loop conditions are in bounds; shrinking breaks that.
-export function sum(values) {
+function sum(values) {
 	let total = 0;
 	for (let i = 0; i < values.length; i++) {
 		total += values[i];
 	}
 	return total;
 }
-export function cached(values) {
+function cached(values) {
 	let total = 0;
 	const n = values.length;
 	for (let i = 0; i < n; i++) {
@@ -20,7 +20,7 @@ export function cached(values) {
 	}
 	return total;
 }
-export function shrinking(values) {
+function shrinking(values) {
 	let total = 0;
 	for (let i = 0; i < values.length; i++) {
 		values.pop();
@@ -30,7 +30,7 @@ export function shrinking(values) {
 	}
 	return total;
 }
-export function backwards(values) {
+function backwards(values) {
 	let total = 0;
 	for (let i = values.length - 1; i >= 0; i--) {
 		// Counting down from length - 1 is in range too, but only `i < length` conditions are

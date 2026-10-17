@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/unchecked-index/input.ts
 functions:
   <module> (1:1): allocates
   at (3:1): reads
-  main (7:8): reads writes allocates throws calls-unknown
+  main (7:8) open: reads writes allocates throws calls-unknown
     calls 13:15 -> at
 nodes:
   3:10 bind `at`: function@proven

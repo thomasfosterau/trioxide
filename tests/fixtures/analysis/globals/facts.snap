@@ -5,8 +5,8 @@ input_file: tests/fixtures/analysis/globals/input.ts
 ---
 //- input.ts
 functions:
-  <module> (1:1): pure
-  main (7:8): reads writes allocates throws calls-unknown
+  <module> (1:1): allocates
+  main (7:8) open: reads writes allocates throws calls-unknown
 nodes:
   4:7 bind `appState`: unknown
   7:17 bind `main`: function@proven

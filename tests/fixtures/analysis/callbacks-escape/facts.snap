@@ -8,7 +8,7 @@ functions:
   <module> (1:1): allocates
   onValue (5:1) open: reads writes allocates throws calls-unknown
   local (9:1): pure
-  main (13:8): reads writes allocates throws calls-unknown
+  main (13:8) open: reads writes allocates throws calls-unknown
     calls 20:15 -> local
   <anonymous> (19:18) open: reads writes allocates throws calls-unknown
     calls 19:24 -> onValue

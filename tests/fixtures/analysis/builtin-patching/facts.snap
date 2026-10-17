@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/builtin-patching/input.ts
 functions:
   <module> (1:1): reads writes allocates throws calls-unknown
   <anonymous> (3:53) open: pure
-  main (5:8): reads writes allocates throws calls-unknown
+  main (5:8) open: reads writes allocates throws calls-unknown
 nodes:
   3:1 assign `(Math as { floor: (x: number) => unkn...`: function@proven
   3:1 member `(Math as { floor: (x: number) => unkn...`: unknown

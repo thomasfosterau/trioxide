@@ -11,7 +11,7 @@ functions:
     calls 8:36 -> make
   count (13:1): reads
     calls 16:14 -> count
-  main (21:8): reads writes allocates throws calls-unknown
+  main (21:8) open: reads writes allocates throws calls-unknown
     calls 22:16 -> make
     calls 23:15 -> count
 nodes:

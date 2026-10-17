@@ -5,12 +5,12 @@ input_file: tests/fixtures/analysis/hoisting/input.ts
 ---
 //- input.ts
 functions:
-  <module> (1:1): pure
-  main (3:8): reads writes allocates throws calls-unknown
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
     calls 4:15 -> early
     calls 15:3 -> bump
   early (8:3): pure
-  bump (12:16): reads writes
+  bump (12:16): reads writes throws
 nodes:
   3:17 bind `main`: function@proven
   4:3 call `console.log(early() /*@proven string*/)`: unknown

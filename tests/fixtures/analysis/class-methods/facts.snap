@@ -26,7 +26,7 @@ functions:
   total (33:1): reads throws
     calls 36:12 -> Square.area
     calls 36:12 -> Circle.area
-  main (41:8): reads writes allocates throws calls-unknown
+  main (41:8) open: reads writes allocates throws calls-unknown
     calls 42:18 -> Square.constructor
     calls 43:15 -> Square.area
     calls 44:27 -> Circle.constructor

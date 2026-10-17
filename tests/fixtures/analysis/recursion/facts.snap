@@ -15,7 +15,7 @@ functions:
     calls 12:28 -> isEven
   sum (17:1): reads
     calls 18:43 -> sum
-  main (21:8): reads writes allocates throws calls-unknown
+  main (21:8) open: reads writes allocates throws calls-unknown
     calls 23:15 -> fib
     calls 23:43 -> isEven
     calls 23:74 -> sum

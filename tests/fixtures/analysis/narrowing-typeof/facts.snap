@@ -6,9 +6,9 @@ input_file: tests/fixtures/analysis/narrowing-typeof/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  describe (3:8): pure
+  describe (3:8) open: pure
   parse (16:1): pure
-  main (24:8): reads writes allocates throws calls-unknown
+  main (24:8) open: reads writes allocates throws calls-unknown
     calls 25:15 -> describe
     calls 25:28 -> describe
     calls 25:43 -> describe
@@ -17,21 +17,21 @@ functions:
     calls 26:25 -> parse
 nodes:
   3:17 bind `describe`: function@proven
-  3:26 bind `value`: null | boolean | 1 | string@proven
+  3:26 bind `value`: unknown
   4:7 binary `typeof value === "number"`: boolean@proven
   4:7 unary `typeof value`: string@proven
-  4:14 ref `value`: null | boolean | 1 | string@proven
+  4:14 ref `value`: unknown
   5:12 binary `"number " + (value /*@proven number*/)`: string@proven
-  5:25 ref `value`: 1@proven
+  5:25 ref `value`: number@proven
   7:7 binary `typeof value === "string"`: boolean@proven
   7:7 unary `typeof value`: string@proven
-  7:14 ref `value`: null | boolean | string@proven
+  7:14 ref `value`: unknown
   8:12 binary `"string " + value /*@proven string*/....`: string@proven
   8:24 member `value /*@proven string*/.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
   8:24 ref `value`: string@proven
   10:7 binary `typeof value !== "boolean"`: boolean@proven
   10:7 unary `typeof value`: string@proven
-  10:14 ref `value`: null | boolean@proven
+  10:14 ref `value`: unknown
   13:10 cond `value /*@proven boolean*/ ? "yes" : "no"`: string@proven
   13:10 ref `value`: boolean@proven
   16:10 bind `parse`: function@proven

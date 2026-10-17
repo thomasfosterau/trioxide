@@ -1,0 +1,36 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-circular
+input_file: tests/fixtures/analysis/review-circular/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
+    calls 4:15 -> readA (m1)
+nodes:
+  1:10 bind `readA`: unknown
+  2:14 bind `a`: 1@proven
+  3:17 bind `main`: function@proven
+  4:3 call `console.log(readA())`: unknown
+  4:3 member `console.log`: unknown
+  4:3 ref `console`: unknown
+  4:15 call `readA()`: string@declared
+  4:15 ref `readA`: function@proven
+
+//- b.ts
+functions:
+  <module> (1:1): reads writes allocates calls-unknown
+  readA (8:8): reads
+nodes:
+  1:10 bind `a`: unknown
+  2:5 bind `seen`: string@proven
+  4:3 assign `seen = String(a)`: string@declared
+  4:3 ref `seen`: string@declared
+  4:10 call `String(a)`: string@declared
+  4:10 ref `String`: unknown
+  4:17 ref `a`: 1@proven
+  6:3 assign `seen = "tdz"`: string@proven
+  6:3 ref `seen`: string@proven
+  8:17 bind `readA`: function@proven
+  9:10 ref `seen`: string@declared

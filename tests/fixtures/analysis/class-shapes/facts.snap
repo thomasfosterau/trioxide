@@ -19,7 +19,7 @@ functions:
   WithParams.<fields> (36:18): pure
   WithParams.constructor (37:14): writes
   WithParams.describe (38:11): reads
-  main (43:8): reads writes allocates throws calls-unknown
+  main (43:8) open: reads writes allocates throws calls-unknown
     calls 44:13 -> Point.<fields>
     calls 44:13 -> Point.constructor
     calls 45:15 -> Point.norm

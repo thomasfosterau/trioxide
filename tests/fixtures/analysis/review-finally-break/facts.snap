@@ -1,0 +1,49 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-finally-break
+input_file: tests/fixtures/analysis/review-finally-break/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  finallyBreak (1:8) open: reads writes allocates throws calls-unknown
+  finallyContinue (14:8) open: reads writes allocates throws calls-unknown
+  main (29:8) open: reads writes allocates throws calls-unknown
+    calls 30:15 -> finallyBreak
+    calls 30:31 -> finallyContinue
+nodes:
+  1:17 bind `finallyBreak`: function@proven
+  2:7 bind `x`: 1@proven
+  7:7 assign `x = "after"`: string@proven
+  7:7 ref `x`: string@proven
+  10:9 bind `y`: 1 | string@proven
+  10:13 ref `x`: 1 | string@proven
+  11:10 call `String(y)`: string@declared
+  11:10 ref `String`: unknown
+  11:17 ref `y`: 1 | string@proven
+  14:17 bind `finallyContinue`: function@proven
+  15:7 bind `x`: 1@proven
+  16:7 bind `out`: string@proven
+  17:12 bind `i`: 0@proven
+  17:19 binary `i < 2`: boolean@proven
+  17:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  17:26 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  17:26 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  18:11 bind `seen`: 1 | string@proven
+  18:18 ref `x`: 1 | string@proven
+  19:5 assign `out += String(seen)`: string@declared
+  19:5 ref `out`: string@declared
+  19:12 call `String(seen)`: string@declared
+  19:12 ref `String`: unknown
+  19:19 ref `seen`: 1 | string@proven
+  23:7 assign `x = "s"`: string@proven
+  23:7 ref `x`: string@proven
+  26:10 ref `out`: string@declared
+  29:17 bind `main`: function@proven
+  30:3 call `console.log(finallyBreak(), finallyCo...`: unknown
+  30:3 member `console.log`: unknown
+  30:3 ref `console`: unknown
+  30:15 call `finallyBreak()`: string@declared
+  30:15 ref `finallyBreak`: function@proven
+  30:31 call `finallyContinue()`: string@declared
+  30:31 ref `finallyContinue`: function@proven

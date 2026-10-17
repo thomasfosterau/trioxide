@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/spread-dependency/input.ts
 functions:
   <module> (1:1): writes allocates
     calls 15:1 -> fill
-  main (6:8): reads writes allocates throws calls-unknown
+  main (6:8) open: reads writes allocates throws calls-unknown
   fill (11:1): writes
 nodes:
   4:7 bind `source`: { a: 1, b: undefined | 2 }@proven

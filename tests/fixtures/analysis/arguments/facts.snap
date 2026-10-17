@@ -9,7 +9,7 @@ functions:
   first (4:1): reads throws calls-unknown
   count (8:1): reads throws calls-unknown
   viaArguments (12:1): reads writes throws calls-unknown
-  main (19:8): reads writes allocates throws calls-unknown
+  main (19:8) open: reads writes allocates throws calls-unknown
     calls 20:15 -> first
     calls 20:38 -> count
     calls 20:72 -> viaArguments

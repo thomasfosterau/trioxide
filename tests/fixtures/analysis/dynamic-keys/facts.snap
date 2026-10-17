@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/dynamic-keys/input.ts
 functions:
   <module> (1:1): allocates
   sink (4:1): pure
-  main (6:8): reads writes allocates throws calls-unknown
+  main (6:8) open: reads writes allocates throws calls-unknown
     calls 14:3 -> sink
     calls 19:3 -> sink
 nodes:
@@ -40,8 +40,8 @@ nodes:
   14:3 ref `sink`: function@proven
   14:8 member `bag.a`: number@declared
   14:8 ref `bag`: object@proven
-  16:9 bind `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
-  16:16 array `[1, 2, 3]`: (number[1, 10] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  16:9 bind `list`: unknown[]@proven
+  16:16 array `[1, 2, 3]`: unknown[]@proven escape=none stable-shape
   17:9 bind `i`: number[0, 3] int nonNaN nonNegZero@proven
   17:13 call `Math.floor(Math.random() * 3)`: number[0, 3] int nonNaN nonNegZero@proven
   17:13 member `Math.floor`: unknown
@@ -52,9 +52,9 @@ nodes:
   17:24 ref `Math`: unknown
   18:3 assign `list[i] = 10`: 10@proven
   18:3 member `list[i]`: unknown
-  18:3 ref `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
+  18:3 ref `list`: unknown[]@proven
   18:8 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
   19:3 call `sink(list[0] /*@proven union*/)`: undefined@proven
   19:3 ref `sink`: function@proven
   19:8 member `list[0]`: undefined | (number[1, 10] int nonNaN nonNegZero)@proven
-  19:8 ref `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
+  19:8 ref `list`: unknown[]@proven

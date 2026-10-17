@@ -1,0 +1,29 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-compare-assign
+input_file: tests/fixtures/analysis/review-compare-assign/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  compareAssign (1:8) open: reads writes allocates throws calls-unknown
+  main (10:8) open: reads writes allocates throws calls-unknown
+    calls 11:15 -> compareAssign
+nodes:
+  1:17 bind `compareAssign`: function@proven
+  2:7 bind `x`: 1@proven
+  3:7 binary `x === ((x = "a"), 1)`: boolean@proven
+  3:7 ref `x`: 1@proven
+  3:15 assign `x = "a"`: string@proven
+  3:15 ref `x`: string@proven
+  4:11 bind `seen`: string@proven
+  4:18 ref `x`: string@proven
+  5:12 call `String(seen)`: string@declared
+  5:12 ref `String`: unknown
+  5:19 ref `seen`: string@proven
+  10:17 bind `main`: function@proven
+  11:3 call `console.log(compareAssign())`: unknown
+  11:3 member `console.log`: unknown
+  11:3 ref `console`: unknown
+  11:15 call `compareAssign()`: string@declared
+  11:15 ref `compareAssign`: function@proven
