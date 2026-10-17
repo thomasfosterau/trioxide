@@ -1993,9 +1993,14 @@ dependencies = [
 name = "trioxide_wasm"
 version = "0.0.0"
 dependencies = [
+ "insta",
  "serde",
+ "serde_json",
+ "tempfile",
  "thiserror",
  "trioxide_common",
+ "trioxide_rt",
+ "xxhash-rust",
 ]
 
 [[package]]

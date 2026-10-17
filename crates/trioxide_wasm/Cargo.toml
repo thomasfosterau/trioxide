@@ -14,4 +14,11 @@ workspace = true
 [dependencies]
 trioxide_common.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+xxhash-rust.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tempfile.workspace = true
+trioxide_rt.workspace = true

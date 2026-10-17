@@ -61,7 +61,8 @@ impl ModuleOutput {
 pub struct BuildOutput {
     /// Every module in the graph, in discovery order (entries first).
     pub modules: Vec<ModuleOutput>,
-    /// Built WASM islands with their glue. Empty until the WASM backend lands.
+    /// Built WASM islands with their glue. Islands that could not be built are missing here
+    /// and reported in [`Report::diagnostics`]; their functions stay JS.
     pub islands: Vec<IslandArtifact>,
     /// The decision log.
     pub report: Report,

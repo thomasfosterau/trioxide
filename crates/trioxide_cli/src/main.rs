@@ -10,7 +10,13 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use oxc_diagnostics::NamedSource;
-use trioxide::{Diagnostic, ExplainQuery, ModuleOutput, Options, Project};
+use trioxide::{
+    Diagnostic, ExplainQuery, IslandArtifact, IslandSource, ModuleOutput, Options, Project,
+};
+
+/// Where `trioxide build` writes island glue, `.wasm` files and (`--emit=rust`) crates,
+/// under the output directory.
+const ISLANDS_DIR: &str = "_islands";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -77,6 +83,14 @@ struct GlobalArgs {
     /// Never produce WASM islands.
     #[arg(long, global = true)]
     no_wasm: bool,
+    /// Fail instead of falling back to JS when an island can't be built (e.g. no Rust
+    /// toolchain).
+    #[arg(long, global = true)]
+    require_wasm: bool,
+    /// Build the island in this directory (`island.json` plus `src/`) as if the partitioner
+    /// had chosen it. A debug and test hook until islands are selected automatically.
+    #[arg(long, global = true, hide = true, value_name = "DIR")]
+    debug_island: Vec<PathBuf>,
     /// What to emit.
     #[arg(long, global = true, value_enum, default_value = "js")]
     emit: Emit,
@@ -136,12 +150,19 @@ fn main() -> ExitCode {
 
 fn run(cli: &Cli) -> Result<(), Failure> {
     let global = &cli.global;
+    let is_build = matches!(cli.command, Command::Build { .. });
     match global.emit {
         Emit::Js => {}
+        Emit::Rust | Emit::Wasm if is_build => {}
         Emit::Rust | Emit::Wasm | Emit::Report => {
             return Err(not_implemented(&format!(
-                "--emit={}",
-                emit_name(global.emit)
+                "--emit={}{}",
+                emit_name(global.emit),
+                if is_build {
+                    ""
+                } else {
+                    " outside `trioxide build`"
+                }
             )));
         }
     }
@@ -171,6 +192,13 @@ fn run(cli: &Cli) -> Result<(), Failure> {
         }
         Command::Build { entries, out_dir } => {
             let mut project = open_project(global, entries.first())?;
+            if global.emit == Emit::Rust {
+                let runtime = project.island_runtime_dir()?;
+                for island in project.rust_islands(entries)? {
+                    write_island_crate(out_dir, &island, &runtime)?;
+                }
+                return Ok(());
+            }
             let output = project.build(entries)?;
             for diagnostic in &output.report.diagnostics {
                 eprintln!("{diagnostic}");
@@ -181,8 +209,13 @@ fn run(cli: &Cli) -> Result<(), Failure> {
             if output.has_errors() {
                 return Err(Failure::Error("build failed".into()));
             }
-            for module in &output.modules {
-                write_module(project.root(), out_dir, module)?;
+            if global.emit == Emit::Js {
+                for module in &output.modules {
+                    write_module(project.root(), out_dir, module)?;
+                }
+            }
+            for island in &output.islands {
+                write_island(out_dir, island)?;
             }
             Ok(())
         }
@@ -257,7 +290,9 @@ fn resolve_config(
     }
     if global.no_wasm {
         options.wasm.enabled = false;
-        ignored.push("--no-wasm");
+    }
+    if global.require_wasm {
+        options.wasm.require = true;
     }
     for flag in ignored {
         eprintln!("warning: {flag} is not yet implemented and has no effect");
@@ -275,7 +310,14 @@ fn discover_root(file: &Path) -> Option<PathBuf> {
 
 fn open_project(global: &GlobalArgs, input: Option<&PathBuf>) -> Result<Project, Failure> {
     let (root, options) = resolve_config(global, input)?;
-    Ok(Project::new(root, options)?)
+    let mut project = Project::new(root, options)?;
+    for dir in &global.debug_island {
+        let island = IslandSource::load(dir).map_err(|error| {
+            Failure::Error(format!("--debug-island {}: {error}", dir.display()))
+        })?;
+        project.add_debug_island(island);
+    }
+    Ok(project)
 }
 
 fn print_stdout(text: &str) {
@@ -333,6 +375,37 @@ fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<()
         code.push('\n');
     }
     std::fs::write(&destination, code).map_err(io_error)
+}
+
+/// Writes an island's glue and `.wasm` into `<out_dir>/_islands/`.
+fn write_island(out_dir: &Path, island: &IslandArtifact) -> Result<(), Failure> {
+    let dir = out_dir.join(ISLANDS_DIR);
+    write_file(&dir.join(island.glue_file_name()), island.glue.as_bytes())?;
+    write_file(&dir.join(island.wasm_file_name()), &island.wasm)
+}
+
+/// Writes an island's crate (`island.json`, a standalone `Cargo.toml`, `src/`) into
+/// `<out_dir>/_islands/<id>/`.
+fn write_island_crate(
+    out_dir: &Path,
+    island: &IslandSource,
+    runtime: &Path,
+) -> Result<(), Failure> {
+    let dir = out_dir.join(ISLANDS_DIR).join(&island.spec.id.0);
+    write_file(&dir.join("island.json"), island.spec.to_json().as_bytes())?;
+    write_file(&dir.join("Cargo.toml"), island.manifest(runtime).as_bytes())?;
+    for (path, source) in &island.files {
+        write_file(&dir.join(path), source.as_bytes())?;
+    }
+    Ok(())
+}
+
+fn write_file(path: &Path, contents: &[u8]) -> Result<(), Failure> {
+    let io_error = |error: std::io::Error| Failure::Error(format!("{}: {error}", path.display()));
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(io_error)?;
+    }
+    std::fs::write(path, contents).map_err(io_error)
 }
 
 /// `a.ts` → `a.js`, `a.mts` → `a.mjs`, `a.cts` → `a.cjs`, `a.tsx` → `a.js`.
