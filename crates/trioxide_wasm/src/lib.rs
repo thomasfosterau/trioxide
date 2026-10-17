@@ -16,9 +16,16 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+pub mod toolchain;
+
 /// The ABI version that [`IslandSpec`] describes. Bump on any incompatible change to how
 /// values cross the boundary; generated glue checks it against the module's export.
 pub const ABI_VERSION: u32 = 0;
+
+/// The string a glue module uses in place of its `.wasm` file's URL, as in
+/// `new URL("__TRIOXIDE_WASM_URL__", import.meta.url)`. Whoever emits the glue (the Vite
+/// plugin, `trioxide build`) replaces it with the emitted asset's URL relative to the glue.
+pub const WASM_URL_PLACEHOLDER: &str = "__TRIOXIDE_WASM_URL__";
 
 /// A stable identifier for an island, unique within a build. It also names the island's
 /// virtual glue module, `\0trioxide:island/<id>`.
@@ -147,7 +154,8 @@ pub struct IslandArtifact {
     pub spec: IslandSpec,
     /// The compiled (and possibly `wasm-opt`-ed) module.
     pub wasm: Vec<u8>,
-    /// The ESM glue module's source. It imports the `.wasm` by a URL the emitter fills in.
+    /// The ESM glue module's source. It refers to the `.wasm` by [`WASM_URL_PLACEHOLDER`],
+    /// which the emitter replaces.
     pub glue: String,
 }
 

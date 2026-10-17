@@ -49,5 +49,33 @@ export function optionsSchema() {
   return binding.optionsSchema();
 }
 
+/** The string island glue uses in place of its `.wasm` URL; emitters replace it. */
+export const WASM_URL_PLACEHOLDER = binding.WASM_URL_PLACEHOLDER;
+
 /** Whether the loaded binding embeds the tsrs type checker. */
 export const hasTsrs = binding.hasTsrs();
+
+/**
+ * The nearest `trioxide.json` / `trioxide.jsonc` at or above `dir`, or `null`.
+ * @param {string} dir
+ */
+export function findConfig(dir) {
+  return binding.findConfig(path.resolve(dir)) ?? null;
+}
+
+/**
+ * Reads and validates a config file; returns the options as written, without defaults.
+ * @param {string} file
+ * @returns {TrioxideOptions}
+ */
+export function loadConfig(file) {
+  return binding.loadConfig(path.resolve(file));
+}
+
+/**
+ * Runs the `trioxide` command line in this process and returns its exit code.
+ * @param {string[]} argv the arguments, without the program name
+ */
+export function runCli(argv) {
+  return binding.runCli(['trioxide', ...argv]);
+}

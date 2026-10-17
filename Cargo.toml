@@ -14,6 +14,7 @@ publish = false
 # Workspace crates.
 trioxide = { path = "crates/trioxide", default-features = false }
 trioxide_analysis = { path = "crates/trioxide_analysis" }
+trioxide_cli = { path = "crates/trioxide_cli", default-features = false }
 trioxide_common = { path = "crates/trioxide_common" }
 trioxide_js = { path = "crates/trioxide_js" }
 trioxide_partition = { path = "crates/trioxide_partition" }
