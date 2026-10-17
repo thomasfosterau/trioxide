@@ -298,8 +298,9 @@ fn swapRows(a: &mut [f64], n: i32, r1: f64, r2: f64) {
     let mut k = 0.0;
     while k < f64::from(n) {
         let t = array::get(a, at(f64::from(n), r1, k));
+        let index = at(f64::from(n), r1, k);
         let value = array::get(a, at(f64::from(n), r2, k));
-        array::set(a, at(f64::from(n), r1, k), value);
+        array::set(a, index, value);
         array::set(a, at(f64::from(n), r2, k), t);
         k += 1.0;
     }

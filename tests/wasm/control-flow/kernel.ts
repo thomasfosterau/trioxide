@@ -62,3 +62,26 @@ export function sumOf(values: number[]): number {
   }
   return total;
 }
+
+// `continue` in a loop with an update becomes `break` out of a labelled block, so a `break`
+// of the same loop inside it needs a Rust label; so does one leaving a labelled JS block.
+export function jumps(limit: number): number {
+  "use wasm";
+  let total = 0;
+  let m = 0;
+  do {
+    m++;
+    if (m === 2) continue;
+    if (total > limit) break;
+    total += m;
+  } while (m < 10);
+  for (let i = 0; i < 8; i++) {
+    if (i % 3 === 0) continue;
+    found: {
+      if (i > limit) break found;
+      if (i === 7) break;
+      total += i * 10;
+    }
+  }
+  return total;
+}

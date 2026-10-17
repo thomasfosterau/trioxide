@@ -120,6 +120,22 @@ input_file: tests/wasm/control-flow/input.ts
       "ret": {
         "kind": "f64"
       }
+    },
+    {
+      "name": "jumps",
+      "wasmName": "jumps",
+      "params": [
+        {
+          "name": "limit",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
     }
   ],
   "structs": []
@@ -234,6 +250,45 @@ fn sumOf(values: &[f64]) -> f64 {
     total
 }
 
+fn jumps(limit: f64) -> f64 {
+    let mut total = 0.0;
+    let mut m = 0.0;
+    'l0: loop {
+        'c0: {
+            m += 1.0;
+            if m == 2.0 {
+                break 'c0;
+            }
+            if total > limit {
+                break 'l0;
+            }
+            total += m;
+        }
+        if !(m < 10.0) {
+            break;
+        }
+    }
+    let mut i: i32 = 0;
+    'l1: while i < 8 {
+        'c1: {
+            if ops::rem_i32(i, 3) == 0.0 {
+                break 'c1;
+            }
+            'l2: {
+                if f64::from(i) > limit {
+                    break 'l2;
+                }
+                if i == 7 {
+                    break 'l1;
+                }
+                total += f64::from(i * 10);
+            }
+        }
+        i += 1;
+    }
+    total
+}
+
 #[unsafe(export_name = "firstAbove")]
 pub unsafe extern "C" fn __abi_firstAbove(xs_ptr: u32, xs_len: u32, limit: i32) -> i32 {
     // SAFETY: the glue passes fresh copies.
@@ -270,4 +325,9 @@ pub unsafe extern "C" fn __abi_sumOf(values_ptr: u32, values_len: u32) -> f64 {
     // SAFETY: the glue passes fresh copies.
     let values = unsafe { abi::slice::<f64>(values_ptr, values_len) };
     sumOf(values)
+}
+
+#[unsafe(export_name = "jumps")]
+pub extern "C" fn __abi_jumps(limit: f64) -> f64 {
+    jumps(limit)
 }

@@ -268,6 +268,8 @@ pub enum Stmt {
     Continue(LoopId),
     /// `return`.
     Return(Option<Expr>),
+    /// Code the analysis proves never runs: traps if it does.
+    Unreachable,
     /// A labelled block, exited by `break` from inside (a labelled non-loop statement).
     Block(Option<LoopId>, Vec<Stmt>),
 }
@@ -517,4 +519,51 @@ pub enum Expr {
     Cond(Box<Expr>, Box<Expr>, Box<Expr>),
     /// Runs statements, then evaluates to the value.
     Block(Vec<Stmt>, Box<Expr>),
+}
+
+impl Expr {
+    /// Whether `pred` holds for this expression or one inside it (not looking into the
+    /// statements of blocks).
+    pub fn any(&self, pred: &impl Fn(&Expr) -> bool) -> bool {
+        if pred(self) {
+            return true;
+        }
+        match self {
+            Expr::Lit(_) | Expr::Local(_) | Expr::Const(_) | Expr::SelfValue => false,
+            Expr::Unary(_, a)
+            | Expr::Truthy(_, a)
+            | Expr::Field(a, _)
+            | Expr::Len(a, _)
+            | Expr::Convert { arg: a, .. }
+            | Expr::NewArray { len: a, .. }
+            | Expr::Block(_, a) => a.any(pred),
+            Expr::Binary(_, a, b) | Expr::NumberLogic { lhs: a, rhs: b, .. } => {
+                a.any(pred) || b.any(pred)
+            }
+            Expr::Get { array, index } => array.any(pred) || index.value.any(pred),
+            Expr::Math(_, args) | Expr::Call(_, args) => args.iter().any(|e| e.any(pred)),
+            Expr::MethodCall(_, receiver, args) => {
+                receiver.any(pred) || args.iter().any(|e| e.any(pred))
+            }
+            Expr::StructLit(_, fields) => fields.iter().any(|(_, e)| e.any(pred)),
+            Expr::Cond(a, b, c) => a.any(pred) || b.any(pred) || c.any(pred),
+        }
+    }
+
+    /// Whether evaluating it may call a function, allocate or run statements (which may
+    /// assign the function's locals).
+    pub fn has_effects(&self) -> bool {
+        self.any(&|e| {
+            matches!(
+                e,
+                Expr::Call(..) | Expr::MethodCall(..) | Expr::NewArray { .. } | Expr::Block(..)
+            )
+        })
+    }
+
+    /// Whether evaluating it runs statements of the function, which may assign its locals
+    /// (calls can't).
+    pub fn runs_statements(&self) -> bool {
+        self.any(&|e| matches!(e, Expr::Block(..)))
+    }
 }

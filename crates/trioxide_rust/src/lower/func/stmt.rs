@@ -22,6 +22,14 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     fn stmt(&mut self, statement: &'a Statement<'a>, out: &mut Vec<Stmt>) {
+        // Dead code has no facts to lower it with, and never runs.
+        let reachable = self.facts().reachable(self.node(statement.node_id()));
+        if !reachable.value && self.facts().is_usable(reachable.trust) {
+            if !matches!(out.last(), Some(Stmt::Unreachable)) {
+                out.push(Stmt::Unreachable);
+            }
+            return;
+        }
         match statement {
             Statement::VariableDeclaration(declaration) => self.var_decl(declaration, out),
             Statement::ExpressionStatement(statement) => self.expr_stmt(&statement.expression, out),
@@ -930,6 +938,16 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         let ty = self.group_field_ty(group, &field);
         if let Some(value) = self.coerce(value, ty, false, span) {
+            // Rust evaluates `value` before `base.field`.
+            if self.locals[base.0].mutable && value.runs_statements() {
+                self.fail::<()>(
+                    span,
+                    format!(
+                        "writes `.{field}` of an object the stored value's evaluation may replace"
+                    ),
+                );
+                return;
+            }
             out.push(Stmt::FieldSet {
                 base: Expr::Local(base),
                 field,
@@ -1010,7 +1028,14 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         let array_expr = array.expr.clone();
         let mut prelude = Vec::new();
-        let index = if op.is_some() && !is_cheap(&index.value) {
+        // JS evaluates the array and the index before the value; a value with effects is
+        // evaluated into a temporary before the store, so the index goes first.
+        let hoist = right.is_some_and(|right| {
+            js_assigns(right) || index.value.has_effects() && js_effects(right)
+        });
+        let index = if op.is_some() && !is_cheap(&index.value)
+            || hoist && !matches!(index.value, Expr::Lit(_) | Expr::Const(_))
+        {
             let local = self.temp("index", index.ty);
             prelude.push(Stmt::Let(local, index.value));
             Index {
@@ -1057,6 +1082,20 @@ impl<'a> FnCx<'_, '_, 'a> {
         let Some(value) = self.coerce(value, Ty::F64, false, span) else {
             return;
         };
+        if value.has_effects() {
+            // The value is evaluated before the array expression below.
+            let reassigned = match array_expr {
+                Expr::Local(local) => self.locals[local.0].mutable && value.runs_statements(),
+                ref other => other.has_effects(),
+            };
+            if reassigned {
+                self.fail::<()>(
+                    span,
+                    "stores into an array that the stored value's own evaluation may replace",
+                );
+                return;
+            }
+        }
         // Evaluate the value before borrowing the array mutably.
         let value = if is_simple(&value) || prelude.is_empty() && !mentions_call(&value) {
             value
@@ -1074,6 +1113,48 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 }
 
+/// Whether evaluating a JS expression may have side effects (conservatively: anything but
+/// literals, variables, member reads, operators and calls on them).
+pub(super) fn js_effects(expr: &Expression<'_>) -> bool {
+    js_scan(expr, true)
+}
+
+/// Whether evaluating a JS expression may assign one of the function's variables (calls
+/// can't: the island has no closures).
+pub(super) fn js_assigns(expr: &Expression<'_>) -> bool {
+    js_scan(expr, false)
+}
+
+fn js_scan(expr: &Expression<'_>, calls: bool) -> bool {
+    let all = |args: &oxc_allocator::Vec<'_, Argument<'_>>| {
+        args.iter()
+            .any(|arg| arg.as_expression().is_none_or(|e| js_scan(e, calls)))
+    };
+    match expr.get_inner_expression() {
+        Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::Identifier(_)
+        | Expression::ThisExpression(_) => false,
+        Expression::BinaryExpression(e) => js_scan(&e.left, calls) || js_scan(&e.right, calls),
+        Expression::LogicalExpression(e) => js_scan(&e.left, calls) || js_scan(&e.right, calls),
+        Expression::ConditionalExpression(e) => {
+            js_scan(&e.test, calls) || js_scan(&e.consequent, calls) || js_scan(&e.alternate, calls)
+        }
+        Expression::UnaryExpression(e) => {
+            e.operator == UnaryOperator::Delete || js_scan(&e.argument, calls)
+        }
+        Expression::StaticMemberExpression(e) => js_scan(&e.object, calls),
+        Expression::ComputedMemberExpression(e) => {
+            js_scan(&e.object, calls) || js_scan(&e.expression, calls)
+        }
+        Expression::CallExpression(e) => calls || js_scan(&e.callee, calls) || all(&e.arguments),
+        Expression::NewExpression(e) => calls || js_scan(&e.callee, calls) || all(&e.arguments),
+        Expression::SequenceExpression(e) => e.expressions.iter().any(|e| js_scan(e, calls)),
+        _ => true,
+    }
+}
+
 /// The kind a variable holding `kind` has: arrays forget nothing, numbers keep `undef`.
 pub(super) fn stored_kind(kind: &Kind) -> Kind {
     kind.clone()
@@ -1088,21 +1169,7 @@ pub(super) fn is_simple(expr: &Expr) -> bool {
 /// Whether evaluating `expr` may call a function or run statements (so it must run before
 /// the array it is stored into is borrowed mutably, and can't be evaluated twice).
 pub(super) fn mentions_call(expr: &Expr) -> bool {
-    match expr {
-        Expr::Lit(_) | Expr::Local(_) | Expr::Const(_) | Expr::SelfValue => false,
-        Expr::Call(..) | Expr::MethodCall(..) | Expr::NewArray { .. } | Expr::Block(..) => true,
-        Expr::Unary(_, a) | Expr::Truthy(_, a) | Expr::Field(a, _) | Expr::Len(a, _) => {
-            mentions_call(a)
-        }
-        Expr::Get { array, index } => mentions_call(array) || mentions_call(&index.value),
-        Expr::Convert { arg, .. } => mentions_call(arg),
-        Expr::Binary(_, a, b) | Expr::NumberLogic { lhs: a, rhs: b, .. } => {
-            mentions_call(a) || mentions_call(b)
-        }
-        Expr::Math(_, args) => args.iter().any(mentions_call),
-        Expr::StructLit(_, fields) => fields.iter().any(|(_, e)| mentions_call(e)),
-        Expr::Cond(a, b, c) => mentions_call(a) || mentions_call(b) || mentions_call(c),
-    }
+    expr.has_effects()
 }
 
 /// Locals, constants and arithmetic on them: cheap enough to evaluate twice.
@@ -1128,7 +1195,7 @@ pub(super) fn completes(stmts: &[Stmt]) -> bool {
 
 fn diverges(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_) => true,
+        Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_) | Stmt::Unreachable => true,
         Stmt::If(_, a, b) => !completes(a) && !completes(b),
         Stmt::Loop(Loop {
             id,

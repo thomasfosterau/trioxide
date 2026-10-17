@@ -320,7 +320,7 @@ impl Printer<'_> {
             unsafe_used: false,
             temp: 0,
         };
-        collect_labels(&function.body, &mut cx);
+        collect_labels(&function.body, &mut cx, &mut Vec::new());
         let mut body = String::new();
         let stmts = &function.body;
         // A final `return x;` becomes the tail expression.
@@ -372,7 +372,10 @@ impl Printer<'_> {
             }
             Stmt::Assign(LocalId(local), value) => {
                 let name = &cx.function.locals[*local].name;
-                if let Some((op, rhs)) = compound(value, &Expr::Local(LocalId(*local))) {
+                // `x op= rhs` evaluates `rhs` first; JS reads `x` first.
+                if let Some((op, rhs)) = compound(value, &Expr::Local(LocalId(*local)))
+                    .filter(|(_, rhs)| !rhs.runs_statements())
+                {
                     let rhs = self.expr(rhs, cx).0;
                     format!("{name} {op}= {rhs};\n")
                 } else {
@@ -400,7 +403,9 @@ impl Printer<'_> {
                 let base_text = self.operand(base, prec::POSTFIX, cx);
                 let field_name = crate::names::rust_ident(field);
                 let target = Expr::Field(Box::new(base.clone()), field.clone());
-                if let Some((op, rhs)) = compound(value, &target) {
+                if let Some((op, rhs)) =
+                    compound(value, &target).filter(|(_, rhs)| !rhs.has_effects())
+                {
                     let rhs = self.expr(rhs, cx).0;
                     format!("{base_text}.{field_name} {op}= {rhs};\n")
                 } else {
@@ -468,22 +473,22 @@ impl Printer<'_> {
                 )
             }
             Stmt::Break(id) => {
-                let innermost = cx.loops.last().map(|(id, _)| *id);
-                if innermost == Some(*id) {
-                    "break;\n".into()
-                } else {
+                if cx.labelled.contains(id) {
                     format!("break 'l{};\n", id.0)
+                } else {
+                    "break;\n".into()
                 }
             }
             Stmt::Continue(id) => {
                 if cx.continue_blocks.contains(id) {
                     format!("break 'c{};\n", id.0)
-                } else if cx.loops.last().map(|(id, _)| *id) == Some(*id) {
-                    "continue;\n".into()
-                } else {
+                } else if cx.labelled.contains(id) {
                     format!("continue 'l{};\n", id.0)
+                } else {
+                    "continue;\n".into()
                 }
             }
+            Stmt::Unreachable => "unreachable!();\n".into(),
             Stmt::Return(None) => "return;\n".into(),
             Stmt::Return(Some(value)) => {
                 let value = self.expr(value, cx).0;
@@ -754,7 +759,8 @@ impl Printer<'_> {
                     format!(
                         "{{ let {name} = {lhs}; if {test} {{ {then} }} else {{ {otherwise} }} }}"
                     ),
-                    ATOM,
+                    // Block-like: an operand at the start of a statement needs parentheses.
+                    BLOCK,
                 )
             }
             Expr::Math(function, args) => {
@@ -851,7 +857,7 @@ impl Printer<'_> {
                 cx.unsafe_used = false;
                 let value = self.expr(value, cx).0;
                 cx.unsafe_used |= outer;
-                (format!("{{\n{stmts}{value}\n}}"), ATOM)
+                (format!("{{\n{stmts}{value}\n}}"), BLOCK)
             }
         }
     }
@@ -1027,56 +1033,68 @@ fn compound<'e>(value: &'e Expr, target: &Expr) -> Option<(&'static str, &'e Exp
     Some((symbol, b))
 }
 
-fn collect_labels(stmts: &[Stmt], cx: &mut Fn<'_>) {
+/// What a `break`/`continue` may have to cross in the generated Rust.
+#[derive(Clone, Copy, PartialEq)]
+enum Scope {
+    Loop(LoopId),
+    /// A labelled block (`'cN: {…}` or a labelled JS block): Rust requires a label on any
+    /// `break`/`continue` leaving it.
+    Labelled,
+}
+
+/// Finds the loops that need a Rust label (a jump to them crosses another loop or a labelled
+/// block) and those whose `continue` is a `break` out of a block (it must still run the
+/// update or the test).
+fn collect_labels(stmts: &[Stmt], cx: &mut Fn<'_>, scopes: &mut Vec<Scope>) {
     for stmt in stmts {
         match stmt {
             Stmt::Loop(lp) => {
                 if lp.labelled {
                     cx.labelled.push(lp.id);
                 }
-                if lp.has_continue && (!lp.update.is_empty() || lp.test_after) {
+                let block = lp.has_continue && (!lp.update.is_empty() || lp.test_after);
+                if block {
                     cx.continue_blocks.push(lp.id);
                 }
-                collect_labels(&lp.body, cx);
-                collect_labels(&lp.update, cx);
-            }
-            Stmt::ForOf { body, .. } | Stmt::Block(_, body) => {
-                for inner in body {
-                    if let Stmt::Loop(_) | Stmt::ForOf { .. } = inner {}
+                scopes.push(Scope::Loop(lp.id));
+                if block {
+                    scopes.push(Scope::Labelled);
                 }
-                collect_labels(body, cx);
+                collect_labels(&lp.body, cx, scopes);
+                if block {
+                    scopes.pop();
+                }
+                collect_labels(&lp.update, cx, scopes);
+                scopes.pop();
+            }
+            Stmt::ForOf { id, body, .. } => {
+                scopes.push(Scope::Loop(*id));
+                collect_labels(body, cx, scopes);
+                scopes.pop();
+            }
+            Stmt::Block(label, body) => {
+                if label.is_some() {
+                    scopes.push(Scope::Labelled);
+                }
+                collect_labels(body, cx, scopes);
+                if label.is_some() {
+                    scopes.pop();
+                }
             }
             Stmt::If(_, a, b) => {
-                collect_labels(a, cx);
-                collect_labels(b, cx);
+                collect_labels(a, cx, scopes);
+                collect_labels(b, cx, scopes);
+            }
+            Stmt::Break(id) | Stmt::Continue(id)
+                if scopes.last() != Some(&Scope::Loop(*id))
+                    && !(matches!(stmt, Stmt::Continue(_)) && cx.continue_blocks.contains(id))
+                    && !cx.labelled.contains(id) =>
+            {
+                cx.labelled.push(*id);
             }
             _ => {}
         }
     }
-    // `for…of` loops targeted from nested loops are labelled too.
-    for stmt in stmts {
-        if let Stmt::ForOf { id, body, .. } = stmt
-            && targets_from_nested(*id, body, false)
-        {
-            cx.labelled.push(*id);
-        }
-    }
-}
-
-/// Whether a `break`/`continue` of `id` occurs inside a loop nested in `stmts`.
-fn targets_from_nested(id: LoopId, stmts: &[Stmt], nested: bool) -> bool {
-    stmts.iter().any(|stmt| match stmt {
-        Stmt::Break(target) | Stmt::Continue(target) => nested && *target == id,
-        Stmt::Loop(lp) => {
-            targets_from_nested(id, &lp.body, true) || targets_from_nested(id, &lp.update, true)
-        }
-        Stmt::ForOf { body, .. } => targets_from_nested(id, body, true),
-        Stmt::If(_, a, b) => {
-            targets_from_nested(id, a, nested) || targets_from_nested(id, b, nested)
-        }
-        Stmt::Block(_, body) => targets_from_nested(id, body, nested),
-        _ => false,
-    })
 }
 
 fn rust_string(text: &str) -> String {

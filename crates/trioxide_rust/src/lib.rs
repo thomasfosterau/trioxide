@@ -149,6 +149,21 @@ pub fn forced_islands(
             let valid_name = name
                 .as_deref()
                 .filter(|n| names::is_abi_name(n) && *n != "ready");
+            if never_called(module, facts, info.func) {
+                // Nothing calls it, so nothing types its parameters; it never runs anyway.
+                out.decisions.push((
+                    module.id,
+                    decision(
+                        name,
+                        info.func.span,
+                        Target::Js,
+                        "forced into WASM, but nothing calls it",
+                        None,
+                        None,
+                    ),
+                ));
+                continue;
+            }
             match (info.top_level && info.role == Role::Free, valid_name) {
                 (true, Some(_)) => roots.push(info.id),
                 (true, None) => out.diagnostics.push(
@@ -289,6 +304,29 @@ fn decision(
         island,
         cost: None,
     }
+}
+
+/// Whether the analysis proves nothing calls `func`: it is unreachable, or a parameter never
+/// received a value.
+fn never_called(
+    module: &world::Module<'_>,
+    facts: &Facts,
+    func: &oxc_ast::ast::Function<'_>,
+) -> bool {
+    let reachable = facts.reachable(module.node(func.node_id()));
+    if !reachable.value && facts.is_usable(reachable.trust) {
+        return true;
+    }
+    func.params.items.iter().any(|param| {
+        param
+            .pattern
+            .get_binding_identifier()
+            .and_then(|id| id.symbol_id.get())
+            .is_some_and(|symbol| {
+                let fact = facts.symbol_ty(module.symbol(symbol));
+                facts.is_usable(fact.trust) && matches!(fact.value, Type::Never)
+            })
+    })
 }
 
 /// The error for a forced function that can't be compiled.
