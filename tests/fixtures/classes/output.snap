@@ -1,0 +1,65 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/classes
+input_file: tests/fixtures/classes/input.ts
+---
+//- input.ts
+class Shape {
+	name;
+	static count = 0;
+	id;
+	constructor(name) {
+		this.name = name;
+		this.id = ++Shape.count;
+	}
+	describe() {
+		return `${this.name}#${this.id} area=${this.area().toFixed(2)}`;
+	}
+}
+class Circle extends Shape {
+	#radius;
+	constructor(radius) {
+		super("circle");
+		this.#radius = radius;
+	}
+	get radius() {
+		return this.#radius;
+	}
+	set radius(value) {
+		if (value < 0) throw new RangeError("negative radius");
+		this.#radius = value;
+	}
+	area() {
+		return Math.PI * this.#radius ** 2;
+	}
+}
+class Rect extends Shape {
+	sides;
+	constructor(width, height) {
+		super("rect");
+		this.sides = [width, height];
+	}
+	area() {
+		return this.sides[0] * this.sides[1];
+	}
+	static square(side) {
+		return new Rect(side, side);
+	}
+}
+export function main() {
+	const shapes = [
+		new Circle(1),
+		new Rect(2, 3),
+		Rect.square(4)
+	];
+	for (const shape of shapes) console.log(shape.describe());
+	const circle = shapes[0];
+	circle.radius = 2;
+	console.log(circle.radius, circle.describe());
+	try {
+		circle.radius = -1;
+	} catch (error) {
+		console.log(error.name, error.message);
+	}
+	console.log(Shape.count, Object.keys(shapes[1]).sort().join(","));
+}

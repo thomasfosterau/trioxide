@@ -1,0 +1,45 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/imports
+input_file: tests/fixtures/imports/input.ts
+---
+//- input.ts
+import greet, { VERSION, add } from "./math.js";
+import * as shapes from "./shapes.js";
+import { label } from "./named.js";
+export { add };
+export * from "./shapes.js";
+const origin = {
+	x: 0,
+	y: 0
+};
+export function main() {
+	console.log(greet("trioxide"), VERSION, add(2, 3));
+	console.log(shapes.distance(origin, {
+		x: 3,
+		y: 4
+	}), shapes.UNIT.x);
+	const thing = { name: "widget" };
+	console.log(label(thing));
+}
+
+//- math.ts
+export const VERSION = "1.0";
+export function add(a, b) {
+	return a + b;
+}
+export default function greet(name) {
+	return `hello, ${name}`;
+}
+
+//- shapes.ts
+export const UNIT = {
+	x: 1,
+	y: 1
+};
+export function distance(a, b) {
+	return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+//- named.ts
+export const label = (value) => `<${value.name}>`;

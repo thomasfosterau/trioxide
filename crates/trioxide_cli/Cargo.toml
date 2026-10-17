@@ -1,0 +1,30 @@
+[package]
+name = "trioxide_cli"
+description = "The trioxide command-line tool."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "trioxide"
+path = "src/main.rs"
+
+[features]
+default = ["tsrs"]
+## Embed the tsrs TypeScript checker (see trioxide_types).
+tsrs = ["trioxide/tsrs"]
+
+[dependencies]
+trioxide = { workspace = true, default-features = false }
+clap.workspace = true
+oxc_diagnostics.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

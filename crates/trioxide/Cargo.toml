@@ -1,0 +1,41 @@
+[package]
+name = "trioxide"
+description = "Trioxide: a TypeScript-aware optimising compiler that emits JS or Rust/WASM per function."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["tsrs"]
+## Embed the tsrs TypeScript checker (see trioxide_types).
+tsrs = ["trioxide_types/tsrs"]
+
+[dependencies]
+trioxide_analysis.workspace = true
+trioxide_common.workspace = true
+trioxide_js.workspace = true
+trioxide_partition.workspace = true
+trioxide_project.workspace = true
+trioxide_types.workspace = true
+trioxide_wasm.workspace = true
+oxc_allocator.workspace = true
+oxc_diagnostics.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
+json-strip-comments.workspace = true
+rustc-hash.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tempfile.workspace = true

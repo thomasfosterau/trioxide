@@ -1,0 +1,98 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT"
+repository = "https://github.com/thomasfosterau/trioxide"
+publish = false
+
+[workspace.dependencies]
+# Workspace crates.
+trioxide = { path = "crates/trioxide", default-features = false }
+trioxide_analysis = { path = "crates/trioxide_analysis" }
+trioxide_common = { path = "crates/trioxide_common" }
+trioxide_js = { path = "crates/trioxide_js" }
+trioxide_partition = { path = "crates/trioxide_partition" }
+trioxide_project = { path = "crates/trioxide_project" }
+trioxide_rt = { path = "crates/trioxide_rt" }
+trioxide_rust = { path = "crates/trioxide_rust" }
+trioxide_types = { path = "crates/trioxide_types", default-features = false }
+trioxide_wasm = { path = "crates/trioxide_wasm" }
+
+# oxc: every crate pinned to the same exact version and bumped together (PLAN D10).
+oxc_allocator = "=0.154.0"
+oxc_ast = "=0.154.0"
+oxc_codegen = "=0.154.0"
+oxc_diagnostics = "=0.154.0"
+oxc_ecmascript = "=0.154.0"
+oxc_parser = "=0.154.0"
+oxc_semantic = "=0.154.0"
+oxc_span = "=0.154.0"
+oxc_syntax = "=0.154.0"
+oxc_transformer = "=0.154.0"
+oxc_traverse = "=0.154.0"
+# Released from separate oxc-project repositories with their own version lines; pinned exactly too.
+oxc_resolver = "=11.24.3"
+oxc_sourcemap = "=9.0.0"
+
+# tsrs is not on crates.io: a git dependency pinned to one commit (PLAN D10). Only trioxide_types may use it.
+tsrs_ast = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }
+tsrs_astnav = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }
+tsrs_checker = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }
+tsrs_compiler = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }
+tsrs_core = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }
+tsrs_tsoptions = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }
+tsrs_vfs = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }
+
+# Everything else.
+clap = { version = "4.6", features = ["derive"] }
+insta = { version = "1.49", features = ["glob"] }
+json-strip-comments = "3"
+napi = { version = "3", default-features = false, features = ["napi6", "serde-json"] }
+napi-build = "2"
+napi-derive = "3"
+rustc-hash = "2"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that are noise for a compiler codebase.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+too_many_lines = "allow"
+similar_names = "allow"
+struct_excessive_bools = "allow"
+# Restriction lints worth having.
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+todo = "warn"
+
+[profile.dev]
+# tsrs is very slow unoptimised; dependencies build optimised, workspace crates stay debuggable.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

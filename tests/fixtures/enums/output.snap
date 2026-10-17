@@ -1,0 +1,45 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/enums
+input_file: tests/fixtures/enums/input.ts
+---
+//- input.ts
+var Direction = /* @__PURE__ */ function(Direction) {
+	Direction[Direction["Up"] = 1] = "Up";
+	Direction[Direction["Down"] = 2] = "Down";
+	Direction[Direction["Left"] = 3] = "Left";
+	Direction[Direction["Right"] = 4] = "Right";
+	return Direction;
+}(Direction || {});
+var Level = /* @__PURE__ */ function(Level) {
+	Level["Debug"] = "debug";
+	Level["Info"] = "info";
+	Level["Warn"] = "warn";
+	return Level;
+}(Level || {});
+var Flags = /* @__PURE__ */ function(Flags) {
+	Flags[Flags["None"] = 0] = "None";
+	Flags[Flags["Read"] = 1] = "Read";
+	Flags[Flags["Write"] = 2] = "Write";
+	Flags[Flags["ReadWrite"] = 3] = "ReadWrite";
+	return Flags;
+}(Flags || {});
+var Computed = /* @__PURE__ */ function(Computed) {
+	Computed[Computed["A"] = "abc".length] = "A";
+	Computed[Computed["B"] = Computed.A * 2] = "B";
+	return Computed;
+}(Computed || {});
+function describe(direction) {
+	switch (direction) {
+		case Direction.Up:
+		case Direction.Down: return "vertical";
+		default: return "horizontal";
+	}
+}
+export function main() {
+	console.log(Direction.Down, Direction[3], describe(Direction.Left));
+	console.log(Level.Warn, Object.values(Level).join("|"));
+	const flags = Flags.ReadWrite;
+	console.log(flags, (flags & Flags.Write) !== 0, Flags.None);
+	console.log(Computed.A, Computed.B, Computed[6]);
+}

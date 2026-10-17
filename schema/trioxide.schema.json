@@ -1,0 +1,228 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The JSON schema reference, allowed so editors can validate config files. Ignored."
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode",
+      "description": "How aggressively functions move to WebAssembly.",
+      "default": "auto"
+    },
+    "world": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/World"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Whether the whole program is visible (`app`) or exports may be called from unknown code\n(`library`). Unset: `app` when building from entries (Vite builds, `trioxide build`),\n`library` for single-file transforms."
+    },
+    "trustTypes": {
+      "type": "boolean",
+      "description": "Treat TypeScript types that rest on annotations, casts or `any` as proof. Unsound if\nthe types lie; off by default.",
+      "default": false
+    },
+    "check": {
+      "type": "boolean",
+      "description": "Report TypeScript type errors as diagnostics.",
+      "default": false
+    },
+    "tsconfig": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The `tsconfig.json` to use. Unset: the nearest one above the project root."
+    },
+    "target": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Override the tsconfig's `target` (e.g. `\"es2022\"`, `\"esnext\"`)."
+    },
+    "sourcemap": {
+      "type": "boolean",
+      "description": "Generate sourcemaps.",
+      "default": true
+    },
+    "passes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "description": "Turn individual optimisation passes on or off by name, e.g. `{ \"fold\": false }`. Passes\nnot listed use their defaults.",
+      "default": {}
+    },
+    "wasm": {
+      "$ref": "#/$defs/WasmOptions",
+      "description": "WebAssembly output.",
+      "default": {
+        "enabled": true,
+        "require": false,
+        "wasmOpt": true,
+        "glue": "tla"
+      }
+    },
+    "dev": {
+      "$ref": "#/$defs/DevOptions",
+      "description": "Settings that apply only to the Vite dev server.",
+      "default": {
+        "wasm": false
+      }
+    },
+    "cacheDir": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Where to cache compiled islands. Unset: `node_modules/.trioxide` under the root, or the\nsystem cache directory."
+    },
+    "overrides": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Override"
+      },
+      "description": "Per-file overrides, applied in order (later wins)."
+    }
+  },
+  "description": "Everything that configures a trioxide build.\n\nRead from `trioxide.json` / `trioxide.jsonc` (see [`Options::from_file`]), merged with Vite\nplugin options or CLI flags. Source directives (`\"use wasm\"` / `\"use js\"`,\n`/** @trioxide wasm|js */`) override all of it. Field names are camelCase in JSON. The JSON\nschema in `schema/trioxide.schema.json` is generated from this type.",
+  "title": "trioxide.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Mode": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "js-only",
+          "description": "Never create WASM islands; only optimise JS."
+        },
+        {
+          "type": "string",
+          "const": "auto",
+          "description": "Create islands the cost model says are profitable."
+        },
+        {
+          "type": "string",
+          "const": "wasm-preferred",
+          "description": "Prefer WASM for every eligible function unless the cost model strongly objects."
+        }
+      ],
+      "description": "How aggressively functions move to WebAssembly."
+    },
+    "World": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "app",
+          "description": "Closed world: the whole module graph is visible and exports are only used internally."
+        },
+        {
+          "type": "string",
+          "const": "library",
+          "description": "Open world: exported functions may be called with anything their types allow."
+        }
+      ],
+      "description": "The world assumption: what code outside the module graph may do."
+    },
+    "WasmOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Produce WASM islands at all. `--no-wasm` turns this off.",
+          "default": true
+        },
+        "require": {
+          "type": "boolean",
+          "description": "Fail the build if the Rust toolchain is missing instead of falling back to JS.",
+          "default": false
+        },
+        "wasmOpt": {
+          "type": "boolean",
+          "description": "Run `wasm-opt` on islands when it is on PATH.",
+          "default": true
+        },
+        "glue": {
+          "$ref": "#/$defs/GlueMode",
+          "description": "How island glue waits for instantiation.",
+          "default": "tla"
+        }
+      },
+      "description": "WebAssembly settings."
+    },
+    "GlueMode": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "tla",
+          "description": "Top-level `await` in the glue module."
+        },
+        {
+          "type": "string",
+          "const": "ready",
+          "description": "Export a `ready()` promise, for targets without top-level await."
+        }
+      ],
+      "description": "How island glue modules wait for their `.wasm` to instantiate."
+    },
+    "DevOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wasm": {
+          "type": "boolean",
+          "description": "Build WASM islands in dev too (off by default for fast reloads).",
+          "default": false
+        }
+      },
+      "description": "Vite dev-server settings."
+    },
+    "Override": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns, relative to the project root."
+        },
+        "target": {
+          "$ref": "#/$defs/OverrideTarget",
+          "description": "What to force."
+        }
+      },
+      "required": [
+        "files",
+        "target"
+      ],
+      "description": "Forces files matching `files` to stay JS or to become WASM."
+    },
+    "OverrideTarget": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "js",
+          "description": "Like `\"use js\"` on every function."
+        },
+        {
+          "type": "string",
+          "const": "wasm",
+          "description": "Like `\"use wasm\"` on every function; ineligible functions are errors."
+        }
+      ],
+      "description": "The target an [`Override`] forces."
+    }
+  }
+}

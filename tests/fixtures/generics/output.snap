@@ -1,0 +1,68 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/generics
+input_file: tests/fixtures/generics/input.ts
+---
+//- input.ts
+class Version {
+	major;
+	minor;
+	constructor(major, minor) {
+		this.major = major;
+		this.minor = minor;
+	}
+	compareTo(other) {
+		return this.major - other.major || this.minor - other.minor;
+	}
+	toString() {
+		return `${this.major}.${this.minor}`;
+	}
+}
+function max(items) {
+	let best;
+	for (const item of items) {
+		if (best === undefined || item.compareTo(best) > 0) best = item;
+	}
+	return best;
+}
+class Stack {
+	items = [];
+	push(...items) {
+		this.items.push(...items);
+		return this;
+	}
+	pop() {
+		return this.items.pop();
+	}
+	get size() {
+		return this.items.length;
+	}
+}
+const swap = ([a, b]) => [b, a];
+function groupBy(items, key) {
+	const groups = {};
+	for (const item of items) (groups[key(item)] ??= []).push(item);
+	return groups;
+}
+export function main() {
+	const versions = [
+		new Version(1, 2),
+		new Version(2, 0),
+		new Version(1, 10)
+	];
+	console.log(String(max(versions)), max([]));
+	const stack = new Stack().push("a", "b", "c");
+	console.log(stack.pop(), stack.size);
+	console.log(swap([1, "one"]).join(" "));
+	const config = {
+		retries: 3,
+		verbose: true
+	};
+	console.log(config.retries + 1, JSON.stringify(groupBy([
+		1,
+		2,
+		3,
+		4,
+		5
+	], (n) => n % 2 ? "odd" : "even")));
+}

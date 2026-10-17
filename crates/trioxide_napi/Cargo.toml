@@ -1,0 +1,32 @@
+[package]
+name = "trioxide_napi"
+description = "Node-API binding for trioxide (napi-rs v3)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+# napi exports can't be unit tested without a Node process; tests live in packages/trioxide.
+test = false
+doctest = false
+
+[features]
+default = ["tsrs"]
+## Embed the tsrs TypeScript checker (see trioxide_types).
+tsrs = ["trioxide/tsrs"]
+
+[dependencies]
+trioxide = { workspace = true, default-features = false }
+napi.workspace = true
+napi-derive.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
