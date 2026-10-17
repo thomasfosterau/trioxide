@@ -1,20 +1,21 @@
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
-use trioxide_analysis::{Analysis, AnalysisOptions, ModuleInput, analyze};
+use trioxide_analysis::{Analysis, AnalysisOptions};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
 use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
 use trioxide_project::{
-    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, JsxMode, ModuleGraph,
-    find_tsconfig,
+    CompilerSettings, ContentCache, ContentHash, GraphOptions, ModuleGraph, find_tsconfig,
 };
-use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
+use trioxide_types::{SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
     BuildOutput, Error, ExplainQuery, Invalidation, Mode, ModuleOutput, Options, Report, Result,
-    World, islands,
+    World,
+    analysis::{self, FactRefresher, analysis_inputs},
+    islands,
     pipeline::{ModuleCompiler, ModuleSource},
     report::ModuleReport,
 };
@@ -334,61 +335,45 @@ impl Project {
         self.diagnostics.extend(diagnostics);
     }
 
+    /// What an analysis run of this project needs besides the graph and the oracle.
+    fn setup(&self) -> analysis::Setup {
+        let world = self.options.world_or(self.built_from_entries);
+        let (jsx_factory, jsx_fragment_factory) = analysis::jsx_factories(&self.settings);
+        analysis::Setup {
+            root: self.root.clone(),
+            tsconfig: self.settings.path.clone(),
+            check: self.options.check,
+            options: AnalysisOptions {
+                closed_world: world == World::App,
+                trust_types: self.options.trust_types,
+                jsx_factory,
+                jsx_fragment_factory,
+                entries: self.graph.entries().to_vec(),
+            },
+        }
+    }
+
     /// Loads the oracle and analyses the graph, with `overrides` in place of some modules'
     /// sources. Returns the diagnostics.
     fn run_analysis(&mut self, overrides: &FxHashMap<ModuleId, &str>) -> Vec<Diagnostic> {
-        let modules = self.graph.modules();
-        let sources: Vec<SourceText<'_>> = modules
-            .iter()
-            .map(|module| SourceText {
-                module: module.id,
-                path: &module.path,
-                source: overrides.get(&module.id).copied().unwrap_or(&module.source),
-            })
-            .collect();
-        let input = OracleInput {
-            root: &self.root,
-            tsconfig: self.settings.path.as_deref(),
-            modules: &sources,
-            check: self.options.check,
-        };
-        let mut diagnostics = self.oracle.load(&input);
-        if self.options.check {
-            for module in modules {
-                diagnostics.extend(self.oracle.diagnostics(module.id));
-            }
-        }
-
-        let world = self.options.world_or(self.built_from_entries);
-        let mut inputs = analysis_inputs(&self.graph);
-        for input in &mut inputs {
-            if let Some(source) = overrides.get(&input.id) {
-                input.source = source;
-            }
-        }
-        self.analysis = analyze(
-            &inputs,
-            &mut *self.oracle,
-            AnalysisOptions {
-                closed_world: world == World::App,
-                trust_types: self.options.trust_types,
-                jsx_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
-                    self.settings
-                        .jsx_factory
-                        .clone()
-                        .unwrap_or_else(|| "React.createElement".into())
-                }),
-                jsx_fragment_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
-                    self.settings
-                        .jsx_fragment_factory
-                        .clone()
-                        .unwrap_or_else(|| "React.Fragment".into())
-                }),
-                entries: self.graph.entries().to_vec(),
-            },
-        );
-        diagnostics.append(&mut self.analysis.diagnostics);
+        let setup = self.setup();
+        let (analysis, diagnostics) =
+            analysis::analyse_graph(&mut *self.oracle, &self.graph, &setup, overrides);
+        self.analysis = analysis;
         diagnostics
+    }
+
+    /// The id of the graph module at `path`, if it is in the graph.
+    pub fn module_id(&self, path: &Path) -> Option<ModuleId> {
+        self.graph.get(path)
+    }
+
+    /// The project's facts as a [`FactSource`](trioxide_js::FactSource) whose `refresh`
+    /// re-analyses a rewritten module (see [`FactRefresher`]), for a pass manager to run with.
+    /// The facts it refreshes replace the project's.
+    pub fn fact_refresher(&mut self) -> FactRefresher<'_> {
+        let setup = self.setup();
+        FactRefresher::new(&mut *self.oracle, &self.graph, setup, &mut self.analysis)
     }
 
     fn compile(&mut self, id: ModuleId) -> ModuleOutput {
@@ -397,6 +382,8 @@ impl Project {
         if let Some(cached) = self.outputs.get(id, key) {
             return cached.clone();
         }
+        let setup = self.setup();
+        let module = self.graph.module(id);
         if self.logs.len() <= id.index() {
             self.logs.resize_with(id.index() + 1, ModuleLog::default);
         }
@@ -408,9 +395,12 @@ impl Project {
             source: &module.source,
             source_type: module.source_type,
         };
-        let mut output = self
-            .compiler
-            .compile(&input, &mut self.analysis.facts, log, true);
+        // Passes see facts refreshed after each group that changes the module; other modules
+        // compile against the program's own facts, so those come back afterwards.
+        let mut facts =
+            FactRefresher::new(&mut *self.oracle, &self.graph, setup, &mut self.analysis);
+        let mut output = self.compiler.compile(&input, &mut facts, log, true);
+        facts.restore();
         let mut diagnostics = module.diagnostics.clone();
         diagnostics.append(&mut output.diagnostics);
         output.diagnostics = diagnostics;
@@ -437,31 +427,6 @@ impl Project {
             diagnostics: self.diagnostics.clone(),
         }
     }
-}
-
-/// The analysis inputs for every module of `graph`.
-fn analysis_inputs(graph: &ModuleGraph) -> Vec<ModuleInput<'_>> {
-    graph
-        .modules()
-        .iter()
-        .map(|module| ModuleInput {
-            id: module.id,
-            path: &module.path,
-            source: &module.source,
-            source_type: module.source_type,
-            imports: module
-                .imports
-                .iter()
-                .map(|import| {
-                    let target = match import.target {
-                        ImportTarget::Module(id) => Some(id),
-                        _ => None,
-                    };
-                    (import.specifier.clone(), target)
-                })
-                .collect(),
-        })
-        .collect()
 }
 
 /// Strips TypeScript from one module without analysis or optimisation: plain

@@ -235,3 +235,100 @@ fn reanalysis_matches_a_fresh_analysis() {
     assert!(reanalysed.len() > 10, "{reanalysed:?}");
     assert_eq!(reanalysed, fresh_facts);
 }
+
+/// Refreshing facts through the pass manager after a real rewrite gives what a fresh
+/// analysis of the rewritten program gives.
+#[test]
+fn refreshed_facts_match_a_fresh_analysis() {
+    use oxc_ast::ast::{Expression, Statement};
+    use trioxide_js::{FactSource, Pass, PassContext, PassGroup, PassManager, PassOptions};
+
+    /// Doubles the `const k = <number>` initialiser, once.
+    struct DoubleK(bool);
+
+    impl Pass for DoubleK {
+        fn name(&self) -> &'static str {
+            "double-k"
+        }
+
+        fn run<'a>(
+            &mut self,
+            program: &mut oxc_ast::ast::Program<'a>,
+            _ctx: &mut PassContext<'a, '_>,
+        ) -> bool {
+            if self.0 {
+                return false;
+            }
+            let Some(Statement::VariableDeclaration(declaration)) = program.body.first_mut() else {
+                return false;
+            };
+            let Some(Expression::NumericLiteral(literal)) = &mut declaration.declarations[0].init
+            else {
+                return false;
+            };
+            literal.value *= 2.0;
+            literal.raw = None;
+            self.0 = true;
+            true
+        }
+    }
+
+    let source = "const k = 21;\nfunction twice(x: number): number {\n  return x * 2;\n}\nexport function main(): void {\n  console.log(twice(k));\n}\n";
+    let options = || Options {
+        world: Some(trioxide::World::App),
+        ..Options::default()
+    };
+    let facts_of = |facts: &trioxide_analysis::Facts| {
+        let mut types: Vec<String> = facts
+            .node_types()
+            .into_iter()
+            .map(|(node, fact)| format!("{node:?} {fact:?}"))
+            .collect();
+        types.sort();
+        types
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    write(&root, "main.ts", source);
+    let mut project = Project::new(root.clone(), options()).unwrap();
+    project.facts(&root.join("main.ts")).unwrap();
+    let before = facts_of(project.analysis());
+    let id = project.module_id(&root.join("main.ts")).unwrap();
+
+    let allocator = oxc_allocator::Allocator::default();
+    let mut program = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts())
+        .parse()
+        .program;
+    let scoping = trioxide_js::rebuild_scoping(&program);
+    let mut manager = PassManager::new(PassOptions::default());
+    manager.add_group(PassGroup {
+        name: "test",
+        passes: vec![Box::new(DoubleK(false))],
+        fixpoint: true,
+    });
+    let mut refresher = project.fact_refresher();
+    let mut log = trioxide::log::ModuleLog::default();
+    manager.run(
+        &allocator,
+        &mut program,
+        scoping,
+        id,
+        &mut refresher,
+        &mut log,
+    );
+    assert_eq!(refresher.refreshes(), 1);
+    let refreshed = facts_of(refresher.facts());
+    drop(refresher);
+    let rewritten = oxc_codegen::Codegen::new().build(&program).code;
+    assert!(rewritten.contains("const k = 42"), "{rewritten}");
+
+    let fresh_dir = tempfile::tempdir().unwrap();
+    let fresh_root = fresh_dir.path().canonicalize().unwrap();
+    write(&fresh_root, "main.ts", &rewritten);
+    let mut fresh = Project::new(fresh_root.clone(), options()).unwrap();
+    fresh.facts(&fresh_root.join("main.ts")).unwrap();
+
+    assert_ne!(refreshed, before, "the rewrite changed what is known");
+    assert_eq!(refreshed, facts_of(fresh.analysis()));
+}

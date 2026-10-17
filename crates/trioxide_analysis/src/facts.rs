@@ -1,6 +1,6 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use trioxide_common::{NodeRef, Span, SymbolRef};
+use trioxide_common::{ModuleId, NodeRef, Span, SymbolRef};
 use trioxide_types::{ClassId, FunctionId, NumberType, Type};
 
 /// How far a fact can be relied on (PLAN D1).
@@ -295,7 +295,7 @@ pub struct FunctionInfo {
 ///
 /// Passes must check trust before acting: use [`Facts::is_usable`], which honours
 /// `trustTypes`.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Facts {
     trust_types: bool,
     node_types: FxHashMap<NodeRef, Fact<Type>>,
@@ -544,6 +544,42 @@ impl Facts {
                 trust: Trust::Unknown,
             }
         }
+    }
+
+    /// Drops every node-keyed fact of `module` (so they all read as `Unknown`), e.g. when its
+    /// AST changed in a way the facts can't follow.
+    pub fn forget_module(&mut self, module: ModuleId) {
+        let other = |node: &NodeRef| node.module != module;
+        self.node_types.retain(|node, _| other(node));
+        self.in_bounds.retain(|node, _| other(node));
+        self.allocations.retain(|node, _| other(node));
+        self.expr_effects.retain(|node, _| other(node));
+        self.loops.retain(|node, _| other(node));
+        self.points_to.retain(|node, _| other(node));
+        self.open_sites.retain(other);
+        // Unknown reachability is "may run".
+        self.unreachable.retain(other);
+        self.effects.retain(|unit, _| other(unit));
+        self.functions.retain(|unit, _| other(unit));
+        self.class_shapes.retain(|class, _| other(class));
+        self.symbol_types
+            .retain(|symbol, _| symbol.module != module);
+        self.imports
+            .retain(|import, target| import.module != module && target.module != module);
+        let graph = std::mem::take(&mut self.call_graph);
+        let units = graph.units.into_iter().filter(other).collect();
+        let edges = graph
+            .edges
+            .into_iter()
+            .filter(|edge| other(&edge.site) && other(&edge.caller) && other(&edge.callee))
+            .collect();
+        let sccs = graph
+            .sccs
+            .into_iter()
+            .map(|scc| scc.into_iter().filter(other).collect::<Vec<_>>())
+            .filter(|scc| !scc.is_empty())
+            .collect();
+        self.call_graph = CallGraph::new(units, edges, sccs);
     }
 
     pub(crate) fn set_open_sites(&mut self, sites: FxHashSet<NodeRef>) {
