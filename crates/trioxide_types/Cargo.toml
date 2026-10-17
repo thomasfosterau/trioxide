@@ -14,11 +14,15 @@ workspace = true
 [features]
 default = ["tsrs"]
 ## Embed the tsrs TypeScript checker. Without it every TS type is `Unknown`.
+## Use tsrs's plain 64-bit pointers instead of compressed 32-bit handles, which avoids
+## reserving 32 GiB of address space up front (measured in the S2 PR: not worth it by default).
+plain-ptrs = ["tsrs", "tsrs_core?/plain-ptrs"]
 tsrs = ["dep:tsrs_ast", "dep:tsrs_astnav", "dep:tsrs_checker", "dep:tsrs_compiler", "dep:tsrs_core", "dep:tsrs_tsoptions", "dep:tsrs_vfs"]
 
 [dependencies]
 trioxide_common.workspace = true
 oxc_span.workspace = true
+rustc-hash.workspace = true
 serde.workspace = true
 tsrs_ast = { workspace = true, optional = true }
 tsrs_astnav = { workspace = true, optional = true }
@@ -31,4 +35,6 @@ tsrs_vfs = { workspace = true, optional = true }
 [dev-dependencies]
 oxc_allocator.workspace = true
 oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
 oxc_parser.workspace = true
+tempfile.workspace = true
