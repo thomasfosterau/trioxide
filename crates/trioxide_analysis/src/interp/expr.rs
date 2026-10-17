@@ -533,9 +533,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             for &source in sites {
                                 let copied: Vec<(String, Val)> = self
                                     .an
-                                    .state
-                                    .heap
-                                    .get(&source)
+                                    .heap(source)
                                     .filter(|obj| {
                                         obj.kind == ObjKind::Object
                                             && !obj.dynamic
