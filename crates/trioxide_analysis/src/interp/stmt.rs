@@ -77,6 +77,7 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// Interprets one statement.
     pub fn statement(&mut self, statement: &'a Statement<'a>) {
+        self.position = oxc_span::GetSpan::span(statement).start;
         let labels = std::mem::take(&mut self.pending_labels);
         #[expect(
             clippy::match_same_arms,
@@ -323,6 +324,21 @@ impl<'a> Cx<'_, '_, 'a> {
                 }
             }
             Declaration::TSImportEqualsDeclaration(declaration) => {
+                // `import x = require("./m")` of a graph module: its namespace object, which
+                // the CommonJS interop may hand out wholesale, so its exports escape.
+                if let oxc_ast::ast::TSModuleReference::ExternalModuleReference(reference) =
+                    &declaration.module_reference
+                    && let Some(module) = self
+                        .module
+                        .imports
+                        .get(reference.expression.value.as_str())
+                        .copied()
+                        .flatten()
+                {
+                    let unit = self.unit.id;
+                    let namespace = self.an.namespace(module, unit);
+                    self.escape_value(&namespace, Escape::Unknown);
+                }
                 if let Some(symbol) = declaration.id.symbol_id.get() {
                     self.write_symbol(symbol, Val::unknown(), Some(declaration.id.node_id.get()));
                 }

@@ -171,6 +171,14 @@ pub struct SymbolInfo {
     pub import: bool,
     /// Exported from its module.
     pub exported: bool,
+    /// A `let`, `const` or `class` binding: reading it before its declaration runs throws.
+    pub lexical: bool,
+    /// Where its declaration ends (byte offset): reads in its unit before that are in its
+    /// temporal dead zone.
+    pub declared_at: u32,
+    /// Declared in a `switch` case, whose scope spans every case: textual order says nothing
+    /// about initialisation there.
+    pub in_switch: bool,
 }
 
 /// One parsed module.
@@ -706,6 +714,24 @@ impl<'a> World<'a> {
                 let in_class_init =
                     declared_in.is_some_and(|u| matches!(u.body, Body::ClassInit(_)));
                 let tainted = tainted || aliased_param;
+                let lexical = flags.intersects(SymbolFlags::BlockScopedVariable | SymbolFlags::Class)
+                    && !flags.contains(SymbolFlags::Function);
+                let declaration = scoping.symbol_declaration(symbol);
+                let declared_at = module.semantic.nodes().kind(declaration).span().end;
+                let in_switch = lexical
+                    && module
+                        .semantic
+                        .nodes()
+                        .ancestor_kinds(declaration)
+                        .take_while(|kind| {
+                            !matches!(
+                                kind,
+                                AstKind::Function(_)
+                                    | AstKind::ArrowFunctionExpression(_)
+                                    | AstKind::Program(_)
+                            )
+                        })
+                        .any(|kind| matches!(kind, AstKind::SwitchCase(_)));
                 SymbolInfo {
                     unit: Some(unit),
                     tracked: value
@@ -720,6 +746,9 @@ impl<'a> World<'a> {
                         .intersects(SymbolFlags::FunctionScopedVariable | SymbolFlags::Function),
                     import,
                     exported: exported.contains(&symbol),
+                    lexical,
+                    declared_at,
+                    in_switch,
                 }
             })
             .collect()

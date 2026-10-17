@@ -63,6 +63,11 @@ const LIB_OBJECTS: [&str; 16] = [
 const WIDEN_AFTER: usize = 3;
 /// Rounds after which the analysis gives up and reports nothing.
 const MAX_ROUNDS: usize = 40;
+
+/// After this many rounds, a whole-program entry that still changes is given up: set to "any
+/// value" (and its objects to "anything may happen to them"), which nothing can change
+/// further, so the run reaches a (less precise) fixed point.
+const SATURATE_AFTER: usize = 20;
 /// Loop iterations after which loop-carried numbers are widened.
 const LOOP_WIDEN_AFTER: usize = 2;
 /// Loop iterations after which the loop's environment is abandoned to `Unknown`.
@@ -70,7 +75,7 @@ const MAX_LOOP_ITERATIONS: usize = 12;
 
 /// A whole-program table entry a unit's interpretation read. When one changes, the units
 /// that read it are interpreted again.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Dep {
     Symbol(SymbolRef),
     Params(NodeRef),
@@ -90,6 +95,8 @@ struct Deps {
     readers: FxHashMap<Dep, Vec<NodeRef>>,
     seen: FxHashSet<(Dep, NodeRef)>,
     dirty: FxHashSet<NodeRef>,
+    /// Past [`SATURATE_AFTER`] rounds: the entries that changed since the last saturation.
+    saturating: Option<Vec<Dep>>,
 }
 
 /// How far an object may be seen by code other than the unit that created it.
@@ -205,6 +212,9 @@ pub struct State {
     pub defaults: FxHashMap<NodeRef, Val>,
     /// Classes with an instance site that escapes to unknown code.
     pub open_instances: FxHashSet<NodeRef>,
+    /// `let`, `const` and `class` bindings that may be read before their declaration runs:
+    /// their unit made a call (which may read them) before reaching it.
+    pub may_be_uninit: FxHashSet<SymbolRef>,
 }
 
 /// A call edge recorded while interpreting.
@@ -293,6 +303,8 @@ pub struct Stats {
     pub oracle_time: std::time::Duration,
     /// Total interpretation time.
     pub total_time: std::time::Duration,
+    /// Whole-program entries given up (set to "any value") because they kept changing.
+    pub saturated: usize,
 }
 
 /// Runs the interpreter to a fixed point.
@@ -303,6 +315,8 @@ pub fn run(
     options: AnalysisOptions,
 ) -> Results {
     let open_modules = open_modules(world, &options);
+    let lexicals = lexicals(world);
+    let import_cycles = import_cycles(world);
     let mut analyzer = Analyzer {
         world,
         links,
@@ -316,6 +330,9 @@ pub fn run(
         ts_cache: FxHashMap::default(),
         patched: patched_builtins(world),
         open_modules,
+        lexicals,
+        import_cycles,
+        saturated: 0,
         stats: Stats::default(),
     };
     let started = std::time::Instant::now();
@@ -327,6 +344,9 @@ pub fn run(
         .extend(world.unit_order.iter().copied());
     analyzer.stats.units = world.unit_order.len();
     while analyzer.round < MAX_ROUNDS {
+        if analyzer.round == SATURATE_AFTER {
+            analyzer.deps.get_mut().saturating = Some(Vec::new());
+        }
         for &unit in &world.unit_order {
             if !analyzer.deps.get_mut().dirty.remove(&unit) {
                 continue;
@@ -337,6 +357,7 @@ pub fn run(
             }
             analyzer.stats.interpretations += 1;
             analyzer.interpret(unit);
+            analyzer.saturate();
         }
         analyzer.round += 1;
         if analyzer.deps.get_mut().dirty.is_empty() {
@@ -345,6 +366,7 @@ pub fn run(
         }
     }
     analyzer.stats.rounds = analyzer.round;
+    analyzer.stats.saturated = analyzer.saturated;
     analyzer.stats.total_time = started.elapsed();
     let mut output = Output::default();
     for unit_output in analyzer.outputs.into_values() {
@@ -472,6 +494,93 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
         }
     }
     patched
+}
+
+/// Every unit's own lexical bindings.
+fn lexicals(world: &World<'_>) -> FxHashMap<NodeRef, Vec<SymbolId>> {
+    let mut lexicals: FxHashMap<NodeRef, Vec<SymbolId>> = FxHashMap::default();
+    for module in &world.modules {
+        for (index, info) in module.symbols.iter().enumerate() {
+            if info.lexical
+                && let Some(unit) = info.unit
+            {
+                lexicals
+                    .entry(unit)
+                    .or_default()
+                    .push(SymbolId::from_usize(index));
+            }
+        }
+    }
+    lexicals
+}
+
+/// The strongly connected component of every module in the import graph (Tarjan's
+/// algorithm): modules in one component may run each other's code before they finish.
+fn import_cycles(world: &World<'_>) -> Vec<usize> {
+    let count = world.modules.len();
+    let edges: Vec<Vec<usize>> = world
+        .modules
+        .iter()
+        .map(|module| {
+            module
+                .imports
+                .values()
+                .copied()
+                .flatten()
+                .map(ModuleId::index)
+                .filter(|&target| target < count)
+                .collect()
+        })
+        .collect();
+    let mut index = vec![usize::MAX; count];
+    let mut low = vec![0; count];
+    let mut on_stack = vec![false; count];
+    let mut stack = Vec::new();
+    let mut component = vec![usize::MAX; count];
+    let mut next = 0;
+    let mut components = 0;
+    for root in 0..count {
+        if index[root] != usize::MAX {
+            continue;
+        }
+        let mut frames: Vec<(usize, usize)> = vec![(root, 0)];
+        index[root] = next;
+        low[root] = next;
+        next += 1;
+        stack.push(root);
+        on_stack[root] = true;
+        while let Some(&mut (node, ref mut at)) = frames.last_mut() {
+            if let Some(&successor) = edges[node].get(*at) {
+                *at += 1;
+                if index[successor] == usize::MAX {
+                    index[successor] = next;
+                    low[successor] = next;
+                    next += 1;
+                    stack.push(successor);
+                    on_stack[successor] = true;
+                    frames.push((successor, 0));
+                } else if on_stack[successor] {
+                    low[node] = low[node].min(index[successor]);
+                }
+                continue;
+            }
+            frames.pop();
+            if let Some(&(parent, _)) = frames.last() {
+                low[parent] = low[parent].min(low[node]);
+            }
+            if low[node] == index[node] {
+                while let Some(member) = stack.pop() {
+                    on_stack[member] = false;
+                    component[member] = components;
+                    if member == node {
+                        break;
+                    }
+                }
+                components += 1;
+            }
+        }
+    }
+    component
 }
 
 /// The modules whose exports the host can use: the entries (or, without any, the modules no
@@ -625,6 +734,12 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub patched: FxHashSet<String>,
     /// Modules whose exports code outside the program may use (see [`open_modules`]).
     pub open_modules: FxHashSet<ModuleId>,
+    /// Each unit's own `let`, `const` and `class` bindings.
+    pub lexicals: FxHashMap<NodeRef, Vec<SymbolId>>,
+    /// Each module's strongly connected component of the import graph (by module index).
+    pub import_cycles: Vec<usize>,
+    /// How many entries were given up (see [`SATURATE_AFTER`]).
+    saturated: usize,
     stats: Stats,
 }
 
@@ -694,10 +809,8 @@ impl Env {
     fn widen(&self, next: &Self) -> Self {
         let mut joined = self.join(next);
         for (symbol, value) in &mut joined.vars {
-            if let (Some(old), Type::Number(new)) = (self.vars.get(symbol), &value.ty)
-                && let Type::Number(old) = &old.ty
-            {
-                value.ty = Type::Number(numeric::widen(*old, *new));
+            if let Some(old) = self.vars.get(symbol) {
+                value.ty = numeric::widen_type(&old.ty, &value.ty);
             }
         }
         joined
@@ -734,6 +847,8 @@ pub(crate) struct Cx<'c, 'w, 'a> {
     /// A `const n = array.length` binding about to be written.
     pub pending_length: Option<(SymbolId, SymbolId)>,
     pub record: UnitRecord,
+    /// Where interpretation is (the start of the expression last entered).
+    pub position: u32,
 }
 
 impl<'w, 'a> Analyzer<'w, 'a> {
@@ -765,6 +880,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             try_writes: Vec::new(),
             pending_length: None,
             record: UnitRecord::default(),
+            position: 0,
         };
         cx.enter();
         match unit.body {
@@ -836,6 +952,91 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
     }
 
+    /// Gives up the entries that changed while saturating (see [`SATURATE_AFTER`]).
+    fn saturate(&mut self) {
+        loop {
+            let Some(changed) = self.deps.get_mut().saturating.as_mut() else {
+                return;
+            };
+            if changed.is_empty() {
+                return;
+            }
+            let mut changed = std::mem::take(changed);
+            changed.sort_unstable();
+            changed.dedup();
+            for dep in changed {
+                self.give_up(dep);
+            }
+        }
+    }
+
+    /// Sets the entry `dep` to the top of the lattice (its old objects escape).
+    fn give_up(&mut self, dep: Dep) {
+        let top = |slot: &mut Val, lost: &mut Vec<Pts>| {
+            if slot.trust != Trust::Unknown || slot.pts.sites().is_some() {
+                lost.push(std::mem::take(&mut slot.pts));
+                *slot = Val::unknown();
+                true
+            } else {
+                false
+            }
+        };
+        let mut lost = Vec::new();
+        let changed = match dep {
+            Dep::Symbol(symbol) => self
+                .state
+                .symbols
+                .get_mut(&symbol)
+                .is_some_and(|slot| top(slot, &mut lost)),
+            Dep::Params(unit) => {
+                let mut changed = self.state.spread_called.insert(unit);
+                if let Some(params) = self.state.params.get_mut(&unit) {
+                    for slot in params {
+                        changed |= top(slot, &mut lost);
+                    }
+                }
+                changed
+            }
+            Dep::This(unit) => self
+                .state
+                .this
+                .get_mut(&unit)
+                .is_some_and(|slot| top(slot, &mut lost)),
+            Dep::Return(unit) => self
+                .state
+                .returns
+                .get_mut(&unit)
+                .is_some_and(|slot| top(slot, &mut lost)),
+            Dep::Super(class) => self
+                .state
+                .supers
+                .get_mut(&class)
+                .is_some_and(|slot| top(slot, &mut lost)),
+            Dep::Default(node) => self
+                .state
+                .defaults
+                .get_mut(&node)
+                .is_some_and(|slot| top(slot, &mut lost)),
+            Dep::Heap(site) => {
+                lost.push(Pts::site(site));
+                self.state.heap.get_mut(&site).is_some_and(|obj| {
+                    let changed = !obj.dynamic || obj.length.is_some() || !obj.holey;
+                    obj.dynamic = true;
+                    obj.length = None;
+                    obj.holey = true;
+                    changed
+                })
+            }
+        };
+        if changed {
+            self.saturated += 1;
+            self.touch(dep);
+        }
+        for pts in lost {
+            self.escape(&pts, Escape::Unknown);
+        }
+    }
+
     /// Notes that `dep` changed: every unit that read it runs again.
     pub fn touch(&self, dep: Dep) {
         let mut deps = self.deps.borrow_mut();
@@ -844,8 +1045,12 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             current_reads,
             readers,
             dirty,
+            saturating,
             ..
         } = &mut *deps;
+        if let Some(changed) = saturating {
+            changed.push(dep);
+        }
         if let Some(units) = readers.get(&dep) {
             // The current unit's result depends only on what this run read so far.
             let skip = current.filter(|_| !current_reads.contains(&dep));
@@ -954,10 +1159,8 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             return false;
         }
         let mut joined = slot.join(value);
-        if round >= WIDEN_AFTER
-            && let (Type::Number(old), Type::Number(new)) = (&slot.ty, &joined.ty)
-        {
-            joined.ty = Type::Number(numeric::widen(*old, *new));
+        if round >= WIDEN_AFTER {
+            joined.ty = numeric::widen_type(&slot.ty, &joined.ty);
         }
         if joined == *slot {
             return false;
@@ -1297,6 +1500,9 @@ impl Cx<'_, '_, '_> {
         if info.import {
             return self.read_import(self.module.symbol(symbol));
         }
+        if info.lexical {
+            self.note_tdz_read(symbol);
+        }
         if info.tracked && info.unit == Some(self.unit.id) {
             if let Some(value) = self.env.vars.get(&symbol) {
                 return value.clone();
@@ -1326,6 +1532,13 @@ impl Cx<'_, '_, '_> {
                 if target_module.broken {
                     return Val::unknown();
                 }
+                // In an import cycle the exporting module may not have run its declaration.
+                if target_module.info(target.symbol).lexical
+                    && self.an.import_cycles.get(target.module.index())
+                        == self.an.import_cycles.get(self.module.id.index())
+                {
+                    self.always(EffectKind::Throws);
+                }
                 if target_module.info(target.symbol).tainted {
                     return Val::poisoned();
                 }
@@ -1348,6 +1561,45 @@ impl Cx<'_, '_, '_> {
                 self.an.namespace(module, unit)
             }
             _ => Val::unknown(),
+        }
+    }
+
+    /// A read of the lexical binding `symbol` throws if its declaration hasn't run: in its own
+    /// unit, when the read comes before the declaration's end (or anywhere in a `switch`);
+    /// elsewhere, when its unit may call out before reaching the declaration.
+    fn note_tdz_read(&mut self, symbol: SymbolId) {
+        let info = self.module.info(symbol);
+        let throws = if info.unit == Some(self.unit.id) {
+            info.in_switch || self.position < info.declared_at
+        } else {
+            let symbol = self.module.symbol(symbol);
+            self.an.read(Dep::Symbol(symbol));
+            self.an.state.may_be_uninit.contains(&symbol)
+        };
+        if throws {
+            self.always(EffectKind::Throws);
+        }
+    }
+
+    /// Code this unit doesn't control may run now (a call, a getter, a coercion): any of the
+    /// unit's own lexical bindings not declared yet may be read in their dead zone.
+    pub fn note_call(&mut self) {
+        let Some(lexicals) = self.an.lexicals.get(&self.unit.id) else {
+            return;
+        };
+        let position = self.position;
+        let pending: Vec<SymbolRef> = lexicals
+            .iter()
+            .filter(|&&symbol| {
+                let info = self.module.info(symbol);
+                info.in_switch || info.declared_at > position
+            })
+            .map(|&symbol| self.module.symbol(symbol))
+            .collect();
+        for symbol in pending {
+            if self.an.state.may_be_uninit.insert(symbol) {
+                self.an.touch(Dep::Symbol(symbol));
+            }
         }
     }
 
@@ -1407,7 +1659,6 @@ impl Cx<'_, '_, '_> {
     /// Writes `value` to property `key` of every object in `site`'s heap entry.
     pub fn store_prop(&mut self, site: AllocId, key: &str, value: &Val, creating: bool) {
         let round = self.an.round;
-        let own_unit = self.unit.id;
         let Some(obj) = self.an.state.heap.get_mut(&site) else {
             return;
         };
@@ -1418,11 +1669,9 @@ impl Cx<'_, '_, '_> {
         }
         let slot = obj.props.entry(key.to_string()).or_insert_with(Val::never);
         changed |= Analyzer::join_into(round, slot, value);
-        if !creating
-            && !obj.present.contains(key)
-            && obj.unit != own_unit
-            && obj.added.insert(key.to_string())
-        {
+        // A key the object didn't have when it was made (even if the code that made it adds
+        // it, it does so later): its shape changes.
+        if !creating && !obj.present.contains(key) && obj.added.insert(key.to_string()) {
             changed = true;
         }
         let level = obj.escape.max(Escape::Known);

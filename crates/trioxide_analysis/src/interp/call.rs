@@ -227,6 +227,7 @@ impl<'a> Cx<'_, '_, 'a> {
         args: &[Val],
         spread: bool,
     ) -> Val {
+        self.note_call();
         let world = self.an.world;
         let callee = world.unit(unit);
         let open = self.an.is_open(callee);
@@ -266,6 +267,7 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// A call trioxide can't follow.
     fn unknown_call(&mut self, site: NodeId, function: &Val, this: &Val, args: &[Val]) -> Val {
+        self.note_call();
         for value in args {
             self.escape_value(value, Escape::Unknown);
         }
@@ -577,7 +579,9 @@ impl<'a> Cx<'_, '_, 'a> {
                     if self
                         .an
                         .heap(instance)
-                        .is_some_and(|obj| obj.present.is_empty() && obj.props.is_empty())
+                        .is_some_and(|obj| {
+                            obj.present.is_empty() && obj.props.is_empty() && !obj.deleted
+                        })
                     {
                         let present = crate::shapes::definite_fields(self.an.world, class);
                         self.mark(instance, |obj| obj.present.extend(present));

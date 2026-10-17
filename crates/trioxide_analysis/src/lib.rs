@@ -120,8 +120,20 @@ pub fn analyze(
     if !results.converged {
         diagnostics.push(
             Diagnostic::new(
-                Severity::Advice,
+                Severity::Warning,
                 "analysis did not reach a fixed point; no facts are reported",
+            )
+            .with_code("trioxide(analysis)"),
+        );
+    } else if results.stats.saturated > 0 {
+        diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!(
+                    "analysis gave up on {} values that kept changing; what depends on them is \
+                     unknown",
+                    results.stats.saturated
+                ),
             )
             .with_code("trioxide(analysis)"),
         );

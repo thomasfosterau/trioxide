@@ -72,6 +72,7 @@ impl Key {
 impl<'a> Cx<'_, '_, 'a> {
     /// Evaluates an expression and records its value.
     pub fn expr(&mut self, expression: &'a Expression<'a>) -> Val {
+        self.position = expression.span().start;
         let value = self.expr_inner(expression);
         self.record_node(expression.node_id(), &value);
         value
@@ -458,6 +459,7 @@ impl<'a> Cx<'_, '_, 'a> {
             self.escape_value(value, Escape::Known);
             // `valueOf`, `toString` or `Symbol.toPrimitive` may run and change anything.
             self.after_call(false);
+            self.note_call();
         }
     }
 
@@ -613,7 +615,8 @@ impl<'a> Cx<'_, '_, 'a> {
         let first = self
             .an
             .heap(site)
-            .is_some_and(|obj| obj.present.is_empty() && !obj.dynamic);
+            // Not after a `delete` emptied it: `present` only shrinks from then on.
+            .is_some_and(|obj| obj.present.is_empty() && !obj.dynamic && !obj.deleted);
         self.mark(site, |obj| {
             obj.dynamic |= dynamic;
             if first {
@@ -628,6 +631,17 @@ impl<'a> Cx<'_, '_, 'a> {
     /// Defines a class: evaluates its heritage, computed keys and static members, and makes
     /// the class and prototype objects.
     pub fn class_definition(&mut self, class: &'a Class<'a>) -> Val {
+        self.position = class.span.start;
+        // Static blocks and static field initialisers run as the class is defined.
+        if class.body.body.iter().any(|element| match element {
+            ClassElement::StaticBlock(_) => true,
+            ClassElement::PropertyDefinition(property) => {
+                property.r#static && property.value.is_some()
+            }
+            _ => false,
+        }) {
+            self.note_call();
+        }
         let class_site = self.alloc(
             class.node_id.get(),
             ObjKind::Class(self.node(class.node_id.get())),

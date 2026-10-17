@@ -6,7 +6,7 @@
 //! operation to interval endpoints gives exact bounds; NaN and `-0` are tracked by flags because
 //! intervals can't express them.
 
-use trioxide_types::{Interval, NumberType};
+use trioxide_types::{Interval, NumberType, Shape, Type};
 
 const INT32_MIN: f64 = -2_147_483_648.0;
 const INT32_MAX: f64 = 2_147_483_647.0;
@@ -423,6 +423,55 @@ pub fn sqrt(a: NumberType) -> NumberType {
         int: false,
         non_nan: a.non_nan && a.range.min >= 0.0,
         non_neg_zero: a.non_neg_zero,
+    }
+}
+
+/// `new` widened against `old` wherever numbers appear in it: inside unions, array and tuple
+/// elements and object properties too, so a growing range anywhere stops growing.
+pub fn widen_type(old: &Type, new: &Type) -> Type {
+    use std::sync::Arc;
+    let member = |matches: &dyn Fn(&Type) -> bool| old.members().iter().find(|m| matches(m)).cloned();
+    match new {
+        Type::Number(new) => match member(&|m| matches!(m, Type::Number(_))) {
+            Some(Type::Number(old)) => Type::Number(widen(old, *new)),
+            _ => Type::Number(*new),
+        },
+        Type::Union(members) => Type::union(members.iter().map(|m| widen_type(old, m))),
+        Type::Array(element) => match member(&|m| matches!(m, Type::Array(_))) {
+            Some(Type::Array(old)) => Type::Array(Arc::new(widen_type(&old, element))),
+            _ => new.clone(),
+        },
+        Type::Tuple(items) => match member(
+            &|m| matches!(m, Type::Tuple(old) if old.len() == items.len()),
+        ) {
+            Some(Type::Tuple(old)) => Type::Tuple(
+                items
+                    .iter()
+                    .zip(old.iter())
+                    .map(|(new, old)| widen_type(old, new))
+                    .collect(),
+            ),
+            _ => new.clone(),
+        },
+        Type::Object(shape) => match member(&|m| matches!(m, Type::Object(_))) {
+            Some(Type::Object(old)) => Type::Object(Arc::new(Shape {
+                properties: shape
+                    .properties
+                    .iter()
+                    .map(|(key, ty)| {
+                        let widened = old
+                            .properties
+                            .iter()
+                            .find(|(old_key, _)| old_key == key)
+                            .map_or_else(|| ty.clone(), |(_, old)| widen_type(old, ty));
+                        (key.clone(), widened)
+                    })
+                    .collect(),
+                exact: shape.exact,
+            })),
+            _ => new.clone(),
+        },
+        other => other.clone(),
     }
 }
 
