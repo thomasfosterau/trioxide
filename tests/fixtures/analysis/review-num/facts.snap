@@ -1,0 +1,280 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-num
+input_file: tests/fixtures/analysis/review-num/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  fr (1:1): pure
+  ops (4:1): reads writes allocates throws calls-unknown
+  inc (39:1): pure
+  main (44:8) open: reads writes allocates throws calls-unknown
+    calls 45:15 -> fr
+    calls 45:24 -> fr
+    calls 45:42 -> fr
+    calls 47:43 -> ops
+    calls 48:15 -> inc
+    calls 48:38 -> inc
+nodes:
+  1:10 bind `fr`: function@proven
+  1:13 bind `x`: number[0.1, 340282360000000000000000000000000000000] nonNaN nonNegZero@proven
+  2:10 call `Math.fround(x)`: number[0.10000000149011612, inf] nonNaN nonNegZero@proven
+  2:10 member `Math.fround`: unknown
+  2:10 ref `Math`: unknown
+  2:22 ref `x`: number[0.1, 340282360000000000000000000000000000000] nonNaN nonNegZero@proven
+  4:10 bind `ops`: function@proven
+  4:14 bind `a`: number@proven
+  4:25 bind `b`: number@proven
+  4:36 bind `s`: string@proven
+  5:9 bind `out`: unknown[]@proven
+  5:25 array `[]`: unknown[]@proven escape=known stable-shape
+  6:3 call `out.push(Math.fround(0.1))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  6:3 member `out.push`: unknown
+  6:3 ref `out`: unknown[]@proven
+  6:12 call `Math.fround(0.1)`: 0.10000000149011612@proven
+  6:12 member `Math.fround`: unknown
+  6:12 ref `Math`: unknown
+  7:3 call `out.push(Math.fround(1e300))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  7:3 member `out.push`: unknown
+  7:3 ref `out`: unknown[]@proven
+  7:12 call `Math.fround(1e300)`: inf@proven
+  7:12 member `Math.fround`: unknown
+  7:12 ref `Math`: unknown
+  8:3 call `out.push(Math.fround(16777217) + 0)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  8:3 member `out.push`: unknown
+  8:3 ref `out`: unknown[]@proven
+  8:12 binary `Math.fround(16777217) + 0`: 16777216@proven
+  8:12 call `Math.fround(16777217)`: 16777216@proven
+  8:12 member `Math.fround`: unknown
+  8:12 ref `Math`: unknown
+  9:3 call `out.push(a * b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  9:3 member `out.push`: unknown
+  9:3 ref `out`: unknown[]@proven
+  9:12 binary `a * b`: number@proven
+  9:12 ref `a`: number@proven
+  9:16 ref `b`: number@proven
+  10:3 call `out.push(a / b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  10:3 member `out.push`: unknown
+  10:3 ref `out`: unknown[]@proven
+  10:12 binary `a / b`: number@proven
+  10:12 ref `a`: number@proven
+  10:16 ref `b`: number@proven
+  11:3 call `out.push(a % b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  11:3 member `out.push`: unknown
+  11:3 ref `out`: unknown[]@proven
+  11:12 binary `a % b`: number@proven
+  11:12 ref `a`: number@proven
+  11:16 ref `b`: number@proven
+  12:3 call `out.push(a - b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  12:3 member `out.push`: unknown
+  12:3 ref `out`: unknown[]@proven
+  12:12 binary `a - b`: number@proven
+  12:12 ref `a`: number@proven
+  12:16 ref `b`: number@proven
+  13:3 call `out.push(a ** b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  13:3 member `out.push`: unknown
+  13:3 ref `out`: unknown[]@proven
+  13:12 binary `a ** b`: number@proven
+  13:12 ref `a`: number@proven
+  13:17 ref `b`: number@proven
+  14:3 call `out.push(Math.round(a))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  14:3 member `out.push`: unknown
+  14:3 ref `out`: unknown[]@proven
+  14:12 call `Math.round(a)`: number int@proven
+  14:12 member `Math.round`: unknown
+  14:12 ref `Math`: unknown
+  14:23 ref `a`: number@proven
+  15:3 call `out.push(Math.floor(a))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  15:3 member `out.push`: unknown
+  15:3 ref `out`: unknown[]@proven
+  15:12 call `Math.floor(a)`: number int@proven
+  15:12 member `Math.floor`: unknown
+  15:12 ref `Math`: unknown
+  15:23 ref `a`: number@proven
+  16:3 call `out.push(Math.ceil(a))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  16:3 member `out.push`: unknown
+  16:3 ref `out`: unknown[]@proven
+  16:12 call `Math.ceil(a)`: number int@proven
+  16:12 member `Math.ceil`: unknown
+  16:12 ref `Math`: unknown
+  16:22 ref `a`: number@proven
+  17:3 call `out.push(Math.trunc(a))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  17:3 member `out.push`: unknown
+  17:3 ref `out`: unknown[]@proven
+  17:12 call `Math.trunc(a)`: number int@proven
+  17:12 member `Math.trunc`: unknown
+  17:12 ref `Math`: unknown
+  17:23 ref `a`: number@proven
+  18:3 call `out.push(Math.sign(a))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  18:3 member `out.push`: unknown
+  18:3 ref `out`: unknown[]@proven
+  18:12 call `Math.sign(a)`: number[-1, 1] int@proven
+  18:12 member `Math.sign`: unknown
+  18:12 ref `Math`: unknown
+  18:22 ref `a`: number@proven
+  19:3 call `out.push(Math.sqrt(a))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  19:3 member `out.push`: unknown
+  19:3 ref `out`: unknown[]@proven
+  19:12 call `Math.sqrt(a)`: number[0, inf]@proven
+  19:12 member `Math.sqrt`: unknown
+  19:12 ref `Math`: unknown
+  19:22 ref `a`: number@proven
+  20:3 call `out.push(Math.abs(a))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  20:3 member `out.push`: unknown
+  20:3 ref `out`: unknown[]@proven
+  20:12 call `Math.abs(a)`: number[0, inf] nonNegZero@proven
+  20:12 member `Math.abs`: unknown
+  20:12 ref `Math`: unknown
+  20:21 ref `a`: number@proven
+  21:3 call `out.push(Math.max(a, b))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  21:3 member `out.push`: unknown
+  21:3 ref `out`: unknown[]@proven
+  21:12 call `Math.max(a, b)`: number@proven
+  21:12 member `Math.max`: unknown
+  21:12 ref `Math`: unknown
+  21:21 ref `a`: number@proven
+  21:24 ref `b`: number@proven
+  22:3 call `out.push(Math.min(a, b))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  22:3 member `out.push`: unknown
+  22:3 ref `out`: unknown[]@proven
+  22:12 call `Math.min(a, b)`: number@proven
+  22:12 member `Math.min`: unknown
+  22:12 ref `Math`: unknown
+  22:21 ref `a`: number@proven
+  22:24 ref `b`: number@proven
+  23:3 call `out.push(Math.max())`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  23:3 member `out.push`: unknown
+  23:3 ref `out`: unknown[]@proven
+  23:12 call `Math.max()`: -inf@proven
+  23:12 member `Math.max`: unknown
+  23:12 ref `Math`: unknown
+  24:3 call `out.push(Math.min())`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  24:3 member `out.push`: unknown
+  24:3 ref `out`: unknown[]@proven
+  24:12 call `Math.min()`: inf@proven
+  24:12 member `Math.min`: unknown
+  24:12 ref `Math`: unknown
+  25:3 call `out.push(a | 0)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  25:3 member `out.push`: unknown
+  25:3 ref `out`: unknown[]@proven
+  25:12 binary `a | 0`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  25:12 ref `a`: number@proven
+  26:3 call `out.push(a >>> 0)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  26:3 member `out.push`: unknown
+  26:3 ref `out`: unknown[]@proven
+  26:12 binary `a >>> 0`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  26:12 ref `a`: number@proven
+  27:3 call `out.push(a >> b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  27:3 member `out.push`: unknown
+  27:3 ref `out`: unknown[]@proven
+  27:12 binary `a >> b`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  27:12 ref `a`: number@proven
+  27:17 ref `b`: number@proven
+  28:3 call `out.push(a << b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  28:3 member `out.push`: unknown
+  28:3 ref `out`: unknown[]@proven
+  28:12 binary `a << b`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  28:12 ref `a`: number@proven
+  28:17 ref `b`: number@proven
+  29:3 call `out.push(~a)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  29:3 member `out.push`: unknown
+  29:3 ref `out`: unknown[]@proven
+  29:12 unary `~a`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  29:13 ref `a`: number@proven
+  30:3 call `out.push(a & b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  30:3 member `out.push`: unknown
+  30:3 ref `out`: unknown[]@proven
+  30:12 binary `a & b`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  30:12 ref `a`: number@proven
+  30:16 ref `b`: number@proven
+  31:3 call `out.push(a ^ b)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  31:3 member `out.push`: unknown
+  31:3 ref `out`: unknown[]@proven
+  31:12 binary `a ^ b`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  31:12 ref `a`: number@proven
+  31:16 ref `b`: number@proven
+  32:3 call `out.push(Math.round(Number(s)))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  32:3 member `out.push`: unknown
+  32:3 ref `out`: unknown[]@proven
+  32:12 call `Math.round(Number(s))`: number int@proven
+  32:12 member `Math.round`: unknown
+  32:12 ref `Math`: unknown
+  32:23 call `Number(s)`: number@declared
+  32:23 ref `Number`: unknown
+  32:30 ref `s`: string@proven
+  33:3 call `out.push(parseInt(s))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  33:3 member `out.push`: unknown
+  33:3 ref `out`: unknown[]@proven
+  33:12 call `parseInt(s)`: number@declared
+  33:12 ref `parseInt`: function@declared
+  33:21 ref `s`: string@proven
+  34:3 call `out.push(s.charCodeAt(5))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  34:3 member `out.push`: unknown
+  34:3 ref `out`: unknown[]@proven
+  34:12 call `s.charCodeAt(5)`: number[0, 65535] int nonNegZero@proven
+  34:12 member `s.charCodeAt`: unknown
+  34:12 ref `s`: string@proven
+  35:3 call `out.push(Math.max(...out))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  35:3 member `out.push`: unknown
+  35:3 ref `out`: unknown[]@proven
+  35:12 call `Math.max(...out)`: number@proven
+  35:12 member `Math.max`: unknown
+  35:12 ref `Math`: unknown
+  35:24 ref `out`: unknown[]@proven
+  36:3 call `out.push(Math.min(...[]))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  36:3 member `out.push`: unknown
+  36:3 ref `out`: unknown[]@proven
+  36:12 call `Math.min(...[])`: number@proven
+  36:12 member `Math.min`: unknown
+  36:12 ref `Math`: unknown
+  36:24 array `[]`: never[]@proven escape=none stable-shape
+  37:10 ref `out`: unknown[]@proven
+  39:10 bind `inc`: function@proven
+  39:14 bind `x`: number[1, 9007199254740992] int nonNaN nonNegZero@proven
+  40:7 bind `y`: number[1, 9007199254740992] int nonNaN nonNegZero@proven
+  40:11 ref `x`: number[1, 9007199254740992] int nonNaN nonNegZero@proven
+  41:3 unary `y++`: number[1, 9007199254740992] int nonNaN nonNegZero@proven
+  41:3 ref `y`: number[1, 9007199254740992] int nonNaN nonNegZero@proven
+  42:10 binary `y - x`: number[-9007199254740990, 9007199254740991] int nonNaN nonNegZero@proven
+  42:10 ref `y`: number[2, 9007199254740992] int nonNaN nonNegZero@proven
+  42:14 ref `x`: number[1, 9007199254740992] int nonNaN nonNegZero@proven
+  44:17 bind `main`: function@proven
+  45:3 call `console.log(fr(0.1), fr(3.4028235e38)...`: unknown
+  45:3 member `console.log`: unknown
+  45:3 ref `console`: unknown
+  45:15 call `fr(0.1)`: number@proven
+  45:15 ref `fr`: function@proven
+  45:24 call `fr(3.4028235e38)`: number@proven
+  45:24 ref `fr`: function@proven
+  45:42 call `fr(3.4028236e38)`: number@proven
+  45:42 ref `fr`: function@proven
+  46:9 bind `xs`: number[]@proven
+  46:14 array `[0, -0, 0.5, -0.5, -0.4, 2.5, -2.5, 1...`: number[]@proven escape=none stable-shape
+  46:18 unary `-0`: number[-0, -0] int nonNaN@proven
+  46:27 unary `-0.5`: -0.5@proven
+  46:33 unary `-0.4`: -0.4@proven
+  46:44 unary `-2.5`: -2.5@proven
+  46:57 unary `-1e300`: -1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000@proven
+  46:65 ref `Infinity`: inf@proven
+  46:75 unary `-Infinity`: -inf@proven
+  46:76 ref `Infinity`: inf@proven
+  46:86 ref `NaN`: number@proven
+  46:103 unary `-2147483649`: -2147483649@proven
+  46:154 unary `-1e-320`: -0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001@proven
+  46:166 unary `-3`: -3@proven
+  47:14 bind `a`: number@proven
+  47:19 ref `xs`: number[]@proven
+  47:34 bind `b`: number@proven
+  47:39 ref `xs`: number[]@proven
+  47:43 call `ops(a, b, " -12.5e3 ")`: unknown[]@proven
+  47:43 ref `ops`: function@proven
+  47:47 ref `a`: number@proven
+  47:50 ref `b`: number@proven
+  48:3 call `console.log(inc(9007199254740992), in...`: unknown
+  48:3 member `console.log`: unknown
+  48:3 ref `console`: unknown
+  48:15 call `inc(9007199254740992)`: number[-9007199254740990, 9007199254740991] int nonNaN nonNegZero@proven
+  48:15 ref `inc`: function@proven
+  48:38 call `inc(1)`: number[-9007199254740990, 9007199254740991] int nonNaN nonNegZero@proven
+  48:38 ref `inc`: function@proven

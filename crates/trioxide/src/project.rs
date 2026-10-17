@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use trioxide_analysis::{Analysis, AnalysisOptions, analyze};
+use trioxide_analysis::{Analysis, AnalysisOptions, ModuleInput, analyze};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
 use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
 use trioxide_project::{
-    CompilerSettings, ContentCache, ContentHash, GraphOptions, ModuleGraph, find_tsconfig,
+    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, JsxMode, ModuleGraph,
+    find_tsconfig,
 };
 use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
@@ -100,9 +101,9 @@ impl Project {
                 .expect("options serialise")
                 .as_bytes(),
         );
-        let analysis = analyze(AnalysisOptions {
-            closed_world: false,
+        let analysis = Analysis::empty(AnalysisOptions {
             trust_types: options.trust_types,
+            ..AnalysisOptions::default()
         });
         let graph = ModuleGraph::new(GraphOptions {
             root: root.clone(),
@@ -261,6 +262,32 @@ impl Project {
         Ok(self.compile(id))
     }
 
+    /// The analysis facts for the module at `path`, rendered for humans
+    /// (`trioxide --emit=facts`). Analyses the program reachable from it (adding it as an
+    /// entry if it isn't in the graph yet) under the configured world assumption.
+    pub fn facts(&mut self, path: &Path) -> Result<String> {
+        let id = match self.graph.get(path) {
+            Some(id) => id,
+            None => self.graph.add_entries(&[path.to_path_buf()])?[0],
+        };
+        self.analyse();
+        let inputs = analysis_inputs(&self.graph);
+        let module = inputs
+            .iter()
+            .find(|input| input.id == id)
+            .expect("the module is in the graph");
+        Ok(trioxide_analysis::render(
+            &self.analysis.facts,
+            module,
+            &inputs,
+        ))
+    }
+
+    /// The analysis facts from the last build or [`facts`](Self::facts) call.
+    pub fn analysis(&self) -> &trioxide_analysis::Facts {
+        &self.analysis.facts
+    }
+
     /// The decision log, narrowed to `query`. Reflects the last
     /// [`build`](Self::build) or [`transform`](Self::transform) of each module.
     pub fn explain(&self, query: &ExplainQuery) -> Report {
@@ -292,10 +319,28 @@ impl Project {
         }
 
         let world = self.options.world_or(self.built_from_entries);
-        self.analysis = analyze(AnalysisOptions {
-            closed_world: world == World::App,
-            trust_types: self.options.trust_types,
-        });
+        let inputs = analysis_inputs(&self.graph);
+        self.analysis = analyze(
+            &inputs,
+            &mut *self.oracle,
+            AnalysisOptions {
+                closed_world: world == World::App,
+                trust_types: self.options.trust_types,
+                jsx_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
+                    self.settings
+                        .jsx_factory
+                        .clone()
+                        .unwrap_or_else(|| "React.createElement".into())
+                }),
+                jsx_fragment_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
+                    self.settings
+                        .jsx_fragment_factory
+                        .clone()
+                        .unwrap_or_else(|| "React.Fragment".into())
+                }),
+                entries: self.graph.entries().to_vec(),
+            },
+        );
         diagnostics.append(&mut self.analysis.diagnostics);
 
         let partitioner = Partitioner::new(PartitionOptions {
@@ -309,8 +354,8 @@ impl Project {
         let partition = partitioner.partition(&self.analysis.facts);
         debug_assert!(partition.is_all_js(), "island emission is not wired up yet");
 
-        // The analysis may have changed, so cached outputs computed against older facts are
-        // stale. Without real facts yet, every module's output only depends on its source.
+        // The facts changed, so outputs computed against older facts are stale.
+        self.outputs.clear();
         self.diagnostics
             .retain(|diagnostic| diagnostic.code.as_deref() == Some("trioxide(target)"));
         self.diagnostics.extend(diagnostics);
@@ -362,6 +407,31 @@ impl Project {
             diagnostics: self.diagnostics.clone(),
         }
     }
+}
+
+/// The analysis inputs for every module of `graph`.
+fn analysis_inputs(graph: &ModuleGraph) -> Vec<ModuleInput<'_>> {
+    graph
+        .modules()
+        .iter()
+        .map(|module| ModuleInput {
+            id: module.id,
+            path: &module.path,
+            source: &module.source,
+            source_type: module.source_type,
+            imports: module
+                .imports
+                .iter()
+                .map(|import| {
+                    let target = match import.target {
+                        ImportTarget::Module(id) => Some(id),
+                        _ => None,
+                    };
+                    (import.specifier.clone(), target)
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Strips TypeScript from one module without analysis or optimisation: plain

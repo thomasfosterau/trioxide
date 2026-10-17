@@ -1,0 +1,49 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/generators-async
+input_file: tests/fixtures/analysis/generators-async/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  range (3:1): throws calls-unknown
+  delayed (7:1): throws calls-unknown (declared: pure)
+  main (12:8) open: reads writes allocates throws calls-unknown
+    calls 14:23 -> range
+    calls 17:24 -> delayed
+nodes:
+  3:11 bind `range`: function@proven
+  3:17 bind `limit`: 3@proven
+  3:33 ref `Generator`: unknown
+  4:12 bind `i`: 0@proven
+  4:19 binary `i < limit`: boolean@proven
+  4:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  4:23 ref `limit`: 3@proven
+  4:30 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  4:30 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  4:41 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  7:16 bind `delayed`: function@proven
+  7:24 bind `value`: number nonNegZero@declared
+  7:40 ref `Promise`: unknown
+  8:3 await `await null`: null@proven
+  9:10 binary `value * 2`: number@proven
+  9:10 ref `value`: number nonNegZero@declared
+  12:23 bind `main`: function@proven
+  12:31 ref `Promise`: unknown
+  13:7 bind `total`: 0@proven
+  14:14 bind `value`: number@declared
+  14:23 call `range(3)`: unknown
+  14:23 ref `range`: function@proven
+  15:5 assign `total += value`: number nonNegZero@declared
+  15:5 ref `total`: number nonNegZero@declared
+  15:14 ref `value`: number@declared
+  17:9 bind `result`: number@declared
+  17:18 await `await delayed(total)`: number@declared
+  17:24 call `delayed(total)`: unknown
+  17:24 ref `delayed`: function@proven
+  17:32 ref `total`: number nonNegZero@declared
+  18:3 call `console.log(total, result /*@declared...`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 ref `total`: number nonNegZero@declared
+  18:22 ref `result`: number@declared

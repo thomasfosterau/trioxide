@@ -1,0 +1,19 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/builtin-patching
+input_file: tests/fixtures/analysis/builtin-patching/input.ts
+---
+//- input.ts
+// A program that patches a builtin loses that builtin's model everywhere.
+Math.floor = () => "patched";
+export function main() {
+	console.log(
+		Math.floor(1.5),
+		Math.ceil(1.5)
+		/*@declared number*/
+	);
+	console.log(
+		Number.isInteger(1)
+		/*@proven boolean*/
+	);
+}

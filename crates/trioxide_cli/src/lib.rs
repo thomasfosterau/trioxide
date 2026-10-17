@@ -112,7 +112,7 @@ struct GlobalArgs {
     /// had chosen it. A debug and test hook until islands are selected automatically.
     #[arg(long, global = true, hide = true, value_name = "DIR")]
     debug_island: Vec<PathBuf>,
-    /// What to emit.
+    /// What to emit. `facts` prints the analysis facts of a `transform`ed file.
     #[arg(long, global = true, value_enum, default_value = "js")]
     emit: Emit,
     /// When to colour diagnostics. `auto` colours a terminal unless `NO_COLOR` is set.
@@ -139,6 +139,7 @@ enum Emit {
     Rust,
     Wasm,
     Report,
+    Facts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -203,6 +204,18 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
     let is_build = matches!(cli.command, Command::Build { .. });
     match global.emit {
         Emit::Js => {}
+        Emit::Facts => {
+            let Command::Transform { file } = &cli.command else {
+                return Err(Failure::Usage(
+                    "--emit=facts only applies to `trioxide transform`".into(),
+                ));
+            };
+            let file = std::path::absolute(file)
+                .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
+            let mut project = open_project(global, Some(&file), renderer)?;
+            print_stdout(&project.facts(&file)?);
+            return Ok(());
+        }
         Emit::Rust | Emit::Wasm if is_build => {}
         Emit::Rust | Emit::Wasm | Emit::Report => {
             return Err(not_implemented(&format!(
@@ -330,6 +343,7 @@ fn emit_name(emit: Emit) -> &'static str {
         Emit::Rust => "rust",
         Emit::Wasm => "wasm",
         Emit::Report => "report",
+        Emit::Facts => "facts",
     }
 }
 

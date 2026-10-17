@@ -1,0 +1,34 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/eval
+input_file: tests/fixtures/analysis/eval/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  direct (3:8) open: reads writes allocates throws calls-unknown
+  indirect (10:8) open: reads writes allocates throws calls-unknown
+  main (17:8) open: reads writes allocates throws calls-unknown
+nodes:
+  3:17 bind `direct`: unknown
+  3:24 bind `code`: unknown
+  4:7 bind `x`: unknown
+  5:3 call `eval(code)`: unknown
+  5:3 ref `eval`: function@declared
+  5:8 ref `code`: unknown
+  7:10 ref `x`: unknown
+  10:17 bind `indirect`: unknown
+  10:26 bind `code`: string@declared
+  11:7 bind `y`: 1@proven
+  12:3 call `(0, eval)(code)`: unknown
+  12:7 ref `eval`: function@declared
+  12:13 ref `code`: string@declared
+  14:10 ref `y`: 1@proven
+  17:17 bind `main`: unknown
+  18:3 call `console.log(direct("x = 'changed'"), ...`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 call `direct("x = 'changed'")`: number@declared
+  18:15 ref `direct`: unknown
+  18:40 call `indirect("1")`: number@declared
+  18:40 ref `indirect`: unknown

@@ -1,0 +1,122 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-expr-d
+input_file: tests/fixtures/analysis/review-expr-d/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Base.<fields> (2:12): writes
+  Derived.<fields> (5:28): pure
+  Derived.x (7:8): pure
+  detach (13:1): reads writes allocates throws calls-unknown
+  arrays (23:1): reads writes allocates throws calls-unknown
+  thisArg (34:1): reads writes allocates throws calls-unknown
+  <anonymous> (35:15) open: reads writes allocates throws calls-unknown
+  Made.<fields> (42:12) open: writes throws calls-unknown
+  Made.get (44:6) open: reads throws calls-unknown (declared: reads)
+  main (50:8) open: reads writes allocates throws calls-unknown
+    calls 51:13 -> Base.<fields>
+    calls 51:13 -> Derived.<fields>
+    calls 52:14 -> Derived.x
+    calls 54:3 -> detach
+    calls 55:3 -> arrays
+    calls 56:3 -> thisArg
+    calls 59:3 -> Made.get @declared
+    calls 59:3 -> Made.<fields>
+classes:
+  Base (2:1): fields [x] stable
+  Derived (5:1): fields [x] stable
+  Made (42:1): fields [x] shape unknown
+nodes:
+  2:7 bind `Base`: function@proven
+  5:7 bind `Derived`: function@proven
+  5:23 ref `Base`: function@proven
+  13:10 bind `detach`: function@proven
+  14:9 bind `ta`: Float64Array@proven
+  14:14 new `new Float64Array(4)`: Float64Array@proven escape=unknown
+  14:18 ref `Float64Array`: unknown
+  15:9 bind `buffer`: unknown
+  15:23 member `ta.buffer`: unknown
+  15:23 ref `ta`: Float64Array@proven
+  16:3 call `buffer.transfer()`: unknown
+  16:3 member `buffer.transfer`: unknown
+  16:3 ref `buffer`: unknown
+  17:9 bind `e`: number@declared
+  17:13 member `ta[0]`: number@declared
+  17:13 ref `ta`: Float64Array@proven
+  18:9 bind `n`: number@declared
+  18:13 member `ta.length`: number@declared
+  18:13 ref `ta`: Float64Array@proven
+  19:3 call `console.log(e, n)`: unknown
+  19:3 member `console.log`: unknown
+  19:3 ref `console`: unknown
+  19:15 ref `e`: number@declared
+  19:18 ref `n`: number@declared
+  23:10 bind `arrays`: function@proven
+  24:3 assign `(Array.prototype as any)[1] = "hole"`: string@proven
+  24:3 member `(Array.prototype as any)[1]`: unknown
+  24:4 cast `Array.prototype as any`: unknown[]@declared
+  24:4 member `Array.prototype`: unknown[]@declared
+  24:4 ref `Array`: unknown
+  25:9 bind `holey`: unknown[]@proven
+  25:17 array `[1, , 3]`: unknown[]@proven escape=unknown
+  26:9 bind `h`: undefined | number@declared
+  26:13 member `holey[1]`: undefined | number@declared
+  26:13 ref `holey`: unknown[]@proven
+  27:3 call `console.log(h)`: unknown
+  27:3 member `console.log`: unknown
+  27:3 ref `console`: unknown
+  27:15 ref `h`: undefined | number@declared
+  28:14 bind `v`: undefined | number@declared
+  28:19 ref `holey`: unknown[]@proven
+  29:5 call `console.log(v)`: unknown
+  29:5 member `console.log`: unknown
+  29:5 ref `console`: unknown
+  29:17 ref `v`: undefined | number@declared
+  34:10 bind `thisArg`: function@proven
+  35:3 call `[1].forEach(function (this: { k: stri...`: unknown
+  35:3 member `[1].forEach`: unknown
+  35:3 array `[1]`: unknown[]@proven escape=unknown
+  36:11 bind `t`: { k: string }@declared
+  36:15 this `this`: { k: string }@declared
+  37:5 call `console.log(t)`: unknown
+  37:5 member `console.log`: unknown
+  37:5 ref `console`: unknown
+  37:17 ref `t`: { k: string }@declared
+  38:6 object `{ k: "s" }`: object@proven escape=unknown
+  42:7 bind `Made`: function@proven
+  45:11 bind `v`: number@declared
+  45:15 member `this.x`: number@declared
+  45:15 this `this`: Made@declared
+  46:12 ref `v`: number@declared
+  50:17 bind `main`: function@proven
+  51:9 bind `d`: Derived@proven
+  51:13 new `new Derived()`: Derived@proven escape=known
+  51:17 ref `Derived`: function@proven
+  52:9 bind `dx`: 1 | string@proven
+  52:14 member `d.x`: 1 | string@proven
+  52:14 ref `d`: Derived@proven
+  53:3 call `console.log(dx)`: unknown
+  53:3 member `console.log`: unknown
+  53:3 ref `console`: unknown
+  53:15 ref `dx`: 1 | string@proven
+  54:3 call `detach()`: undefined@proven
+  54:3 ref `detach`: function@proven
+  55:3 call `arrays()`: undefined@proven
+  55:3 ref `arrays`: function@proven
+  56:3 call `thisArg()`: undefined@proven
+  56:3 ref `thisArg`: function@proven
+  57:9 bind `o`: unknown
+  57:13 call `Object.create(Made.prototype)`: unknown
+  57:13 member `Object.create`: unknown
+  57:13 ref `Object`: unknown
+  57:27 member `Made.prototype`: Made@declared
+  57:27 ref `Made`: function@proven
+  58:3 call `o.get()`: unknown
+  58:3 member `o.get`: unknown
+  58:3 ref `o`: unknown
+  59:3 call `new Made().get()`: unknown
+  59:3 member `new Made().get`: unknown
+  59:3 new `new Made()`: Made@proven escape=unknown
+  59:7 ref `Made`: function@proven

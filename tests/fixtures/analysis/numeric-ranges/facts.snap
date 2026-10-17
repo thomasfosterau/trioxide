@@ -1,0 +1,137 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/numeric-ranges
+input_file: tests/fixtures/analysis/numeric-ranges/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  sink (4:1): pure
+  main (6:8) open: reads writes allocates throws calls-unknown
+    calls 9:3 -> sink
+    calls 11:3 -> sink
+    calls 15:3 -> sink
+    calls 23:3 -> sink
+    calls 32:3 -> sink
+nodes:
+  4:10 bind `sink`: function@proven
+  4:18 bind `_values`: (number[-2147483648, 2147483647] nonNaN)[]@proven
+  6:17 bind `main`: function@proven
+  7:9 bind `r`: number[0, 1] nonNaN nonNegZero@proven
+  7:13 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
+  7:13 member `Math.random`: unknown
+  7:13 ref `Math`: unknown
+  8:9 bind `byte`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  8:16 binary `(r * 256) | 0`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  8:17 binary `r * 256`: number[0, 256] nonNaN nonNegZero@proven
+  8:17 ref `r`: number[0, 1] nonNaN nonNegZero@proven
+  9:3 call `sink(byte /*@proven number int nonNaN*/)`: undefined@proven
+  9:3 ref `sink`: function@proven
+  9:8 ref `byte`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  10:9 bind `masked`: number[0, 255] int nonNaN nonNegZero@proven
+  10:18 binary `(r * 1e9) & 0xff`: number[0, 255] int nonNaN nonNegZero@proven
+  10:19 binary `r * 1e9`: number[0, 1000000000] nonNaN nonNegZero@proven
+  10:19 ref `r`: number[0, 1] nonNaN nonNegZero@proven
+  11:3 call `sink(masked /*@proven number int*/)`: undefined@proven
+  11:3 ref `sink`: function@proven
+  11:8 ref `masked`: number[0, 255] int nonNaN nonNegZero@proven
+  12:9 bind `unsigned`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  12:20 binary `-1 >>> 0`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  12:20 unary `-1`: -1@proven
+  13:3 call `console.log(unsigned /*@proven number...`: unknown
+  13:3 member `console.log`: unknown
+  13:3 ref `console`: unknown
+  13:15 ref `unsigned`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  14:9 bind `half`: number[-1073741824, 1073741823.5] nonNaN@proven
+  14:16 binary `byte / 2`: number[-1073741824, 1073741823.5] nonNaN@proven
+  14:16 ref `byte`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  15:3 call `sink(half /*@proven number nonNaN*/, ...`: undefined@proven
+  15:3 ref `sink`: function@proven
+  15:8 ref `half`: number[-1073741824, 1073741823.5] nonNaN@proven
+  15:40 call `Math.floor(half)`: number[-1073741824, 1073741823] int nonNaN@proven
+  15:40 member `Math.floor`: unknown
+  15:40 ref `Math`: unknown
+  15:51 ref `half`: number[-1073741824, 1073741823.5] nonNaN@proven
+  16:9 bind `negativeZero`: number[0, 0] int nonNaN@proven
+  16:24 binary `-0 * 5`: number[0, 0] int nonNaN@proven
+  16:24 unary `-0`: number[-0, -0] int nonNaN@proven
+  17:3 call `console.log(Object.is(negativeZero, -...`: unknown
+  17:3 member `console.log`: unknown
+  17:3 ref `console`: unknown
+  17:15 call `Object.is(negativeZero, -0)`: boolean@proven
+  17:15 member `Object.is`: unknown
+  17:15 ref `Object`: unknown
+  17:25 ref `negativeZero`: number[0, 0] int nonNaN@proven
+  17:39 unary `-0`: number[-0, -0] int nonNaN@proven
+  17:44 ref `negativeZero`: number[0, 0] int nonNaN@proven
+  18:9 bind `nan`: number[0, inf] nonNegZero@proven
+  18:15 binary `0 / 0`: number[0, inf] nonNegZero@proven
+  19:3 call `console.log(Number.isNaN(nan), nan /*...`: unknown
+  19:3 member `console.log`: unknown
+  19:3 ref `console`: unknown
+  19:15 call `Number.isNaN(nan)`: boolean@proven
+  19:15 member `Number.isNaN`: unknown
+  19:15 ref `Number`: unknown
+  19:28 ref `nan`: number[0, inf] nonNegZero@proven
+  19:34 ref `nan`: number[0, inf] nonNegZero@proven
+  20:9 bind `rounded`: number[-1, -0] int nonNaN@proven
+  20:19 call `Math.round(-0.4)`: number[-1, -0] int nonNaN@proven
+  20:19 member `Math.round`: unknown
+  20:19 ref `Math`: unknown
+  20:30 unary `-0.4`: -0.4@proven
+  21:3 call `console.log(Object.is(rounded, -0), r...`: unknown
+  21:3 member `console.log`: unknown
+  21:3 ref `console`: unknown
+  21:15 call `Object.is(rounded, -0)`: boolean@proven
+  21:15 member `Object.is`: unknown
+  21:15 ref `Object`: unknown
+  21:25 ref `rounded`: number[-1, -0] int nonNaN@proven
+  21:34 unary `-0`: number[-0, -0] int nonNaN@proven
+  21:39 ref `rounded`: number[-1, -0] int nonNaN@proven
+  22:9 bind `clamped`: number[0, 255] int nonNaN@proven
+  22:19 call `Math.min(255, Math.max(0, byte * 2))`: number[0, 255] int nonNaN@proven
+  22:19 member `Math.min`: unknown
+  22:19 ref `Math`: unknown
+  22:33 call `Math.max(0, byte * 2)`: number[0, 4294967294] int nonNaN@proven
+  22:33 member `Math.max`: unknown
+  22:33 ref `Math`: unknown
+  22:45 binary `byte * 2`: number[-4294967296, 4294967294] int nonNaN@proven
+  22:45 ref `byte`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  23:3 call `sink(clamped /*@proven number int non...`: undefined@proven
+  23:3 ref `sink`: function@proven
+  23:8 ref `clamped`: number[0, 255] int nonNaN@proven
+  24:9 bind `big`: number[1, inf] int nonNegZero@proven
+  24:15 binary `2 ** 53 + 1`: number[1, inf] int nonNegZero@proven
+  24:15 binary `2 ** 53`: number[0, inf] int nonNegZero@proven
+  25:3 call `console.log(big /*@proven number*/, N...`: unknown
+  25:3 member `console.log`: unknown
+  25:3 ref `console`: unknown
+  25:15 ref `big`: number[1, inf] int nonNegZero@proven
+  25:39 member `Number.MAX_SAFE_INTEGER`: 9007199254740991@proven
+  25:39 ref `Number`: unknown
+  26:7 bind `i`: 0@proven
+  27:10 binary `i < 10`: boolean@proven
+  27:10 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  28:5 assign `i += 3`: number[3, 12] int nonNaN nonNegZero@proven
+  28:5 ref `i`: number[0, 12] int nonNaN nonNegZero@proven
+  30:3 call `console.log(i /*@proven number int*/)`: unknown
+  30:3 member `console.log`: unknown
+  30:3 ref `console`: unknown
+  30:15 ref `i`: number[10, inf] int nonNaN nonNegZero@proven
+  31:9 bind `remainder`: number[-6, 6] int nonNaN@proven
+  31:21 binary `byte % 7`: number[-6, 6] int nonNaN@proven
+  31:21 ref `byte`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  32:3 call `sink(remainder /*@proven number int*/)`: undefined@proven
+  32:3 ref `sink`: function@proven
+  32:8 ref `remainder`: number[-6, 6] int nonNaN@proven
+  33:9 bind `code`: number[0, 65535] int nonNegZero@proven
+  33:16 call `"abc".charCodeAt(5)`: number[0, 65535] int nonNegZero@proven
+  33:16 member `"abc".charCodeAt`: unknown
+  34:3 call `console.log(code /*@proven number*/, ...`: unknown
+  34:3 member `console.log`: unknown
+  34:3 ref `console`: unknown
+  34:15 ref `code`: number[0, 65535] int nonNegZero@proven
+  34:40 call `Number.isNaN(code)`: boolean@proven
+  34:40 member `Number.isNaN`: unknown
+  34:40 ref `Number`: unknown
+  34:53 ref `code`: number[0, 65535] int nonNegZero@proven

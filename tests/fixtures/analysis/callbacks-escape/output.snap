@@ -1,0 +1,24 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/callbacks-escape
+input_file: tests/fixtures/analysis/callbacks-escape/input.ts
+---
+//- input.ts
+function onValue(value) {
+	console.log(
+		value
+		/*@declared number*/
+	);
+}
+function local(value) {
+	return value * 2;
+}
+export function main() {
+	const handlers = [onValue];
+	// Storing in a local array doesn't leak it...
+	const first = handlers[0];
+	// ...but handing it to an unknown function does.
+	if (typeof register === "function") register(first);
+	queueMicrotask(() => onValue(1));
+	console.log(local(2));
+}

@@ -1,0 +1,84 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/switch-labels
+input_file: tests/fixtures/analysis/switch-labels/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  classify (3:1): pure
+  search (19:1): reads
+  main (33:8) open: reads writes allocates throws calls-unknown
+    calls 34:15 -> classify
+    calls 34:28 -> classify
+    calls 34:42 -> search
+nodes:
+  3:10 bind `classify`: function@proven
+  3:19 bind `n`: number[3, 13] int nonNaN nonNegZero@proven
+  4:7 bind `kind`: string@proven
+  5:11 binary `n % 3`: number[0, 2] int nonNaN nonNegZero@proven
+  5:11 ref `n`: number[3, 13] int nonNaN nonNegZero@proven
+  7:7 assign `kind = "fizz"`: string@proven
+  7:7 ref `kind`: string@proven
+  11:7 assign `kind = n > 10 ? "big" : "small"`: string@proven
+  11:7 ref `kind`: string@proven
+  11:14 cond `n > 10 ? "big" : "small"`: string@proven
+  11:14 binary `n > 10`: boolean@proven
+  11:14 ref `n`: number[3, 13] int nonNaN nonNegZero@proven
+  14:7 assign `kind = "never"`: string@proven
+  14:7 ref `kind`: string@proven
+  16:10 ref `kind`: string@proven
+  19:10 bind `search`: function@proven
+  19:17 bind `grid`: (number[1, 4] int nonNaN nonNegZero)[][]@proven
+  19:35 bind `target`: 3@proven
+  20:7 bind `found`: -1@proven
+  20:15 unary `-1`: -1@proven
+  21:19 bind `row`: 0@proven
+  21:28 binary `row < grid.length`: boolean@proven
+  21:28 ref `row`: number[0, 2] int nonNaN nonNegZero@proven
+  21:34 member `grid.length`: 2@proven
+  21:34 ref `grid`: (number[1, 4] int nonNaN nonNegZero)[][]@proven
+  21:47 unary `row++`: number[0, 1] int nonNaN nonNegZero@proven
+  21:47 ref `row`: number[0, 2] int nonNaN nonNegZero@proven
+  22:14 bind `column`: 0@proven
+  22:26 binary `column < grid[row].length`: boolean@proven
+  22:26 ref `column`: number[0, 2] int nonNaN nonNegZero@proven
+  22:35 member `grid[row].length`: 2@proven
+  22:35 member `grid[row]`: (number[1, 4] int nonNaN nonNegZero)[]@proven in-bounds@proven
+  22:35 ref `grid`: (number[1, 4] int nonNaN nonNegZero)[][]@proven
+  22:40 ref `row`: number[0, 1] int nonNaN nonNegZero@proven
+  22:53 unary `column++`: number[0, 1] int nonNaN nonNegZero@proven
+  22:53 ref `column`: number[0, 2] int nonNaN nonNegZero@proven
+  23:11 binary `grid[row][column] === target`: boolean@proven
+  23:11 member `grid[row][column]`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  23:11 member `grid[row]`: (number[1, 4] int nonNaN nonNegZero)[]@proven in-bounds@proven
+  23:11 ref `grid`: (number[1, 4] int nonNaN nonNegZero)[][]@proven
+  23:16 ref `row`: number[0, 1] int nonNaN nonNegZero@proven
+  23:21 ref `column`: number[0, 1] int nonNaN nonNegZero@proven
+  23:33 ref `target`: 3@proven
+  24:9 assign `found = row * 10 + column`: number[0, 11] int nonNaN nonNegZero@proven
+  24:9 ref `found`: number[0, 11] int nonNaN nonNegZero@proven
+  24:17 binary `row * 10 + column`: number[0, 11] int nonNaN nonNegZero@proven
+  24:17 binary `row * 10`: number[0, 10] int nonNaN nonNegZero@proven
+  24:17 ref `row`: number[0, 1] int nonNaN nonNegZero@proven
+  24:28 ref `column`: number[0, 1] int nonNaN nonNegZero@proven
+  27:11 binary `grid[row][column] < 0`: boolean@proven
+  27:11 member `grid[row][column]`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  27:11 member `grid[row]`: (number[1, 4] int nonNaN nonNegZero)[]@proven in-bounds@proven
+  27:11 ref `grid`: (number[1, 4] int nonNaN nonNegZero)[][]@proven
+  27:16 ref `row`: number[0, 1] int nonNaN nonNegZero@proven
+  27:21 ref `column`: number[0, 1] int nonNaN nonNegZero@proven
+  30:10 ref `found`: number[-1, 11] int nonNaN nonNegZero@proven
+  33:17 bind `main`: function@proven
+  34:3 call `console.log(classify(3), classify(13)...`: unknown
+  34:3 member `console.log`: unknown
+  34:3 ref `console`: unknown
+  34:15 call `classify(3)`: string@proven
+  34:15 ref `classify`: function@proven
+  34:28 call `classify(13)`: string@proven
+  34:28 ref `classify`: function@proven
+  34:42 call `search([[1, 2], [3, 4]], 3)`: number[-1, inf] int nonNaN nonNegZero@proven
+  34:42 ref `search`: function@proven
+  34:49 array `[[1, 2], [3, 4]]`: (number[1, 4] int nonNaN nonNegZero)[][]@proven escape=known stable-shape
+  34:50 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  34:58 array `[3, 4]`: (number[3, 4] int nonNaN nonNegZero)[]@proven escape=known stable-shape

@@ -1,0 +1,34 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/hoisting
+input_file: tests/fixtures/analysis/hoisting/input.ts
+---
+//- input.ts
+// Hoisted `var`s are `undefined` before their assignment; functions are callable early.
+export function main() {
+	console.log(
+		early()
+		/*@proven string*/
+	);
+	console.log(
+		later
+		/*@proven undefined*/
+	);
+	var later = 5;
+	console.log(
+		later
+		/*@proven number int*/
+	);
+	function early() {
+		return "early";
+	}
+	let count = 0;
+	const bump = () => {
+		count += 1;
+	};
+	bump();
+	console.log(
+		count
+		/*@proven number int*/
+	);
+}

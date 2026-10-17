@@ -1,0 +1,58 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/strings
+input_file: tests/fixtures/analysis/strings/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
+nodes:
+  3:17 bind `main`: function@proven
+  4:9 bind `text`: string@proven
+  5:9 bind `upper`: string@proven
+  5:17 call `text.toUpperCase()`: string@proven
+  5:17 member `text.toUpperCase`: unknown
+  5:17 ref `text`: string@proven
+  6:3 call `console.log(upper /*@proven string*/,...`: unknown
+  6:3 member `console.log`: unknown
+  6:3 ref `console`: unknown
+  6:15 ref `upper`: string@proven
+  6:41 member `text.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  6:41 ref `text`: string@proven
+  7:9 bind `index`: number[-1, 9007199254740990] int nonNaN nonNegZero@proven
+  7:17 call `text.indexOf("o")`: number[-1, 9007199254740990] int nonNaN nonNegZero@proven
+  7:17 member `text.indexOf`: unknown
+  7:17 ref `text`: string@proven
+  8:3 call `console.log(index /*@proven number in...`: unknown
+  8:3 member `console.log`: unknown
+  8:3 ref `console`: unknown
+  8:15 ref `index`: number[-1, 9007199254740990] int nonNaN nonNegZero@proven
+  8:45 call `text.charCodeAt(0)`: number[0, 65535] int nonNegZero@proven
+  8:45 member `text.charCodeAt`: unknown
+  8:45 ref `text`: string@proven
+  9:9 bind `parts`: string[]@proven
+  9:17 call `text.split(", ")`: string[]@proven escape=none stable-shape
+  9:17 member `text.split`: unknown
+  9:17 ref `text`: string@proven
+  10:3 call `console.log(parts.length /*@proven nu...`: unknown
+  10:3 member `console.log`: unknown
+  10:3 ref `console`: unknown
+  10:15 member `parts.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  10:15 ref `parts`: string[]@proven
+  10:52 member `text[0]`: undefined | string@proven
+  10:52 ref `text`: string@proven
+  11:9 bind `joined`: string@proven
+  11:18 binary ``${text}!` + 1`: string@proven
+  11:21 ref `text`: string@proven
+  12:3 call `console.log(joined /*@proven string*/)`: unknown
+  12:3 member `console.log`: unknown
+  12:3 ref `console`: unknown
+  12:15 ref `joined`: string@proven
+  13:9 bind `n`: 7@proven
+  14:3 call `console.log(n.toFixed(2) /*@proven st...`: unknown
+  14:3 member `console.log`: unknown
+  14:3 ref `console`: unknown
+  14:15 call `n.toFixed(2)`: string@proven
+  14:15 member `n.toFixed`: unknown
+  14:15 ref `n`: 7@proven

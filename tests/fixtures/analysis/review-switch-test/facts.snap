@@ -1,0 +1,31 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-switch-test
+input_file: tests/fixtures/analysis/review-switch-test/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  sideEffectCase (1:8) open: reads writes allocates throws calls-unknown
+  main (15:8) open: reads writes allocates throws calls-unknown
+    calls 16:15 -> sideEffectCase
+nodes:
+  1:17 bind `sideEffectCase`: function@proven
+  2:7 bind `x`: 1@proven
+  3:7 bind `out`: string@proven
+  5:12 assign `x = "a"`: string@proven
+  5:12 ref `x`: string@proven
+  8:13 bind `seen`: string@proven
+  8:20 ref `x`: string@proven
+  9:7 assign `out = String(seen)`: string@declared
+  9:7 ref `out`: string@declared
+  9:13 call `String(seen)`: string@declared
+  9:13 ref `String`: unknown
+  9:20 ref `seen`: string@proven
+  12:10 ref `out`: string@declared
+  15:17 bind `main`: function@proven
+  16:3 call `console.log(sideEffectCase())`: unknown
+  16:3 member `console.log`: unknown
+  16:3 ref `console`: unknown
+  16:15 call `sideEffectCase()`: string@declared
+  16:15 ref `sideEffectCase`: function@proven

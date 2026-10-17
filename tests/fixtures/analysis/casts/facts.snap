@@ -1,0 +1,65 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/casts
+input_file: tests/fixtures/analysis/casts/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  width (5:1): pure
+  main (10:8) open: reads writes allocates throws calls-unknown
+    calls 23:15 -> width
+nodes:
+  3:18 bind `lookup`: unknown
+  3:25 bind `key`: unknown
+  5:10 bind `width`: function@proven
+  5:16 bind `value`: 5@proven
+  7:10 binary `(value as number) /*@proven number in...`: 10@proven
+  7:11 cast `value as number`: 5@proven
+  7:11 ref `value`: 5@proven
+  10:17 bind `main`: function@proven
+  11:9 bind `s`: string@proven
+  12:9 bind `n`: string@proven
+  12:13 cast `s as unknown as number`: string@proven
+  12:13 cast `s as unknown`: string@proven
+  12:13 ref `s`: string@proven
+  13:3 call `console.log(n /*@proven string*/)`: unknown
+  13:3 member `console.log`: unknown
+  13:3 ref `console`: unknown
+  13:15 ref `n`: string@proven
+  14:9 bind `angle`: string@proven
+  14:17 cast `<number>(<unknown>"3")`: string@proven
+  14:26 cast `<unknown>"3"`: string@proven
+  15:3 call `console.log(angle /*@proven string*/)`: unknown
+  15:3 member `console.log`: unknown
+  15:3 ref `console`: unknown
+  15:15 ref `angle`: string@proven
+  17:9 bind `maybe`: undefined | string@proven
+  17:37 cond `Math.random() > 2 ? "x" : undefined`: undefined | string@proven
+  17:37 binary `Math.random() > 2`: boolean@proven
+  17:37 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
+  17:37 member `Math.random`: unknown
+  17:37 ref `Math`: unknown
+  17:63 ref `undefined`: undefined@proven
+  19:3 call `console.log(maybe! /*@proven union*/)`: unknown
+  19:3 member `console.log`: unknown
+  19:3 ref `console`: unknown
+  19:15 non-null `maybe!`: undefined | string@proven
+  19:15 ref `maybe`: undefined | string@proven
+  21:9 bind `point`: {| x: 1 |}@proven
+  21:17 object `{ x: 1 }`: {| x: 1 |}@proven escape=none stable-shape
+  22:3 call `console.log(point.x /*@proven number ...`: unknown
+  22:3 member `console.log`: unknown
+  22:3 ref `console`: unknown
+  22:15 member `point.x`: 1@proven
+  22:15 ref `point`: {| x: 1 |}@proven
+  23:3 call `console.log(width(5))`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 call `width(5)`: 10@proven
+  23:15 ref `width`: function@proven
+  24:3 call `console.log(typeof lookup)`: unknown
+  24:3 member `console.log`: unknown
+  24:3 ref `console`: unknown
+  24:15 unary `typeof lookup`: string@proven
+  24:22 ref `lookup`: function@declared

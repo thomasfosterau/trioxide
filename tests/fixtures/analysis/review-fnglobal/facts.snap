@@ -1,0 +1,38 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-fnglobal
+input_file: tests/fixtures/analysis/review-fnglobal/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  patch (1:1): reads writes allocates throws calls-unknown
+  <anonymous> (3:18) open: pure
+  use (5:1): reads writes allocates throws calls-unknown
+  main (8:8) open: reads writes allocates throws calls-unknown
+    calls 9:3 -> patch
+    calls 10:15 -> use
+nodes:
+  1:10 bind `patch`: function@proven
+  2:9 bind `g`: unknown
+  2:18 call `Function("return this")()`: unknown
+  2:18 call `Function("return this")`: unknown
+  2:18 ref `Function`: unknown
+  3:3 assign `g.Math.floor = () => "patched"`: function@proven
+  3:3 member `g.Math.floor`: unknown
+  3:3 member `g.Math`: unknown
+  3:3 ref `g`: unknown
+  5:10 bind `use`: function@proven
+  5:14 bind `x`: 1.5@proven
+  6:10 call `Math.floor(x)`: number@declared
+  6:10 member `Math.floor`: unknown
+  6:10 ref `Math`: unknown
+  6:21 ref `x`: 1.5@proven
+  8:17 bind `main`: function@proven
+  9:3 call `patch()`: undefined@proven
+  9:3 ref `patch`: function@proven
+  10:3 call `console.log(use(1.5))`: unknown
+  10:3 member `console.log`: unknown
+  10:3 ref `console`: unknown
+  10:15 call `use(1.5)`: number@declared
+  10:15 ref `use`: function@proven

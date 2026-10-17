@@ -1,0 +1,34 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/recursion
+input_file: tests/fixtures/analysis/recursion/input.ts
+---
+//- input.ts
+// Recursion and mutual recursion: summaries over strongly connected components.
+function fib(n) {
+	return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+function isEven(n) {
+	return n === 0 ? true : isOdd(n - 1);
+}
+function isOdd(n) {
+	return n === 0 ? false : isEven(n - 1);
+}
+function sum(list) {
+	return list === null ? 0 : list.value + sum(list.next);
+}
+export function main() {
+	const list = {
+		value: 1,
+		next: {
+			value: 2,
+			next: null
+		}
+	};
+	console.log(
+		fib(10),
+		isEven(4),
+		sum(list)
+		/*@proven number*/
+	);
+}

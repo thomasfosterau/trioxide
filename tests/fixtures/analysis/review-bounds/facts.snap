@@ -1,0 +1,412 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-bounds
+input_file: tests/fixtures/analysis/review-bounds/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  lenAssign (1:1): reads writes
+  alias (6:1): reads writes
+  splice (12:1): reads writes allocates throws calls-unknown
+  modI (17:1): reads
+  le (22:1): reads
+  frac (27:1): reads
+  neg (32:1): reads
+  shrinkShared (38:1): reads writes
+  viaCall (39:1): reads writes
+    calls 41:45 -> shrinkShared
+  cb (44:1): reads writes allocates throws
+    calls 46:40 -> <anonymous>
+  <anonymous> (46:52): reads writes
+  str (49:1): reads throws calls-unknown (declared: reads throws)
+  detach (54:1): reads writes allocates throws calls-unknown
+  sub (59:1): reads allocates
+  whileLoop (65:1): reads writes
+  reassign (70:1): reads
+  setLen (75:1): reads writes
+  main (80:8) open: reads writes allocates throws calls-unknown
+    calls 81:15 -> lenAssign
+    calls 81:37 -> alias
+    calls 81:55 -> splice
+    calls 81:74 -> modI
+    calls 81:91 -> le
+    calls 82:5 -> frac
+    calls 82:22 -> neg
+    calls 82:38 -> viaCall
+    calls 82:49 -> cb
+    calls 82:64 -> str
+    calls 82:76 -> sub
+    calls 83:5 -> whileLoop
+    calls 83:27 -> reassign
+    calls 83:45 -> setLen
+    calls 83:61 -> detach
+nodes:
+  1:10 bind `lenAssign`: function@proven
+  1:20 bind `a`: unknown[]@proven
+  2:7 bind `t`: 0@proven
+  3:12 bind `i`: 0@proven
+  3:19 binary `i < a.length`: boolean@proven
+  3:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  3:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  3:23 ref `a`: unknown[]@proven
+  3:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  3:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  3:40 assign `a.length = 0`: 0@proven
+  3:40 member `a.length`: unknown
+  3:40 ref `a`: unknown[]@proven
+  3:54 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  3:54 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  3:59 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  3:59 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  3:59 ref `a`: unknown[]@proven
+  3:61 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  4:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  6:10 bind `alias`: function@proven
+  6:16 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  7:9 bind `b`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  7:13 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  8:7 bind `t`: 0@proven
+  9:12 bind `i`: 0@proven
+  9:19 binary `i < a.length`: boolean@proven
+  9:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  9:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  9:23 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  9:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  9:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  9:40 call `b.pop()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  9:40 member `b.pop`: unknown
+  9:40 ref `b`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  9:49 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  9:49 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  9:54 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  9:54 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  9:54 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  9:56 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  10:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  12:10 bind `splice`: function@proven
+  12:17 bind `a`: unknown[]@proven
+  13:7 bind `t`: 0@proven
+  14:12 bind `i`: 0@proven
+  14:19 binary `i < a.length`: boolean@proven
+  14:19 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  14:23 member `a.length`: number@declared
+  14:23 ref `a`: unknown[]@proven
+  14:33 unary `i++`: number[0, inf] int nonNaN nonNegZero@declared
+  14:33 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  14:40 call `a.splice(0, 1)`: unknown
+  14:40 member `a.splice`: unknown
+  14:40 ref `a`: unknown[]@proven
+  14:56 assign `t += a[i] ?? 0`: number nonNegZero@declared
+  14:56 ref `t`: number nonNegZero@declared
+  14:61 binary `a[i] ?? 0`: number@declared
+  14:61 member `a[i]`: number@declared
+  14:61 ref `a`: unknown[]@proven
+  14:63 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  15:10 ref `t`: number nonNegZero@declared
+  17:10 bind `modI`: function@proven
+  17:15 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  18:7 bind `t`: 0@proven
+  19:12 bind `i`: 0@proven
+  19:19 binary `i < a.length`: boolean@proven
+  19:19 ref `i`: number[0, 4] int nonNaN nonNegZero@proven
+  19:23 member `a.length`: 3@proven
+  19:23 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  19:33 unary `i++`: number[1, 3] int nonNaN nonNegZero@proven
+  19:33 ref `i`: number[1, 4] int nonNaN nonNegZero@proven
+  19:40 assign `i += 1`: number[1, 3] int nonNaN nonNegZero@proven
+  19:40 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  19:48 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  19:48 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  19:53 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  19:53 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  19:53 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  19:55 ref `i`: number[1, 3] int nonNaN nonNegZero@proven
+  20:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  22:10 bind `le`: function@proven
+  22:13 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  23:7 bind `t`: 0@proven
+  24:12 bind `i`: 0@proven
+  24:19 binary `i <= a.length`: boolean@proven
+  24:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  24:24 member `a.length`: 3@proven
+  24:24 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  24:34 unary `i++`: number[0, 3] int nonNaN nonNegZero@proven
+  24:34 ref `i`: number[0, 4] int nonNaN nonNegZero@proven
+  24:41 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  24:41 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  24:46 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  24:46 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  24:46 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  24:48 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  25:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  27:10 bind `frac`: function@proven
+  27:15 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  28:7 bind `t`: 0@proven
+  29:12 bind `i`: 0.5@proven
+  29:21 binary `i < a.length`: boolean@proven
+  29:21 ref `i`: number[0.5, inf] nonNaN nonNegZero@proven
+  29:25 member `a.length`: 3@proven
+  29:25 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  29:35 unary `i++`: number[0.5, 3] nonNaN nonNegZero@proven
+  29:35 ref `i`: number[0.5, 4] nonNaN nonNegZero@proven
+  29:42 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  29:42 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  29:47 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  29:47 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  29:47 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  29:49 ref `i`: number[0.5, 3] nonNaN nonNegZero@proven
+  30:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  32:10 bind `neg`: function@proven
+  32:14 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  33:7 bind `t`: 0@proven
+  34:12 bind `i`: -2@proven
+  34:16 unary `-2`: -2@proven
+  34:20 binary `i < a.length`: boolean@proven
+  34:20 ref `i`: number[-2, inf] int nonNaN nonNegZero@proven
+  34:24 member `a.length`: 3@proven
+  34:24 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  34:34 unary `i++`: number[-2, 2] int nonNaN nonNegZero@proven
+  34:34 ref `i`: number[-2, 3] int nonNaN nonNegZero@proven
+  34:41 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  34:41 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  34:46 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  34:46 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  34:46 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  34:48 ref `i`: number[-2, 2] int nonNaN nonNegZero@proven
+  35:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  37:5 bind `shared`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  37:24 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  38:10 bind `shrinkShared`: function@proven
+  38:33 call `shared.pop()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  38:33 member `shared.pop`: unknown
+  38:33 ref `shared`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  39:10 bind `viaCall`: function@proven
+  40:7 bind `t`: 0@proven
+  41:12 bind `i`: 0@proven
+  41:19 binary `i < shared.length`: boolean@proven
+  41:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  41:23 member `shared.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  41:23 ref `shared`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  41:38 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  41:38 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  41:45 call `shrinkShared()`: undefined@proven
+  41:45 ref `shrinkShared`: function@proven
+  41:61 assign `t += shared[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  41:61 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  41:66 binary `shared[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  41:66 member `shared[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  41:66 ref `shared`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  41:73 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  42:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  44:10 bind `cb`: function@proven
+  44:13 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  45:7 bind `t`: 0@proven
+  46:12 bind `i`: 0@proven
+  46:19 binary `i < a.length`: boolean@proven
+  46:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  46:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  46:23 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  46:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  46:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  46:40 call `[0].forEach(() => { a.pop(); })`: undefined@proven
+  46:40 member `[0].forEach`: unknown
+  46:40 array `[0]`: 0[]@proven escape=known stable-shape
+  46:60 call `a.pop()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  46:60 member `a.pop`: unknown
+  46:60 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  46:73 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  46:73 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  46:78 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  46:78 member `a[i]`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  46:78 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  46:80 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  47:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  49:10 bind `str`: function@proven
+  49:14 bind `s`: string@proven
+  50:7 bind `t`: 0@proven
+  51:12 bind `i`: 0@proven
+  51:19 binary `i < s.length`: boolean@proven
+  51:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  51:23 member `s.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  51:23 ref `s`: string@proven
+  51:33 unary `i++`: number[0, 9007199254740990] int nonNaN nonNegZero@proven
+  51:33 ref `i`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  51:40 assign `t += s.charCodeAt(i)`: number nonNegZero@declared
+  51:40 ref `t`: number nonNegZero@declared
+  51:45 call `s.charCodeAt(i)`: number[0, 65535] int nonNegZero@proven
+  51:45 member `s.charCodeAt`: unknown
+  51:45 ref `s`: string@proven
+  51:58 ref `i`: number[0, 9007199254740990] int nonNaN nonNegZero@proven
+  51:68 bind `c`: undefined | string@proven
+  51:72 member `s[i]`: undefined | string@proven
+  51:72 ref `s`: string@proven
+  51:74 ref `i`: number[0, 9007199254740990] int nonNaN nonNegZero@proven
+  51:78 assign `t += c.length`: number nonNegZero@declared
+  51:78 ref `t`: number nonNegZero@declared
+  51:83 member `c.length`: number@declared
+  51:83 ref `c`: undefined | string@proven
+  52:10 ref `t`: number nonNegZero@declared
+  54:10 bind `detach`: function@proven
+  54:17 bind `a`: Float64Array@proven
+  54:20 ref `Float64Array`: unknown
+  55:7 bind `t`: 0@proven
+  56:12 bind `i`: 0@proven
+  56:19 binary `i < a.length`: boolean@proven
+  56:19 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  56:23 member `a.length`: number@declared
+  56:23 ref `a`: Float64Array@proven
+  56:33 unary `i++`: number[0, inf] int nonNaN nonNegZero@declared
+  56:33 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  56:44 binary `i === 1`: boolean@proven
+  56:44 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  56:53 call `structuredClone(a.buffer, { transfer:...`: unknown
+  56:53 ref `structuredClone`: function@declared
+  56:69 member `a.buffer`: unknown
+  56:69 ref `a`: Float64Array@proven
+  56:79 object `{ transfer: [a.buffer] }`: object@proven escape=unknown
+  56:91 array `[a.buffer]`: unknown[]@proven escape=unknown
+  56:92 member `a.buffer`: unknown
+  56:92 ref `a`: Float64Array@proven
+  56:106 assign `t += a[i] ?? 0`: number nonNegZero@declared
+  56:106 ref `t`: number nonNegZero@declared
+  56:111 binary `a[i] ?? 0`: number@declared
+  56:111 member `a[i]`: number@declared
+  56:111 ref `a`: Float64Array@proven
+  56:113 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  57:10 ref `t`: number nonNegZero@declared
+  59:10 bind `sub`: function@proven
+  59:14 bind `a`: Float64Array@proven
+  59:17 ref `Float64Array`: unknown
+  60:7 bind `t`: 0@proven
+  61:9 bind `s`: Float64Array@proven
+  61:13 call `a.subarray(0, 2)`: Float64Array@proven escape=none
+  61:13 member `a.subarray`: unknown
+  61:13 ref `a`: Float64Array@proven
+  62:12 bind `i`: 0@proven
+  62:19 binary `i < a.length`: boolean@proven
+  62:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  62:23 member `a.length`: 4@proven
+  62:23 ref `a`: Float64Array@proven
+  62:33 unary `i++`: number[0, 3] int nonNaN nonNegZero@proven
+  62:33 ref `i`: number[0, 4] int nonNaN nonNegZero@proven
+  62:40 assign `t += s[i] ?? 0`: number nonNegZero@proven
+  62:40 ref `t`: number nonNegZero@proven
+  62:45 binary `s[i] ?? 0`: number@proven
+  62:45 member `s[i]`: undefined | number@proven
+  62:45 ref `s`: Float64Array@proven
+  62:47 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  63:10 ref `t`: number nonNegZero@proven
+  65:10 bind `whileLoop`: function@proven
+  65:20 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  66:7 bind `t`: 0@proven
+  66:18 bind `i`: 0@proven
+  67:10 binary `i < a.length`: boolean@proven
+  67:10 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  67:14 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  67:14 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  67:26 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  67:26 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  67:31 binary `a[i] ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  67:31 member `a[i]`: number[1, 3] int nonNaN nonNegZero@proven in-bounds@proven
+  67:31 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  67:33 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  67:42 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  67:42 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  67:47 call `a.shift()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  67:47 member `a.shift`: unknown
+  67:47 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  68:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  70:10 bind `reassign`: function@proven
+  70:19 bind `a`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  71:7 bind `t`: 0@proven
+  72:12 bind `i`: 0@proven
+  72:19 binary `i < a.length`: boolean@proven
+  72:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  72:23 member `a.length`: number[0, 2] int nonNaN nonNegZero@proven
+  72:23 ref `a`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  72:33 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  72:33 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  72:40 assign `a = []`: never[]@proven
+  72:40 ref `a`: never[]@proven
+  72:44 array `[]`: never[]@proven escape=none stable-shape
+  72:48 assign `t += a[i] ?? 0`: 0@proven
+  72:48 ref `t`: 0@proven
+  72:53 binary `a[i] ?? 0`: 0@proven
+  72:53 member `a[i]`: undefined@proven
+  72:53 ref `a`: never[]@proven
+  72:55 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  73:10 ref `t`: 0@proven
+  75:10 bind `setLen`: function@proven
+  75:17 bind `a`: unknown[]@proven
+  76:7 bind `t`: 0@proven
+  76:20 bind `o`: {| a: unknown[] |}@proven
+  76:24 object `{ a }`: {| a: unknown[] |}@proven escape=none stable-shape
+  76:26 ref `a`: unknown[]@proven
+  77:12 bind `i`: 0@proven
+  77:19 binary `i < a.length`: boolean@proven
+  77:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  77:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  77:23 ref `a`: unknown[]@proven
+  77:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  77:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  77:40 assign `o.a.length = 0`: 0@proven
+  77:40 member `o.a.length`: unknown
+  77:40 member `o.a`: unknown[]@proven
+  77:40 ref `o`: {| a: unknown[] |}@proven
+  77:56 assign `t += a[i] ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  77:56 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  77:61 binary `a[i] ?? 0`: number[0, 2] int nonNaN nonNegZero@proven
+  77:61 member `a[i]`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  77:61 ref `a`: unknown[]@proven
+  77:63 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  78:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  80:17 bind `main`: function@proven
+  81:3 call `console.log(lenAssign([1, 2, 3]), ali...`: unknown
+  81:3 member `console.log`: unknown
+  81:3 ref `console`: unknown
+  81:15 call `lenAssign([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  81:15 ref `lenAssign`: function@proven
+  81:25 array `[1, 2, 3]`: unknown[]@proven escape=known stable-shape
+  81:37 call `alias([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  81:37 ref `alias`: function@proven
+  81:43 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  81:55 call `splice([1, 2, 3])`: number nonNegZero@declared
+  81:55 ref `splice`: function@proven
+  81:62 array `[1, 2, 3]`: unknown[]@proven escape=unknown
+  81:74 call `modI([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  81:74 ref `modI`: function@proven
+  81:79 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  81:91 call `le([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  81:91 ref `le`: function@proven
+  81:94 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  82:5 call `frac([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  82:5 ref `frac`: function@proven
+  82:10 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  82:22 call `neg([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  82:22 ref `neg`: function@proven
+  82:26 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  82:38 call `viaCall()`: number[0, inf] int nonNaN nonNegZero@proven
+  82:38 ref `viaCall`: function@proven
+  82:49 call `cb([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  82:49 ref `cb`: function@proven
+  82:52 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  82:64 call `str("abc")`: number nonNegZero@declared
+  82:64 ref `str`: function@proven
+  82:76 call `sub(new Float64Array(4))`: number nonNegZero@proven
+  82:76 ref `sub`: function@proven
+  82:80 new `new Float64Array(4)`: Float64Array@proven escape=known
+  82:84 ref `Float64Array`: unknown
+  83:5 call `whileLoop([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  83:5 ref `whileLoop`: function@proven
+  83:15 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  83:27 call `reassign([1, 2])`: 0@proven
+  83:27 ref `reassign`: function@proven
+  83:36 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  83:45 call `setLen([1, 2])`: number[0, inf] int nonNaN nonNegZero@proven
+  83:45 ref `setLen`: function@proven
+  83:52 array `[1, 2]`: unknown[]@proven escape=known stable-shape
+  83:61 call `detach(new Float64Array(3))`: number nonNegZero@declared
+  83:61 ref `detach`: function@proven
+  83:68 new `new Float64Array(3)`: Float64Array@proven escape=unknown
+  83:72 ref `Float64Array`: unknown

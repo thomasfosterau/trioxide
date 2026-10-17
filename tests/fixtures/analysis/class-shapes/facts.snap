@@ -1,0 +1,124 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/class-shapes
+input_file: tests/fixtures/analysis/class-shapes/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Point.<fields> (3:13): pure
+  Point.constructor (6:14): writes
+  Point.norm (10:7): reads
+  Grows.<fields> (15:13): writes
+  Grows.constructor (17:14): reads writes allocates throws calls-unknown
+    calls 18:5 -> Grows.setup
+  Grows.setup (20:8): reads writes allocates throws calls-unknown
+  Grows.extend (24:9): writes
+  Shrinks.<fields> (29:15): writes
+  Shrinks.clear (31:8): writes
+  WithParams.<fields> (36:18): pure
+  WithParams.constructor (37:14): writes
+  WithParams.describe (38:11): reads
+  main (43:8) open: reads writes allocates throws calls-unknown
+    calls 44:13 -> Point.<fields>
+    calls 44:13 -> Point.constructor
+    calls 45:15 -> Point.norm
+    calls 46:13 -> Grows.<fields>
+    calls 46:13 -> Grows.constructor
+    calls 47:3 -> Grows.extend
+    calls 48:13 -> Shrinks.<fields>
+    calls 49:3 -> Shrinks.clear
+    calls 51:15 -> WithParams.describe
+    calls 51:15 -> WithParams.<fields>
+    calls 51:15 -> WithParams.constructor
+classes:
+  Point (3:1): fields [x, y] stable
+  Grows (15:1): fields [a] added later [b]
+  Shrinks (29:1): fields [value] deletes
+  WithParams (36:1): fields [id, label] stable
+nodes:
+  3:7 bind `Point`: function@proven
+  6:15 bind `x`: 3@proven
+  6:26 bind `y`: 4@proven
+  7:5 assign `this.x = x`: 3@proven
+  7:5 member `this.x`: unknown
+  7:5 this `this`: Point@proven
+  7:14 ref `x`: 3@proven
+  8:5 assign `this.y = y`: 4@proven
+  8:5 member `this.y`: unknown
+  8:5 this `this`: Point@proven
+  8:14 ref `y`: 4@proven
+  11:12 call `Math.sqrt(this.x /*@proven number*/ *...`: 5@proven
+  11:12 member `Math.sqrt`: unknown
+  11:12 ref `Math`: unknown
+  11:22 binary `this.x /*@proven number*/ * this.x + ...`: 25@proven
+  11:22 binary `this.x /*@proven number*/ * this.x`: 9@proven
+  11:22 member `this.x`: 3@proven
+  11:22 this `this`: Point@proven
+  11:50 member `this.x`: 3@proven
+  11:50 this `this`: Point@proven
+  11:59 binary `this.y * this.y`: 16@proven
+  11:59 member `this.y`: 4@proven
+  11:59 this `this`: Point@proven
+  11:68 member `this.y`: 4@proven
+  11:68 this `this`: Point@proven
+  15:7 bind `Grows`: function@proven
+  18:5 call `this.setup()`: undefined@proven
+  18:5 member `this.setup`: function@proven
+  18:5 this `this`: Grows@proven
+  22:5 call `console.log(this.a /*@proven number i...`: unknown
+  22:5 member `console.log`: unknown
+  22:5 ref `console`: unknown
+  22:17 member `this.a`: 1@proven
+  22:17 this `this`: Grows@proven
+  25:5 assign `(this as any).b = 2`: 2@proven
+  25:5 member `(this as any).b`: unknown
+  25:6 cast `this as any`: Grows@proven
+  25:6 this `this`: Grows@proven
+  29:7 bind `Shrinks`: function@proven
+  32:5 unary `delete this.value`: boolean@proven
+  32:12 member `this.value`: unknown
+  32:12 this `this`: Shrinks@proven
+  36:7 bind `WithParams`: function@proven
+  37:31 bind `id`: 7@proven
+  37:51 bind `label`: string@proven
+  39:15 member `this.id`: 7@proven
+  39:15 this `this`: WithParams@proven
+  39:49 member `this.label`: string@proven
+  39:49 this `this`: WithParams@proven
+  43:17 bind `main`: function@proven
+  44:9 bind `p`: Point@proven
+  44:13 new `new Point(3, 4)`: Point@proven escape=known
+  44:17 ref `Point`: function@proven
+  45:3 call `console.log(p.norm(), p.x /*@proven n...`: unknown
+  45:3 member `console.log`: unknown
+  45:3 ref `console`: unknown
+  45:15 call `p.norm()`: number[0, inf]@proven
+  45:15 member `p.norm`: function@proven
+  45:15 ref `p`: Point@proven
+  45:25 member `p.x`: 3@proven
+  45:25 ref `p`: Point@proven
+  46:9 bind `g`: Grows@proven
+  46:13 new `new Grows()`: Grows@proven escape=known
+  46:17 ref `Grows`: function@proven
+  47:3 call `g.extend()`: undefined@proven
+  47:3 member `g.extend`: function@proven
+  47:3 ref `g`: Grows@proven
+  48:9 bind `s`: Shrinks@proven
+  48:13 new `new Shrinks()`: Shrinks@proven escape=known
+  48:17 ref `Shrinks`: function@proven
+  49:3 call `s.clear()`: undefined@proven
+  49:3 member `s.clear`: function@proven
+  49:3 ref `s`: Shrinks@proven
+  50:3 call `console.log(s.value /*@proven union*/)`: unknown
+  50:3 member `console.log`: unknown
+  50:3 ref `console`: unknown
+  50:15 member `s.value`: undefined | 1@proven
+  50:15 ref `s`: Shrinks@proven
+  51:3 call `console.log(new WithParams(7, "seven"...`: unknown
+  51:3 member `console.log`: unknown
+  51:3 ref `console`: unknown
+  51:15 call `new WithParams(7, "seven").describe()`: string@proven
+  51:15 member `new WithParams(7, "seven").describe`: function@proven
+  51:15 new `new WithParams(7, "seven")`: WithParams@proven escape=known
+  51:19 ref `WithParams`: function@proven

@@ -1,0 +1,34 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/json
+input_file: tests/fixtures/analysis/json/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (7:8) open: reads writes allocates throws calls-unknown
+nodes:
+  3:11 bind `Settings`: unknown
+  7:17 bind `main`: function@proven
+  8:9 bind `settings`: { width: number }@declared
+  8:19 ref `Settings`: unknown
+  8:30 call `JSON.parse('{"width": "wide"}')`: unknown
+  8:30 member `JSON.parse`: unknown
+  8:30 ref `JSON`: unknown
+  10:3 call `console.log(settings.width /*@declare...`: unknown
+  10:3 member `console.log`: unknown
+  10:3 ref `console`: unknown
+  10:15 member `settings.width`: number@declared
+  10:15 ref `settings`: { width: number }@declared
+  10:52 unary `typeof settings.width`: string@proven
+  10:59 member `settings.width`: number@declared
+  10:59 ref `settings`: { width: number }@declared
+  11:9 bind `text`: string@declared
+  11:16 call `JSON.stringify({ a: 1 })`: string@declared
+  11:16 member `JSON.stringify`: unknown
+  11:16 ref `JSON`: unknown
+  11:31 object `{ a: 1 }`: object@proven escape=unknown
+  12:3 call `console.log(text /*@declared string*/)`: unknown
+  12:3 member `console.log`: unknown
+  12:3 ref `console`: unknown
+  12:15 ref `text`: string@declared

@@ -1,0 +1,44 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/open-world
+input_file: tests/fixtures/analysis/open-world/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  scale (4:8) open: throws calls-unknown (declared: pure)
+  helper (9:1): pure
+  bump (16:8) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
+  main (22:8) open: reads writes allocates throws calls-unknown
+    calls 23:15 -> scale
+    calls 23:28 -> helper
+    calls 23:40 -> bump
+nodes:
+  4:17 bind `scale`: function@proven
+  4:23 bind `value`: number@declared
+  4:38 bind `factor`: number@declared
+  6:10 binary `value /*@declared number*/ * factor`: number@declared
+  6:10 ref `value`: number@declared
+  6:39 ref `factor`: number@declared
+  9:10 bind `helper`: function@proven
+  9:17 bind `value`: 41@proven
+  11:10 binary `value /*@proven number int*/ + 1`: 42@proven
+  11:10 ref `value`: 41@proven
+  14:14 bind `shared`: object@proven
+  14:23 object `{ count: 0 }`: object@proven escape=unknown
+  16:17 bind `bump`: function@proven
+  17:3 unary `shared.count++`: number@declared
+  17:3 member `shared.count`: unknown
+  17:3 ref `shared`: object@proven
+  19:10 member `shared.count`: number@declared
+  19:10 ref `shared`: object@proven
+  22:17 bind `main`: function@proven
+  23:3 call `console.log(scale(2, 3), helper(41), ...`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 call `scale(2, 3)`: number@declared
+  23:15 ref `scale`: function@proven
+  23:28 call `helper(41)`: 42@proven
+  23:28 ref `helper`: function@proven
+  23:40 call `bump()`: number@declared
+  23:40 ref `bump`: function@proven

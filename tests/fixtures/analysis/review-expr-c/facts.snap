@@ -1,0 +1,135 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-expr-c
+input_file: tests/fixtures/analysis/review-expr-c/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  pollute (2:1): reads writes allocates throws calls-unknown
+  readExtra (7:1): reads writes allocates throws calls-unknown
+  oddKeys (14:1): reads writes allocates throws calls-unknown
+  tag (22:1): reads writes allocates throws calls-unknown
+  SetOnly.<fields> (30:15): pure
+  SetOnly.v (31:8): reads writes allocates throws calls-unknown
+  Box.<fields> (38:11): writes
+  Box.constructor (40:14): pure
+  plus (46:1) open: throws calls-unknown (declared: pure)
+  main (51:8) open: reads writes allocates throws calls-unknown
+    calls 52:3 -> pollute
+    calls 53:3 -> readExtra
+    calls 54:3 -> oddKeys
+    calls 55:3 -> tag
+    calls 56:13 -> SetOnly.<fields>
+    calls 59:13 -> Box.<fields>
+    calls 59:13 -> Box.constructor
+classes:
+  SetOnly (30:1): fields [] stable
+  Box (38:1): fields [v] stable
+nodes:
+  2:10 bind `pollute`: function@proven
+  3:9 bind `proto`: unknown
+  3:17 call `Object.getPrototypeOf({})`: unknown
+  3:17 member `Object.getPrototypeOf`: unknown
+  3:17 ref `Object`: unknown
+  3:39 object `{}`: object@proven escape=unknown
+  4:3 assign `proto.extra = "polluted"`: string@proven
+  4:3 member `proto.extra`: unknown
+  4:3 ref `proto`: unknown
+  7:10 bind `readExtra`: function@proven
+  8:9 bind `o`: {| a: 1 |}@proven
+  8:44 object `{ a: 1 }`: {| a: 1 |}@proven escape=none stable-shape
+  9:9 bind `e`: undefined | number@declared
+  9:13 member `o.extra`: undefined | number@declared
+  9:13 ref `o`: {| a: 1 |}@proven
+  10:3 call `console.log(e)`: unknown
+  10:3 member `console.log`: unknown
+  10:3 ref `console`: unknown
+  10:15 ref `e`: undefined | number@declared
+  14:10 bind `oddKeys`: function@proven
+  15:9 bind `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  15:13 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  16:9 bind `k`: unknown
+  16:13 member `a["01"]`: unknown
+  16:13 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  17:9 bind `p`: unknown
+  17:13 member `a["+1"]`: unknown
+  17:13 ref `a`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  18:3 call `console.log(k, p)`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 ref `k`: unknown
+  18:18 ref `p`: unknown
+  22:10 bind `tag`: function@proven
+  22:14 bind `strings`: string[]@proven
+  22:23 ref `TemplateStringsArray`: unknown
+  22:48 bind `values`: 1[]@proven
+  23:9 bind `first`: string@proven
+  23:17 member `strings[0]`: string@proven
+  23:17 ref `strings`: string[]@proven
+  24:9 bind `n`: 2@proven
+  24:13 member `strings.length`: 2@proven
+  24:13 ref `strings`: string[]@proven
+  25:3 call `console.log(first, n, values.length)`: unknown
+  25:3 member `console.log`: unknown
+  25:3 ref `console`: unknown
+  25:15 ref `first`: string@proven
+  25:22 ref `n`: 2@proven
+  25:25 member `values.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  25:25 ref `values`: 1[]@proven
+  30:7 bind `SetOnly`: function@proven
+  31:9 bind `x`: never@proven
+  32:5 call `console.log(x)`: unknown
+  32:5 member `console.log`: unknown
+  32:5 ref `console`: unknown
+  32:17 ref `x`: never@proven
+  37:7 bind `decoy`: {| v: number[2, 7] int nonNaN nonNegZero |}@proven
+  37:15 object `{ v: 2 }`: {| v: number[2, 7] int nonNaN nonNegZero |}@proven escape=known stable-shape
+  38:7 bind `Box`: function@proven
+  41:12 ref `decoy`: {| v: number[2, 7] int nonNaN nonNegZero |}@proven
+  46:10 bind `plus`: function@proven
+  46:15 bind `x`: number[1, 2] int nonNaN nonNegZero@declared
+  47:9 bind `y`: number@proven
+  47:13 unary `+x`: number@proven
+  47:14 ref `x`: number[1, 2] int nonNaN nonNegZero@declared
+  48:10 ref `y`: number@proven
+  51:17 bind `main`: function@proven
+  52:3 call `pollute()`: undefined@proven
+  52:3 ref `pollute`: function@proven
+  53:3 call `readExtra()`: undefined@proven
+  53:3 ref `readExtra`: function@proven
+  54:3 call `oddKeys()`: undefined@proven
+  54:3 ref `oddKeys`: function@proven
+  55:3 ref `tag`: function@proven
+  56:9 bind `s`: SetOnly@proven
+  56:13 new `new SetOnly()`: SetOnly@proven escape=none
+  56:17 ref `SetOnly`: function@proven
+  57:9 bind `r`: undefined@proven
+  57:13 member `s.v`: undefined@proven
+  57:13 ref `s`: SetOnly@proven
+  58:3 call `console.log(r)`: unknown
+  58:3 member `console.log`: unknown
+  58:3 ref `console`: unknown
+  58:15 ref `r`: undefined@proven
+  59:9 bind `b`: {| v: number[2, 7] int nonNaN nonNegZero |} | Box@proven
+  59:13 new `new Box()`: {| v: number[2, 7] int nonNaN nonNegZero |} | Box@proven escape=known
+  59:17 ref `Box`: function@proven
+  60:3 assign `b.v = 7`: 7@proven
+  60:3 member `b.v`: unknown
+  60:3 ref `b`: {| v: number[2, 7] int nonNaN nonNegZero |} | Box@proven
+  61:9 bind `dv`: number[2, 7] int nonNaN nonNegZero@proven
+  61:14 member `decoy.v`: number[2, 7] int nonNaN nonNegZero@proven
+  61:14 ref `decoy`: {| v: number[2, 7] int nonNaN nonNegZero |}@proven
+  62:3 call `console.log(dv)`: unknown
+  62:3 member `console.log`: unknown
+  62:3 ref `console`: unknown
+  62:15 ref `dv`: number[2, 7] int nonNaN nonNegZero@proven
+  63:3 assign `(globalThis as any).plus = plus`: function@proven
+  63:3 member `(globalThis as any).plus`: unknown
+  63:4 cast `globalThis as any`: unknown
+  63:4 ref `globalThis`: unknown
+  63:30 ref `plus`: function@proven
+  64:3 call `(globalThis as any).plus("7")`: unknown
+  64:3 member `(globalThis as any).plus`: unknown
+  64:4 cast `globalThis as any`: unknown
+  64:4 ref `globalThis`: unknown

@@ -18,7 +18,7 @@ These shape everything else. All of them are agreed.
 | # | Decision | Choice |
 |---|----------|--------|
 | D1 | **How far to trust TS types** | TS types are unsound (`any`, `as`, bivariance, unchecked indexing), even when the checker computes them correctly. Every fact has a trust level: `Proven` (from literals, flow, or a TS type with no unsound construct feeding it), `Declared` (a TS type that rests on an annotation, cast, `any` or an open-world boundary), or `Unknown`. By default, passes that change semantics when wrong need `Proven`. `trustTypes: true` lets `Declared` count as proof. |
-| D2 | **World assumption** | `app` mode (closed world: the whole module graph is visible and exports are only used internally, as in a Vite app build) vs `library` mode (open world: exported signatures are `Declared` at best). Vite builds default to `app`; the CLI defaults to `library` unless entries are given. |
+| D2 | **World assumption** | `app` mode (closed world: the whole module graph is visible and exports are only used internally, as in a Vite app build — except the entry modules' exports and what they re-export, which the host calls) vs `library` mode (open world: exported signatures are `Declared` at best). Vite builds default to `app`; the CLI defaults to `library` unless entries are given. |
 | D3 | **Type checking via tsrs** | [tsrs](https://github.com/oxc-project/tsrs) (the oxc project's Rust port of the TypeScript 7 checker) is embedded in-process as the source of TS types: types at locations, symbols, resolved signatures, flags. It sits behind the `trioxide_types` adapter crate so its API never leaks. Trioxide does not reimplement TS inference; its own analysis adds only what tsrs lacks (ranges, integer-ness, effects, escape, shapes). Reporting TS errors is opt-in (`check: true`). tsrs is behind a default-on Cargo feature. |
 | D4 | **Partition granularity** | Per function, grouped into **WASM islands**: connected clusters of eligible functions in the call graph. One island becomes one Rust crate and one `.wasm` module. |
 | D5 | **Every island keeps a JS fallback** | The optimised-JS version of each island function is always produced. It is used in dev mode, when the Rust toolchain is missing (with a warning), and as the oracle for differential tests. |
@@ -51,10 +51,10 @@ These shape everything else. All of them are agreed.
 1. **Load**: resolve entries, build the module graph, parse every module with `oxc_parser`
    (TS kept), and build `oxc_semantic` per module.
 2. **Type-check**: build a tsrs program over the same sources (in-memory VFS, the same
-   `tsconfig.json`). Walk each oxc AST, match nodes to tsrs nodes by byte span, query the
-   nodes trioxide cares about (identifiers, member and call expressions, parameters,
-   returns), and convert the answers into trioxide types (§3). With `check: true`, also
-   report tsrs diagnostics.
+   `tsconfig.json`). Nodes are matched to tsrs nodes by byte span and queried on demand,
+   during analysis, only where trioxide's own analysis knows nothing better (identifiers,
+   member and call expressions, parameters); answers are converted into trioxide types (§3).
+   With `check: true`, also report tsrs diagnostics.
 3. **Link**: resolve imports to exports across modules, producing global `SymbolRef`s
    (module id + `SymbolId`).
 4. **Analyse**, as side tables keyed by `(ModuleId, NodeId/SymbolId)`:
@@ -151,7 +151,10 @@ before asking.
 interest, the adapter finds the tsrs node with the same start (skipping TS-style leading
 trivia via `get_start_of_node`) and end. Parenthesised expressions and JSDoc reparsing
 differ between the two ASTs, so this mapping gets dedicated tests. Unmatched nodes become
-`Unknown`, never a guess.
+`Unknown`, never a guess. The lookup walks down from the file through the children that
+contain the span (a matching node always contains it) instead of indexing every node, since
+a file is queried far less often than it has nodes; ties go to the node that most directly
+denotes a value, then the innermost.
 
 **Soundness (trust levels, D1).** A tsrs type is `Proven` only when nothing unsound feeds
 it:
@@ -166,6 +169,61 @@ it:
 Reaching `eval`, `with`, `arguments` aliasing, `Proxy`, or `Object.defineProperty` on the
 value degrades the affected bindings to `Unknown`. The bottom-up interprocedural summary pass
 over the call graph's SCCs propagates trust levels together with effects.
+
+**How the analysis proves things (`trioxide_analysis`).** Rather than checking tsrs types
+for unsound constructs after the fact, the analysis computes values itself and only falls
+back to TS where it knows nothing:
+
+- *Abstract interpretation.* Every unit (module body, function, arrow, static block, class
+  field initialisers) is interpreted over abstract values `{ type, trust, points-to }`.
+  Locals written only by their own unit are flow-sensitive (branches narrow and join, loops
+  iterate to a fixed point with widening); everything else lives in whole-program tables
+  that only grow by joins (symbols, parameters per position, `this`, returns, superclasses,
+  `export default` values, and a flow-insensitive heap of allocation sites). A worklist
+  re-interprets a unit only when a table entry it read changed. A value the analysis
+  computed from literals, operators, builtin models and narrowing is `Proven`; where it
+  knows nothing, TS's type at that node is used as `Declared`.
+- *Openness instead of "is every caller known".* A function's parameters and `this` are
+  joined with "unknown" (so at best `Declared`) exactly when its function object, class,
+  prototype or an instance may reach code trioxide doesn't see: escape analysis over
+  allocation sites, with library-mode exports, unknown callees, `eval`/`with` scopes,
+  decorators, JSX factories and TS namespaces as escape points. In app mode an export alone
+  does not escape, unless it is an entry module's (or re-exported by one): hosts, HTML module
+  scripts and test runners call those. A site joined with an unknown object (so no longer
+  followed) escapes too.
+- *Poisoned values.* Values from `eval`, `Proxy`, `Reflect`/`Object.defineProperty` targets
+  and similar reflection are `Unknown` *and* skip the TS fallback, since TS's type for them
+  is not evidence.
+- *Builtin integrity.* Builtin models assume code outside the program doesn't patch
+  builtins, and check that the program doesn't. Any shadowing, assignment, or use of a
+  namespace (`Math`, `JSON`, …), a typed array constructor or the global object other than a
+  plain member read, call, construction or `instanceof` turns those models off; any way of
+  reaching a prototype without naming it (`__proto__`, `getPrototypeOf`, `.constructor`,
+  `X.prototype` of anything but a program class, `Reflect`, `Function`, `eval`) turns all of
+  them off. Without integrity, method models, `Object.prototype` lookups, holes and iteration
+  are `Unknown`. A key computed at run time that happens to be `"__proto__"` is not detected.
+- *Temporal dead zones.* Reading a `let`/`const`/`class` binding before its declaration
+  runs throws: in its own unit when the read comes first in the text (or in a `switch`), in
+  another unit when the declaring unit may call out before the declaration, and across an
+  import cycle.
+- *Convergence.* Whole-program entries that still change after 20 rounds are given up (set
+  to "any value", their objects escaping), so the run always reaches a fixed point and only
+  facts depending on those entries are lost, with a warning.
+- *Effects* are computed twice, once counting only `Proven` facts and once counting
+  `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
+- *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
+  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged.
+
+Correctness is tested two ways: `/*@trust …*/` annotations in the analysis fixtures state the
+expected trust of particular expressions, and a runtime checker instruments every `Proven`
+fact of every fixture and runs it under node, failing on any violation.
+
+**Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
+The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work
+as the parse (instruction counts ~1.1–1.2×), but tsrs parses on all cores and the
+interpreter on one, so wall-clock time is about 5× the parse on a 4-core machine (see
+`benches/analysis.rs`). Closing the gap needs parallel interpretation (Jacobi-style sweeps
+over a read-only snapshot with per-thread write logs, and one tsrs checker per thread).
 
 **Embedding constraints.** tsrs checkers take `&mut self` (one per thread, behind a mutex),
 and its arenas are `'static`. The oracle runs every type query on the program's first
@@ -340,7 +398,8 @@ IslandSource, IslandBuilder}` (plus `trioxide_wasm::toolchain` for `check-toolch
 **CLI:** `trioxide build [entries…] --out-dir dist [--watch]`, `trioxide transform <file>`
 (stdout), `trioxide explain [target]`, `trioxide check-toolchain [--json]`. `--config`,
 `--root`, `--mode`, `--world`, `--trust-types`, `--no-wasm`, `--require-wasm`,
-`--emit=js|rust|wasm|report`,
+`--emit=js|rust|wasm|report|facts` (`--emit=facts` with `transform` prints the analysis facts
+of that file: per function, class and node, with spans and trust levels),
 `--color=auto|always|never`. A hidden `trioxide strip <file>` prints types-stripped-only output
 for the differential suite. The CLI is the `trioxide_cli` library's `run(argv)`, which both the
 binary and the napi binding's `runCli` call. Without `--config`, the config file is the nearest

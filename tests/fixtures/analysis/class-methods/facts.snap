@@ -1,0 +1,113 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/class-methods
+input_file: tests/fixtures/analysis/class-methods/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Shape.<fields> (3:13): pure
+  Shape.area (4:7): pure
+  Shape.describe (7:11): reads throws
+    calls 8:22 -> Square.area
+    calls 8:22 -> Circle.area
+  Square.<fields> (12:28): pure
+  Square.constructor (13:14): writes
+    calls 14:5 -> Shape.<fields>
+    calls 14:5 -> Square.<fields>
+  Square.area (16:16): reads throws
+  Circle.<fields> (21:28): pure
+  Circle.constructor (22:14): writes
+    calls 23:5 -> Shape.<fields>
+    calls 23:5 -> Circle.<fields>
+  Circle.area (25:16): reads
+  Circle.describe (28:20): reads throws
+    calls 29:25 -> Shape.describe
+  total (33:1): reads throws
+    calls 36:12 -> Square.area
+    calls 36:12 -> Circle.area
+  main (41:8) open: reads writes allocates throws calls-unknown
+    calls 42:18 -> Square.constructor
+    calls 43:15 -> Square.area
+    calls 44:27 -> Circle.constructor
+    calls 45:15 -> total
+    calls 45:49 -> Shape.describe
+    calls 45:49 -> Circle.describe
+    calls 49:5 -> Square.area
+classes:
+  Shape (3:1): fields [] stable
+  Square (12:1): fields [side] stable
+  Circle (21:1): fields [radius] stable
+nodes:
+  3:7 bind `Shape`: function@proven
+  8:12 binary `"area " + this.area()`: string@proven
+  8:22 call `this.area()`: number@proven
+  8:22 member `this.area`: function | function@proven
+  8:22 this `this`: Square | Circle@proven
+  12:7 bind `Square`: function@proven
+  12:22 ref `Shape`: function@proven
+  13:23 bind `side`: 2@proven
+  14:5 call `super()`: undefined@proven
+  17:12 binary `this.side * this.side`: 4@proven
+  17:12 member `this.side`: 2@proven
+  17:12 this `this`: undefined | Square@proven
+  17:24 member `this.side`: 2@proven
+  17:24 this `this`: undefined | Square@proven
+  21:7 bind `Circle`: function@proven
+  21:22 ref `Shape`: function@proven
+  22:23 bind `radius`: 1@proven
+  23:5 call `super()`: undefined@proven
+  26:12 binary `Math.PI * this.radius ** 2`: number@proven
+  26:12 member `Math.PI`: number nonNaN@proven
+  26:12 ref `Math`: unknown
+  26:22 binary `this.radius ** 2`: number[0, inf] int nonNegZero@proven
+  26:22 member `this.radius`: 1@proven
+  26:22 this `this`: Circle@proven
+  29:12 binary `"circle, " + super.describe()`: string@proven
+  29:25 call `super.describe()`: string@proven
+  29:25 member `super.describe`: function@proven
+  33:10 bind `total`: function@proven
+  33:16 bind `shapes`: (Square | Circle)[]@proven
+  33:24 ref `Shape`: unknown
+  34:7 bind `sum`: 0@proven
+  35:14 bind `shape`: Square | Circle@proven
+  35:23 ref `shapes`: (Square | Circle)[]@proven
+  36:5 assign `sum += shape.area()`: number nonNegZero@proven
+  36:5 ref `sum`: number nonNegZero@proven
+  36:12 call `shape.area()`: number@proven
+  36:12 member `shape.area`: function | function@proven
+  36:12 ref `shape`: Square | Circle@proven
+  38:10 ref `sum`: number nonNegZero@proven
+  41:17 bind `main`: function@proven
+  42:9 bind `square`: Square@proven
+  42:18 new `new Square(2)`: Square@proven escape=known
+  42:22 ref `Square`: function@proven
+  43:3 call `console.log(square.area() /*@proven n...`: unknown
+  43:3 member `console.log`: unknown
+  43:3 ref `console`: unknown
+  43:15 call `square.area()`: 4@proven
+  43:15 member `square.area`: function@proven
+  43:15 ref `square`: Square@proven
+  44:9 bind `shapes`: (Square | Circle)[]@proven
+  44:18 array `[square, new Circle(1)]`: (Square | Circle)[]@proven escape=known stable-shape
+  44:19 ref `square`: Square@proven
+  44:27 new `new Circle(1)`: Circle@proven escape=known
+  44:31 ref `Circle`: function@proven
+  45:3 call `console.log(total(shapes) /*@proven n...`: unknown
+  45:3 member `console.log`: unknown
+  45:3 ref `console`: unknown
+  45:15 call `total(shapes)`: number nonNegZero@proven
+  45:15 ref `total`: function@proven
+  45:21 ref `shapes`: (Square | Circle)[]@proven
+  45:49 call `shapes[1].describe()`: string@proven
+  45:49 member `shapes[1].describe`: function | function@proven
+  45:49 member `shapes[1]`: Square | Circle@proven
+  45:49 ref `shapes`: (Square | Circle)[]@proven
+  46:9 bind `area`: function@proven
+  46:16 member `square.area`: function@proven
+  46:16 ref `square`: Square@proven
+  49:5 call `area()`: 4@proven
+  49:5 ref `area`: function@proven
+  51:5 call `console.log("detached")`: unknown
+  51:5 member `console.log`: unknown
+  51:5 ref `console`: unknown

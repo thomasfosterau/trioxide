@@ -1,0 +1,72 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-expr-a
+input_file: tests/fixtures/analysis/review-expr-a/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Parent.<fields> (2:14): pure
+  Parent.constructor (3:14): reads writes allocates throws calls-unknown
+    calls 4:5 -> Child.show
+  Parent.show (6:7): pure
+  Child.<fields> (8:28): writes
+  Child.show (10:7): reads writes allocates throws calls-unknown
+  Early.<fields> (17:13): writes
+  Early.constructor (19:14): reads writes allocates throws calls-unknown
+    calls 20:5 -> Early.peek
+  Early.peek (23:7): reads writes allocates throws calls-unknown
+  Statics.<fields> (30:15) open: pure
+  Statics.label (31:19) open: pure
+  main (36:8) open: reads writes allocates throws calls-unknown
+    calls 37:3 -> Parent.<fields>
+    calls 37:3 -> Parent.constructor
+    calls 37:3 -> Child.<fields>
+    calls 38:3 -> Early.<fields>
+    calls 38:3 -> Early.constructor
+classes:
+  Parent (2:1): fields [] stable
+  Child (8:1): fields [] stable
+  Early (17:1): fields [x] stable
+  Statics (30:1): fields [] shape unknown
+nodes:
+  2:7 bind `Parent`: function@proven
+  4:5 call `this.show()`: undefined@proven
+  4:5 member `this.show`: function@proven
+  4:5 this `this`: Child@proven
+  8:7 bind `Child`: function@proven
+  8:21 ref `Parent`: function@proven
+  11:11 bind `v`: undefined | 5@proven
+  11:15 member `this.y`: undefined | 5@proven
+  11:15 this `this`: Child@proven
+  12:5 call `console.log(v)`: unknown
+  12:5 member `console.log`: unknown
+  12:5 ref `console`: unknown
+  12:17 ref `v`: undefined | 5@proven
+  17:7 bind `Early`: function@proven
+  20:5 call `this.peek()`: undefined@proven
+  20:5 member `this.peek`: function@proven
+  20:5 this `this`: Early@proven
+  21:5 assign `this.x = 1`: 1@proven
+  21:5 member `this.x`: unknown
+  21:5 this `this`: Early@proven
+  24:11 bind `v`: undefined | 1@proven
+  24:15 member `this.x`: undefined | 1@proven
+  24:15 this `this`: Early@proven
+  25:5 call `console.log(v)`: unknown
+  25:5 member `console.log`: unknown
+  25:5 ref `console`: unknown
+  25:17 ref `v`: undefined | 1@proven
+  30:7 bind `Statics`: function@proven
+  36:17 bind `main`: function@proven
+  37:3 new `new Child()`: Child@proven escape=known
+  37:7 ref `Child`: function@proven
+  38:3 new `new Early()`: Early@proven escape=known
+  38:7 ref `Early`: function@proven
+  39:9 bind `l`: string@declared
+  39:13 member `Statics.label`: string@declared
+  39:13 ref `Statics`: function@proven
+  40:3 call `console.log(l)`: unknown
+  40:3 member `console.log`: unknown
+  40:3 ref `console`: unknown
+  40:15 ref `l`: string@declared

@@ -1,0 +1,25 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/open-world
+input_file: tests/fixtures/analysis/open-world/input.ts
+---
+//- input.ts
+// world: library
+// Library mode: exported functions may be called by anyone with anything their types allow.
+export function scale(value, factor) {
+	// Parameters of an export rest on the declared types.
+	return value * factor;
+}
+function helper(value) {
+	// Only called below with a literal: all call sites are known.
+	return value + 1;
+}
+export const shared = { count: 0 };
+export function bump() {
+	shared.count++;
+	// Importers may have changed `shared`.
+	return shared.count;
+}
+export function main() {
+	console.log(scale(2, 3), helper(41), bump());
+}

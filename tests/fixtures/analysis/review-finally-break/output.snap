@@ -1,0 +1,35 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-finally-break
+input_file: tests/fixtures/analysis/review-finally-break/input.ts
+---
+//- input.ts
+export function finallyBreak() {
+	let x = 1;
+	while (true) {
+		try {
+			break;
+		} finally {
+			x = "after";
+		}
+	}
+	const y = x;
+	return String(y);
+}
+export function finallyContinue() {
+	let x = 1;
+	let out = "";
+	for (let i = 0; i < 2; i++) {
+		const seen = x;
+		out += String(seen);
+		try {
+			continue;
+		} finally {
+			x = "s";
+		}
+	}
+	return out;
+}
+export function main() {
+	console.log(finallyBreak(), finallyContinue());
+}

@@ -1,0 +1,63 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-protoindex
+input_file: tests/fixtures/analysis/review-protoindex/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  patch (1:1): reads writes allocates throws calls-unknown
+  read (5:1): pure
+  inbounds (9:1): pure
+  main (18:8) open: reads writes allocates throws calls-unknown
+    calls 19:3 -> patch
+    calls 20:15 -> read
+    calls 20:23 -> inbounds
+nodes:
+  1:10 bind `patch`: function@proven
+  2:9 bind `p`: unknown
+  2:18 call `Object.getPrototypeOf(Object.getProto...`: unknown
+  2:18 member `Object.getPrototypeOf`: unknown
+  2:18 ref `Object`: unknown
+  2:40 call `Object.getPrototypeOf([])`: unknown
+  2:40 member `Object.getPrototypeOf`: unknown
+  2:40 ref `Object`: unknown
+  2:62 array `[]`: unknown[]@proven escape=unknown
+  3:3 assign `p[1] = "hole"`: string@proven
+  3:3 member `p[1]`: unknown
+  3:3 ref `p`: unknown
+  5:10 bind `read`: function@proven
+  6:9 bind `a`: unknown[]@proven
+  6:13 array `[1, , 3]`: unknown[]@proven escape=none stable-shape
+  7:10 member `a[1]`: undefined | number@declared
+  7:10 ref `a`: unknown[]@proven
+  9:10 bind `inbounds`: function@proven
+  10:9 bind `a`: unknown[]@proven
+  10:23 cast `[1, , 3] as number[]`: unknown[]@proven
+  10:23 array `[1, , 3]`: unknown[]@proven escape=none stable-shape
+  11:7 bind `t`: 0@proven
+  12:12 bind `i`: 0@proven
+  12:19 binary `i < a.length`: boolean@proven
+  12:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  12:23 member `a.length`: 3@proven
+  12:23 ref `a`: unknown[]@proven
+  12:33 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  12:33 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  13:11 bind `v`: number@declared
+  13:15 member `a[i]`: number@declared
+  13:15 ref `a`: unknown[]@proven
+  13:17 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  14:5 assign `t = v`: number@declared
+  14:5 ref `t`: number@declared
+  14:9 ref `v`: number@declared
+  16:10 ref `t`: number@declared
+  18:17 bind `main`: function@proven
+  19:3 call `patch()`: undefined@proven
+  19:3 ref `patch`: function@proven
+  20:3 call `console.log(read(), inbounds())`: unknown
+  20:3 member `console.log`: unknown
+  20:3 ref `console`: unknown
+  20:15 call `read()`: undefined | number@declared
+  20:15 ref `read`: function@proven
+  20:23 call `inbounds()`: number@declared
+  20:23 ref `inbounds`: function@proven

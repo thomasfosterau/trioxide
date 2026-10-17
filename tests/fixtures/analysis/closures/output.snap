@@ -1,0 +1,33 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/closures
+input_file: tests/fixtures/analysis/closures/input.ts
+---
+//- input.ts
+// Captured variables: a closure that writes a local makes it flow-insensitive.
+export function counter() {
+	let count = 0;
+	return () => {
+		count++;
+		return count;
+	};
+}
+export function sharedWrite() {
+	let value = 1;
+	const set = () => {
+		value = "set by closure";
+	};
+	set();
+	// Any call could have run `set`: the value is either.
+	return value;
+}
+export function readOnlyCapture() {
+	const base = 10;
+	const add = (x) => x + base;
+	return add(5);
+}
+export function main() {
+	const next = counter();
+	next();
+	console.log(next(), sharedWrite(), readOnlyCapture());
+}

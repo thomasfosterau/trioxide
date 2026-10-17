@@ -1,0 +1,16 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-thisarg
+input_file: tests/fixtures/analysis/review-thisarg/input.ts
+---
+//- input.ts
+function each() {
+	let got = 0;
+	[1].forEach(function() {
+		got = this;
+	}, { x: 1 });
+	return got;
+}
+export function main() {
+	console.log(each());
+}

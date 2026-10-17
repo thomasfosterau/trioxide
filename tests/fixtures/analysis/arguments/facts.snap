@@ -1,0 +1,45 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/arguments
+input_file: tests/fixtures/analysis/arguments/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  first (4:1): reads throws calls-unknown
+  count (8:1): reads throws calls-unknown
+  viaArguments (12:1): reads writes throws calls-unknown
+  main (19:8) open: reads writes allocates throws calls-unknown
+    calls 20:15 -> first
+    calls 20:38 -> count
+    calls 20:72 -> viaArguments
+nodes:
+  4:10 bind `first`: function@proven
+  4:16 bind `a`: 1@proven
+  5:10 member `arguments[0]`: unknown
+  5:10 ref `arguments`: unknown
+  8:10 bind `count`: function@proven
+  8:19 bind `rest`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  9:10 binary `arguments.length + rest.length`: number nonNegZero@declared
+  9:10 member `arguments.length`: number@declared
+  9:10 ref `arguments`: unknown
+  9:29 member `rest.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  9:29 ref `rest`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  12:10 bind `viaArguments`: function@proven
+  12:23 bind `x`: 5@proven
+  13:9 bind `args`: unknown
+  13:16 ref `arguments`: unknown
+  14:3 assign `args[0] = 100`: 100@proven
+  14:3 member `args[0]`: unknown
+  14:3 ref `args`: unknown
+  16:10 ref `x`: 5@proven
+  19:17 bind `main`: function@proven
+  20:3 call `console.log(first(1) /*@unknown*/, co...`: unknown
+  20:3 member `console.log`: unknown
+  20:3 ref `console`: unknown
+  20:15 call `first(1)`: unknown
+  20:15 ref `first`: function@proven
+  20:38 call `count(1, 2)`: number nonNegZero@declared
+  20:38 ref `count`: function@proven
+  20:72 call `viaArguments(5)`: 5@proven
+  20:72 ref `viaArguments`: function@proven

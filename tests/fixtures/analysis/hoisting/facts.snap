@@ -1,0 +1,40 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/hoisting
+input_file: tests/fixtures/analysis/hoisting/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
+    calls 4:15 -> early
+    calls 15:3 -> bump
+  early (8:3): pure
+  bump (12:16): reads writes throws
+nodes:
+  3:17 bind `main`: function@proven
+  4:3 call `console.log(early() /*@proven string*/)`: unknown
+  4:3 member `console.log`: unknown
+  4:3 ref `console`: unknown
+  4:15 call `early()`: string@proven
+  4:15 ref `early`: function@proven
+  5:3 call `console.log(later /*@proven undefined*/)`: unknown
+  5:3 member `console.log`: unknown
+  5:3 ref `console`: unknown
+  5:15 ref `later`: undefined@proven
+  6:7 bind `later`: 5@proven
+  7:3 call `console.log(later /*@proven number in...`: unknown
+  7:3 member `console.log`: unknown
+  7:3 ref `console`: unknown
+  7:15 ref `later`: 5@proven
+  8:12 bind `early`: function@proven
+  11:7 bind `count`: 0@proven
+  12:9 bind `bump`: function@proven
+  13:5 assign `count += 1`: number[1, inf] int nonNaN nonNegZero@proven
+  13:5 ref `count`: number[0, inf] int nonNaN nonNegZero@proven
+  15:3 call `bump()`: undefined@proven
+  15:3 ref `bump`: function@proven
+  16:3 call `console.log(count /*@proven number in...`: unknown
+  16:3 member `console.log`: unknown
+  16:3 ref `console`: unknown
+  16:15 ref `count`: number[0, inf] int nonNaN nonNegZero@proven

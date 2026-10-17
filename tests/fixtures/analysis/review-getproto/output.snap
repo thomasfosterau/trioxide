@@ -1,0 +1,21 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-getproto
+input_file: tests/fixtures/analysis/review-getproto/input.ts
+---
+//- input.ts
+function patch() {
+	const proto = Object.getPrototypeOf([]);
+	proto.indexOf = () => "patched";
+}
+function use(a) {
+	return a.indexOf(3);
+}
+export function main() {
+	patch();
+	console.log(use([
+		1,
+		2,
+		3
+	]));
+}

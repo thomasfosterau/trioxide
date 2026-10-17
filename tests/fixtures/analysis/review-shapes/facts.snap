@@ -1,0 +1,63 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-shapes
+input_file: tests/fixtures/analysis/review-shapes/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  P.<fields> (1:9): writes
+  Q.<fields> (4:9): writes
+  Q.grow (6:7): writes
+  main (10:8) open: reads writes allocates throws calls-unknown
+    calls 11:13 -> P.<fields>
+    calls 13:13 -> Q.<fields>
+    calls 14:3 -> Q.grow
+classes:
+  P (1:1): fields [x] added later [z]
+  Q (4:1): fields [x] added later [y]
+nodes:
+  1:7 bind `P`: function@proven
+  4:7 bind `Q`: function@proven
+  7:5 assign `(this as any).y = 2`: 2@proven
+  7:5 member `(this as any).y`: unknown
+  7:6 cast `this as any`: Q@proven
+  7:6 this `this`: Q@proven
+  10:17 bind `main`: function@proven
+  11:9 bind `p`: P@proven
+  11:13 new `new P()`: P@proven escape=known
+  11:17 ref `P`: function@proven
+  12:3 assign `(p as any).z = 3`: 3@proven
+  12:3 member `(p as any).z`: unknown
+  12:4 cast `p as any`: P@proven
+  12:4 ref `p`: P@proven
+  13:9 bind `q`: Q@proven
+  13:13 new `new Q()`: Q@proven escape=known
+  13:17 ref `Q`: function@proven
+  14:3 call `q.grow()`: undefined@proven
+  14:3 member `q.grow`: function@proven
+  14:3 ref `q`: Q@proven
+  15:9 bind `o`: { a: 1, b: undefined | 2 }@proven
+  15:13 object `{ a: 1 }`: { a: 1, b: undefined | 2 }@proven escape=known
+  16:3 assign `(o as any).b = 2`: 2@proven
+  16:3 member `(o as any).b`: unknown
+  16:4 cast `o as any`: { a: 1, b: undefined | 2 }@proven
+  16:4 ref `o`: { a: 1, b: undefined | 2 }@proven
+  17:3 call `console.log(Object.keys(p).length, Ob...`: unknown
+  17:3 member `console.log`: unknown
+  17:3 ref `console`: unknown
+  17:15 member `Object.keys(p).length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  17:15 call `Object.keys(p)`: string[]@proven escape=none stable-shape
+  17:15 member `Object.keys`: unknown
+  17:15 ref `Object`: unknown
+  17:27 ref `p`: P@proven
+  17:38 member `Object.keys(q).length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  17:38 call `Object.keys(q)`: string[]@proven escape=none stable-shape
+  17:38 member `Object.keys`: unknown
+  17:38 ref `Object`: unknown
+  17:50 ref `q`: Q@proven
+  17:61 member `Object.keys(o).length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  17:61 call `Object.keys(o)`: string[]@proven escape=none stable-shape
+  17:61 member `Object.keys`: unknown
+  17:61 ref `Object`: unknown
+  17:73 ref `o`: { a: 1, b: undefined | 2 }@proven

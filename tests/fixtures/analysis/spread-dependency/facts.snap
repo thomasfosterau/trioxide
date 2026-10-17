@@ -1,0 +1,31 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/spread-dependency
+input_file: tests/fixtures/analysis/spread-dependency/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): writes allocates
+    calls 15:1 -> fill
+  main (6:8) open: reads writes allocates throws calls-unknown
+  fill (11:1): writes
+nodes:
+  4:7 bind `source`: { a: 1, b: undefined | 2 }@proven
+  4:43 object `{ a: 1 }`: { a: 1, b: undefined | 2 }@proven escape=known
+  6:17 bind `main`: function@proven
+  7:9 bind `copy`: { a: undefined | 1, b: undefined | 2 }@proven
+  7:16 object `{ ...source }`: { a: undefined | 1, b: undefined | 2 }@proven escape=none stable-shape
+  7:21 ref `source`: { a: 1, b: undefined | 2 }@proven
+  8:3 call `console.log(copy.a, copy.b /*@proven ...`: unknown
+  8:3 member `console.log`: unknown
+  8:3 ref `console`: unknown
+  8:15 member `copy.a`: undefined | 1@proven
+  8:15 ref `copy`: { a: undefined | 1, b: undefined | 2 }@proven
+  8:23 member `copy.b`: undefined | 2@proven
+  8:23 ref `copy`: { a: undefined | 1, b: undefined | 2 }@proven
+  11:10 bind `fill`: function@proven
+  12:3 assign `source.b = 2`: 2@proven
+  12:3 member `source.b`: unknown
+  12:3 ref `source`: { a: 1, b: undefined | 2 }@proven
+  15:1 call `fill()`: undefined@proven
+  15:1 ref `fill`: function@proven

@@ -1,0 +1,32 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-partial
+input_file: tests/fixtures/analysis/review-partial/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  known (1:1) open: throws calls-unknown (declared: pure)
+  main (4:8) open: reads writes allocates throws calls-unknown
+nodes:
+  1:10 bind `known`: function@proven
+  1:16 bind `n`: number@declared
+  2:10 binary `n + 1`: number nonNegZero@declared
+  2:10 ref `n`: number@declared
+  4:17 bind `main`: function@proven
+  5:9 bind `f`: function@declared
+  5:13 bind `n`: unknown
+  5:36 cond `Math.random() < 2 ? known : (globalTh...`: unknown
+  5:36 binary `Math.random() < 2`: boolean@proven
+  5:36 call `Math.random()`: number@declared
+  5:36 member `Math.random`: unknown
+  5:36 ref `Math`: unknown
+  5:56 ref `known`: function@proven
+  5:64 member `(globalThis as any).other`: unknown
+  5:65 cast `globalThis as any`: unknown
+  5:65 ref `globalThis`: unknown
+  6:3 call `console.log(f(1))`: unknown
+  6:3 member `console.log`: unknown
+  6:3 ref `console`: unknown
+  6:15 call `f(1)`: number@declared
+  6:15 ref `f`: function@declared

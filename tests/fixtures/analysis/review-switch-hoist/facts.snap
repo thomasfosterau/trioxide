@@ -1,0 +1,28 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/review-switch-hoist
+input_file: tests/fixtures/analysis/review-switch-hoist/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  pick (1:8) open: pure
+    calls 4:14 -> g
+  g (9:7): pure
+  main (16:8) open: reads writes allocates throws calls-unknown
+    calls 17:13 -> pick
+nodes:
+  1:17 bind `pick`: function@proven
+  1:22 bind `k`: number@declared
+  2:11 ref `k`: number@declared
+  4:14 call `g()`: string@proven
+  4:14 ref `g`: function@proven
+  9:16 bind `g`: function@proven
+  16:17 bind `main`: function@proven
+  17:9 bind `r`: 0 | string@proven
+  17:13 call `pick(1)`: 0 | string@proven
+  17:13 ref `pick`: function@proven
+  18:3 call `console.log(r)`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 ref `r`: 0 | string@proven

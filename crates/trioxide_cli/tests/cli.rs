@@ -168,6 +168,22 @@ fn unimplemented_features_say_so() {
 }
 
 #[test]
+fn emit_facts_prints_the_analysis() {
+    let input = fixture("analysis/basics/input.ts");
+    let out = trioxide(&["--emit=facts", "transform", input.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("functions:") && text.contains("nodes:"),
+        "{text}"
+    );
+    assert!(text.contains("@proven"), "{text}");
+
+    let out = trioxide(&["--emit=facts", "build", input.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+#[test]
 fn check_toolchain_reports_what_is_missing() {
     let out = Command::new(env!("CARGO_BIN_EXE_trioxide"))
         .arg("check-toolchain")

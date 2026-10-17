@@ -1,0 +1,58 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/narrowing-values
+input_file: tests/fixtures/analysis/narrowing-values/input.ts
+---
+//- input.ts
+// Equality and truthiness narrowing on locals.
+/** Uses a value without printing it (it depends on `Math.random()`). */
+function sink(..._values) {}
+const config = JSON.parse("null");
+export function main() {
+	const items = ["a", null];
+	for (const item of items) {
+		if (item === null) {
+			console.log(
+				item
+				/*@proven null*/
+			);
+		} else {
+			console.log(
+				item
+				/*@proven string*/
+			);
+		}
+	}
+	let count = Math.floor(Math.random() * 3);
+	if (count) {
+		// Truthy: not 0 (and not NaN).
+		sink(
+			count
+			/*@proven number int nonNaN*/
+		);
+	}
+	if (count === 2) {
+		sink(
+			count
+			/*@proven number int*/
+		);
+	}
+	count = count > 1 ? count : 1;
+	const level = config?.level ?? 0;
+	console.log(
+		level
+		/*@declared number*/
+	);
+	const flag = Math.random() > .5 ? "on" : undefined;
+	if (flag == null) {
+		sink(
+			flag
+			/*@proven undefined*/
+		);
+	} else {
+		sink(
+			flag
+			/*@proven string*/
+		);
+	}
+}

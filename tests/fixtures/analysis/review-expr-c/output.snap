@@ -1,0 +1,68 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-expr-c
+input_file: tests/fixtures/analysis/review-expr-c/input.ts
+---
+//- input.ts
+// Object.prototype pollution through Object.getPrototypeOf.
+function pollute() {
+	const proto = Object.getPrototypeOf({});
+	proto.extra = "polluted";
+}
+function readExtra() {
+	const o = { a: 1 };
+	const e = o.extra;
+	console.log(e);
+}
+// Non-canonical index strings are not array indices.
+function oddKeys() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const k = a["01"];
+	const p = a["+1"];
+	console.log(k, p);
+}
+// Tagged template strings.
+function tag(strings, ...values) {
+	const first = strings[0];
+	const n = strings.length;
+	console.log(first, n, values.length);
+	return "";
+}
+// Setter-only accessor read.
+class SetOnly {
+	set v(x) {
+		console.log(x);
+	}
+}
+// A constructor that returns another object.
+const decoy = { v: 2 };
+class Box {
+	v = 1;
+	constructor() {
+		return decoy;
+	}
+}
+// Unary plus over a declared parameter.
+function plus(x) {
+	const y = +x;
+	return y;
+}
+export function main() {
+	pollute();
+	readExtra();
+	oddKeys();
+	tag`a${1}b`;
+	const s = new SetOnly();
+	const r = s.v;
+	console.log(r);
+	const b = new Box();
+	b.v = 7;
+	const dv = decoy.v;
+	console.log(dv);
+	globalThis.plus = plus;
+	globalThis.plus("7");
+}

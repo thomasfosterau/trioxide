@@ -1,0 +1,22 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/eval
+input_file: tests/fixtures/analysis/eval/input.ts
+---
+//- input.ts
+// A direct eval can read and write every binding it can see; an indirect one only globals.
+export function direct(code) {
+	let x = 1;
+	eval(code);
+	// eval may have assigned x.
+	return x;
+}
+export function indirect(code) {
+	let y = 1;
+	(0, eval)(code);
+	// An indirect eval can't see y.
+	return y;
+}
+export function main() {
+	console.log(direct("x = 'changed'"), indirect("1"));
+}

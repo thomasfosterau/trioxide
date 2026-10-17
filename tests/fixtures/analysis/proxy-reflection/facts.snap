@@ -1,0 +1,49 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/proxy-reflection
+input_file: tests/fixtures/analysis/proxy-reflection/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
+  get (6:10) open: pure
+  get (11:48) open: pure
+nodes:
+  3:17 bind `main`: function@proven
+  4:9 bind `target`: object@proven
+  4:18 object `{ value: 1 }`: object@proven escape=unknown
+  5:9 bind `proxy`: unknown
+  5:17 new `new Proxy(target, { get: () => "trapp...`: unknown escape=unknown
+  5:21 ref `Proxy`: unknown
+  5:27 ref `target`: object@proven
+  5:35 object `{ get: () => "trapped", }`: object@proven escape=unknown
+  8:3 call `console.log(proxy.value /*@unknown*/,...`: unknown
+  8:3 member `console.log`: unknown
+  8:3 ref `console`: unknown
+  8:15 member `proxy.value`: unknown
+  8:15 ref `proxy`: unknown
+  8:41 member `target.value`: unknown
+  8:41 ref `target`: object@proven
+  10:9 bind `plain`: object@proven
+  10:17 object `{ count: 0 }`: object@proven escape=unknown
+  11:3 call `Object.defineProperty(plain, "count",...`: unknown
+  11:3 member `Object.defineProperty`: unknown
+  11:3 ref `Object`: unknown
+  11:25 ref `plain`: object@proven
+  11:41 object `{ get: () => "computed" }`: object@proven escape=unknown
+  12:3 call `console.log(plain.count /*@unknown*/)`: unknown
+  12:3 member `console.log`: unknown
+  12:3 ref `console`: unknown
+  12:15 member `plain.count`: unknown
+  12:15 ref `plain`: object@proven
+  14:9 bind `frozen`: {| id: 1 |}@proven
+  14:18 call `Object.freeze({ id: 1 })`: {| id: 1 |}@proven
+  14:18 member `Object.freeze`: unknown
+  14:18 ref `Object`: unknown
+  14:32 object `{ id: 1 }`: {| id: 1 |}@proven escape=known stable-shape
+  15:3 call `console.log(frozen.id /*@proven numbe...`: unknown
+  15:3 member `console.log`: unknown
+  15:3 ref `console`: unknown
+  15:15 member `frozen.id`: 1@proven
+  15:15 ref `frozen`: {| id: 1 |}@proven

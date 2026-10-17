@@ -1,0 +1,61 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/this-binding
+input_file: tests/fixtures/analysis/this-binding/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Counter.<fields> (3:15) open: writes throws calls-unknown
+  Counter.increment (5:12) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
+  main (10:8) open: reads writes allocates throws calls-unknown
+    calls 11:19 -> Counter.<fields>
+    calls 13:15 -> Counter.increment @declared
+    calls 28:15 -> method
+  method (24:11): reads
+classes:
+  Counter (3:1): fields [count] shape unknown
+nodes:
+  3:7 bind `Counter`: function@proven
+  6:12 unary `++this.count`: number nonNegZero@declared
+  6:14 member `this.count`: unknown
+  6:14 this `this`: Counter@declared
+  10:17 bind `main`: function@proven
+  11:9 bind `counter`: Counter@proven
+  11:19 new `new Counter()`: Counter@proven escape=unknown
+  11:23 ref `Counter`: function@proven
+  13:3 call `console.log(counter.increment() /*@de...`: unknown
+  13:3 member `console.log`: unknown
+  13:3 ref `console`: unknown
+  13:15 call `counter.increment()`: number@declared
+  13:15 member `counter.increment`: unknown
+  13:15 ref `counter`: Counter@proven
+  14:9 bind `unbound`: function@declared
+  14:19 member `counter.increment`: function@declared
+  14:19 ref `counter`: Counter@proven
+  16:5 call `unbound()`: unknown
+  16:5 ref `unbound`: function@declared
+  18:5 call `console.log("unbound")`: unknown
+  18:5 member `console.log`: unknown
+  18:5 ref `console`: unknown
+  20:9 bind `bound`: function@declared
+  20:17 call `counter.increment.bind(counter)`: function@declared
+  20:17 member `counter.increment.bind`: unknown
+  20:17 member `counter.increment`: function@declared
+  20:17 ref `counter`: Counter@proven
+  20:40 ref `counter`: Counter@proven
+  21:3 call `console.log(bound() /*@declared numbe...`: unknown
+  21:3 member `console.log`: unknown
+  21:3 ref `console`: unknown
+  21:15 call `bound()`: number@declared
+  21:15 ref `bound`: function@declared
+  22:9 bind `object`: {| name: string, method: function |}@proven
+  22:18 object `{ name: "object", method(): string { ...`: {| name: string, method: function |}@proven escape=known stable-shape
+  25:14 member `this.name`: string@proven
+  25:14 this `this`: {| name: string, method: function |}@proven
+  28:3 call `console.log(object.method())`: unknown
+  28:3 member `console.log`: unknown
+  28:3 ref `console`: unknown
+  28:15 call `object.method()`: string@proven
+  28:15 member `object.method`: function@proven
+  28:15 ref `object`: {| name: string, method: function |}@proven

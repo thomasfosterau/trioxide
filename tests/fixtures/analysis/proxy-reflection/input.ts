@@ -1,0 +1,16 @@
+// Proxies and Object.defineProperty make properties unknowable, whatever the types say.
+
+export function main(): void {
+  const target = { value: 1 };
+  const proxy = new Proxy(target, {
+    get: () => "trapped",
+  });
+  console.log(proxy.value /*@unknown*/, target.value /*@unknown*/);
+
+  const plain = { count: 0 };
+  Object.defineProperty(plain, "count", { get: () => "computed" });
+  console.log(plain.count /*@unknown*/);
+
+  const frozen = Object.freeze({ id: 1 });
+  console.log(frozen.id /*@proven number int*/);
+}

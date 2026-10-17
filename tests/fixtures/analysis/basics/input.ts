@@ -1,0 +1,24 @@
+// Literals, operators, locals, loops over typed arrays, and a closed-world helper.
+
+function square(x: number): number {
+  return x * x;
+}
+
+export function sum(values: Float64Array): number {
+  let total = 0;
+  for (let i = 0; i < values.length; i++) {
+    total += values[i];
+  }
+  return total;
+}
+
+export function main(): void {
+  const data = new Float64Array(4);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = square(i) | 0;
+  }
+  const label = "total: " + sum(data);
+  const point = { x: 1, y: 2 };
+  const len = Math.sqrt(point.x * point.x + point.y * point.y);
+  console.log(label, Math.floor(len));
+}

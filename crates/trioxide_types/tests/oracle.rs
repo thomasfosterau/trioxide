@@ -115,7 +115,10 @@ fn primitives_literals_and_unions() {
     assert_eq!(f.type_of("big", 0), Some(Type::BigInt));
     assert_eq!(
         f.type_of("u", 0),
-        Some(Type::Union(vec![Type::Undefined, Type::NUMBER]))
+        Some(Type::Union(std::sync::Arc::from([
+            Type::Undefined,
+            Type::NUMBER
+        ])))
     );
     // `any` and `void` say nothing about the value.
     assert_eq!(f.type_of("a", 0), Some(Type::Unknown));
@@ -154,23 +157,24 @@ fn arrays_tuples_typed_arrays_and_objects() {
     )]);
     assert_eq!(
         f.type_of("xs", 0),
-        Some(Type::Array(Box::new(Type::NUMBER)))
+        Some(Type::Array(std::sync::Arc::new(Type::NUMBER)))
     );
     assert_eq!(
         f.type_of("ro", 0),
-        Some(Type::Array(Box::new(Type::String)))
+        Some(Type::Array(std::sync::Arc::new(Type::String)))
     );
     assert_eq!(
         f.type_of("pair", 0),
-        Some(Type::Tuple(vec![Type::NUMBER, Type::String]))
+        Some(Type::Tuple(std::sync::Arc::from([
+            Type::NUMBER,
+            Type::String
+        ])))
     );
     assert_eq!(
         f.type_of("opt", 0),
-        Some(Type::Array(Box::new(Type::Union(vec![
-            Type::Undefined,
-            Type::NUMBER,
-            Type::String,
-        ]))))
+        Some(Type::Array(std::sync::Arc::new(Type::Union(
+            std::sync::Arc::from([Type::Undefined, Type::NUMBER, Type::String,])
+        ))))
     );
     assert_eq!(
         f.type_of("fa", 0),
@@ -182,10 +186,10 @@ fn arrays_tuples_typed_arrays_and_objects() {
     );
     assert_eq!(
         f.type_of("p", 0),
-        Some(Type::Object(Shape {
+        Some(Type::Object(std::sync::Arc::new(Shape {
             properties: vec![("x".into(), Type::NUMBER), ("y".into(), Type::String)],
             exact: false,
-        }))
+        })))
     );
     // Library classes and index signatures have no faithful trioxide type.
     assert_eq!(f.type_of("m", 0), Some(Type::Unknown));
@@ -214,7 +218,7 @@ fn classes_and_functions_name_registered_declarations() {
     assert_eq!(
         f.type_of("t", 0),
         Some(Type::Function(
-            Box::new(Signature {
+            std::sync::Arc::new(Signature {
                 params: vec![Type::NUMBER],
                 rest: false,
                 ret: Type::NUMBER,
@@ -299,7 +303,10 @@ fn declarations_symbols_and_signatures() {
     assert_eq!(f.oracle.type_at(m, narrowed), Some(Type::String));
     assert_eq!(
         f.oracle.symbol_type_at(m, narrowed),
-        Some(Type::Union(vec![Type::NUMBER, Type::String]))
+        Some(Type::Union(std::sync::Arc::from([
+            Type::NUMBER,
+            Type::String
+        ])))
     );
     assert_eq!(
         f.oracle
@@ -380,7 +387,7 @@ fn updates_are_incremental_until_the_policy_says_rebuild() {
         let expected = match round {
             "1" => Type::String,
             "2" => Type::Boolean,
-            _ => Type::Array(Box::new(Type::NUMBER)),
+            _ => Type::Array(std::sync::Arc::new(Type::NUMBER)),
         };
         assert_eq!(f.type_of("x", 0), Some(expected), "round {round}");
     }

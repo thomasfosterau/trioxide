@@ -1,0 +1,46 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/library-classes
+input_file: tests/fixtures/analysis/library-classes/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Account.<fields> (4:22) open: writes throws calls-unknown
+  Account.deposit (6:10) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
+  Internal.<fields> (12:16): writes
+  Internal.get (14:6): reads
+  main (19:8) open: reads writes allocates throws calls-unknown
+    calls 20:19 -> Account.<fields>
+    calls 21:15 -> Account.deposit @declared
+    calls 21:36 -> Internal.get
+    calls 21:36 -> Internal.<fields>
+classes:
+  Account (4:8): fields [balance] shape unknown
+  Internal (12:1): fields [value] stable
+nodes:
+  4:14 bind `Account`: function@proven
+  6:11 bind `amount`: number@declared
+  7:5 assign `this.balance += amount`: number@declared
+  7:5 member `this.balance`: unknown
+  7:5 this `this`: Account@declared
+  7:21 ref `amount`: number@declared
+  8:12 member `this.balance`: number@declared
+  8:12 this `this`: Account@declared
+  12:7 bind `Internal`: function@proven
+  15:12 member `this.value`: 1@proven
+  15:12 this `this`: Internal@proven
+  19:17 bind `main`: function@proven
+  20:9 bind `account`: Account@proven
+  20:19 new `new Account()`: Account@proven escape=unknown
+  20:23 ref `Account`: function@proven
+  21:3 call `console.log(account.deposit(10), new ...`: unknown
+  21:3 member `console.log`: unknown
+  21:3 ref `console`: unknown
+  21:15 call `account.deposit(10)`: number@declared
+  21:15 member `account.deposit`: unknown
+  21:15 ref `account`: Account@proven
+  21:36 call `new Internal().get()`: 1@proven
+  21:36 member `new Internal().get`: function@proven
+  21:36 new `new Internal()`: Internal@proven escape=known
+  21:40 ref `Internal`: function@proven

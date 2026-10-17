@@ -1,0 +1,17 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/review-compare-assign
+input_file: tests/fixtures/analysis/review-compare-assign/input.ts
+---
+//- input.ts
+export function compareAssign() {
+	let x = 1;
+	if (x === (x = "a", 1)) {
+		const seen = x;
+		return String(seen);
+	}
+	return "no";
+}
+export function main() {
+	console.log(compareAssign());
+}

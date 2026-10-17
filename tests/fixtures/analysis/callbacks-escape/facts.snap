@@ -1,0 +1,50 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/callbacks-escape
+input_file: tests/fixtures/analysis/callbacks-escape/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  onValue (5:1) open: reads writes allocates throws calls-unknown
+  local (9:1): pure
+  main (13:8) open: reads writes allocates throws calls-unknown
+    calls 20:15 -> local
+  <anonymous> (19:18) open: reads writes allocates throws calls-unknown
+    calls 19:24 -> onValue
+nodes:
+  3:18 bind `register`: unknown
+  3:27 bind `handler`: unknown
+  3:37 bind `value`: unknown
+  5:10 bind `onValue`: function@proven
+  5:18 bind `value`: number@declared
+  6:3 call `console.log(value /*@declared number*/)`: unknown
+  6:3 member `console.log`: unknown
+  6:3 ref `console`: unknown
+  6:15 ref `value`: number@declared
+  9:10 bind `local`: function@proven
+  9:16 bind `value`: 2@proven
+  10:10 binary `value /*@proven number int*/ * 2`: 4@proven
+  10:10 ref `value`: 2@proven
+  13:17 bind `main`: function@proven
+  14:9 bind `handlers`: function[]@proven
+  14:20 array `[onValue]`: function[]@proven escape=none stable-shape
+  14:21 ref `onValue`: function@proven
+  16:9 bind `first`: function@proven
+  16:17 member `handlers[0]`: function@proven
+  16:17 ref `handlers`: function[]@proven
+  18:7 binary `typeof register === "function"`: boolean@proven
+  18:7 unary `typeof register`: string@proven
+  18:14 ref `register`: function@declared
+  18:39 call `register(first)`: unknown
+  18:39 ref `register`: function@declared
+  18:48 ref `first`: function@proven
+  19:3 call `queueMicrotask(() => onValue(1))`: unknown
+  19:3 ref `queueMicrotask`: function@declared
+  19:24 call `onValue(1)`: undefined@proven
+  19:24 ref `onValue`: function@proven
+  20:3 call `console.log(local(2))`: unknown
+  20:3 member `console.log`: unknown
+  20:3 ref `console`: unknown
+  20:15 call `local(2)`: 4@proven
+  20:15 ref `local`: function@proven
