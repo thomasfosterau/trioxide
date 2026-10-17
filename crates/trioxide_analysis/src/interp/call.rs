@@ -617,6 +617,32 @@ impl<'a> Cx<'_, '_, 'a> {
         result
     }
 
+    /// Whether the array made at `site` is at once the receiver of a whole-array `fill`
+    /// (`new Array(n).fill(v)`), with `Array.prototype.fill` intact.
+    fn filled_at_once(&self, site: NodeId) -> bool {
+        use oxc_ast::AstKind;
+        use oxc_span::GetSpan;
+        if self.an.patched.contains("Array") {
+            return false;
+        }
+        let nodes = self.module.semantic.nodes();
+        let span = nodes.kind(site).span();
+        let member = nodes.parent_id(site);
+        let AstKind::StaticMemberExpression(fill) = nodes.kind(member) else {
+            return false;
+        };
+        if fill.property.name != "fill" || fill.object.span() != span || fill.optional {
+            return false;
+        }
+        matches!(
+            nodes.parent_kind(member),
+            AstKind::CallExpression(call)
+                if call.callee.span() == fill.span
+                    && call.arguments.len() <= 1
+                    && !call.arguments.iter().any(Argument::is_spread)
+        )
+    }
+
     fn builtin_construct(&mut self, name: &str, args: &Args, site: NodeId) -> Val {
         if self.an.patched.contains(name) {
             return self.unknown_construct(args, site);
@@ -727,8 +753,10 @@ impl<'a> Cx<'_, '_, 'a> {
                         false,
                     );
                     let exact = number.as_constant();
+                    // `new Array(n).fill(v)`: filled before anything else can see a hole.
+                    let filled = self.filled_at_once(site);
                     self.mark(object, |obj| {
-                        obj.holey = true;
+                        obj.holey |= !filled;
                         obj.length = if obj.length.is_none() || obj.length == exact {
                             exact
                         } else {
@@ -736,6 +764,8 @@ impl<'a> Cx<'_, '_, 'a> {
                         };
                     });
                 }
+                // An argument with no value yet (not reached this round): nothing to record.
+                values if values.iter().any(|value| value.ty == Type::Never && value.pts.is_none()) => {}
                 values => {
                     for value in values {
                         self.store_elem(object, value);
@@ -743,9 +773,10 @@ impl<'a> Cx<'_, '_, 'a> {
                     let count = values.len();
                     #[expect(clippy::cast_precision_loss, reason = "a handful of arguments")]
                     let exact = (!args.spread && count != 1).then_some(count as f64);
+                    let filled = self.filled_at_once(site);
                     self.mark(object, |obj| {
                         if count == 1 || args.spread {
-                            obj.holey = true;
+                            obj.holey |= !filled;
                             obj.length = None;
                         } else if obj.length != exact {
                             obj.length = if obj.elem.ty == Type::Never {
