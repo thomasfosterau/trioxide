@@ -1,0 +1,18 @@
+{
+  "name": "trioxide-example-dom-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:plain": "vite build --mode plain --outDir dist-plain",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "playwright-core": "1.56.1",
+    "trioxide": "workspace:*",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}

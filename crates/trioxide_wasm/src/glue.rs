@@ -32,9 +32,13 @@ pub enum GlueMode {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WasmUrl {
+    /// `new URL("__TRIOXIDE_WASM_URL__", import.meta.url)`: the emitter replaces
+    /// [`WASM_URL_PLACEHOLDER`](crate::WASM_URL_PLACEHOLDER) with the `.wasm`'s URL relative
+    /// to the glue. This is what [`IslandArtifact::glue`](crate::IslandArtifact::glue) holds.
+    #[default]
+    Placeholder,
     /// `new URL("./<id>.wasm", import.meta.url)`: the `.wasm` sits next to the glue. Vite
     /// recognises this pattern and emits the file as a hashed asset.
-    #[default]
     Sibling,
     /// `new URL("<path>", import.meta.url)` for a relative path or absolute URL.
     Path(String),
@@ -161,6 +165,7 @@ pub fn generate_glue(spec: &IslandSpec, options: &GlueOptions) -> String {
     }
 
     let url = match &options.wasm_url {
+        WasmUrl::Placeholder => js_string(crate::WASM_URL_PLACEHOLDER),
         WasmUrl::Sibling => js_string(&format!("./{}", spec.wasm_file_name())),
         WasmUrl::Path(path) => js_string(path),
         WasmUrl::Expression(expression) => expression.clone(),

@@ -144,7 +144,6 @@ fn unimplemented_features_say_so() {
     for args in [
         vec!["explain"],
         vec!["explain", "a.ts:f"],
-        vec!["check-toolchain"],
         vec!["--emit=rust", "transform", input],
         vec!["--emit=wasm", "transform", input],
         vec!["--emit=report", "transform", input],
@@ -166,4 +165,143 @@ fn unimplemented_features_say_so() {
             stderr(&out)
         );
     }
+}
+
+#[test]
+fn check_toolchain_reports_what_is_missing() {
+    let out = Command::new(env!("CARGO_BIN_EXE_trioxide"))
+        .arg("check-toolchain")
+        .env("PATH", "")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let text = stderr(&out);
+    assert!(text.contains("rustc      missing"), "{text}");
+    assert!(
+        text.contains("rustup target add") || text.contains("https://rustup.rs"),
+        "{text}"
+    );
+
+    let out = Command::new(env!("CARGO_BIN_EXE_trioxide"))
+        .args(["check-toolchain", "--json"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["canBuildIslands"], true, "{json}");
+    assert_eq!(json["toolchain"]["wasm32Target"], true, "{json}");
+    assert!(
+        json["toolchain"]["rustc"]["version"]
+            .as_str()
+            .unwrap()
+            .starts_with("rustc ")
+    );
+}
+
+#[test]
+fn config_is_discovered_above_the_root() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".git")).unwrap();
+    let app = dir.path().join("packages/app");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::write(app.join("tsconfig.json"), "{}").unwrap();
+    std::fs::write(app.join("a.ts"), "export const a: number = 1;\n").unwrap();
+    std::fs::write(dir.path().join("trioxide.json"), r#"{ "mdoe": 1 }"#).unwrap();
+    let file = app.join("a.ts");
+    let out = trioxide(&["transform", file.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("unknown field `mdoe`"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).contains(dir.path().join("trioxide.json").to_str().unwrap()),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn diagnostics_are_coloured_on_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("bad.ts");
+    std::fs::write(&file, "let x: = 1;\n").unwrap();
+    let file = file.to_str().unwrap();
+    let coloured = trioxide(&["--color=always", "transform", file]);
+    assert!(stderr(&coloured).contains("\x1b["), "{}", stderr(&coloured));
+    let plain = trioxide(&["--color=never", "transform", file]);
+    assert!(!stderr(&plain).contains("\x1b["), "{}", stderr(&plain));
+    // Not a terminal, so `auto` is plain too.
+    let auto = trioxide(&["transform", file]);
+    assert!(!stderr(&auto).contains("\x1b["), "{}", stderr(&auto));
+}
+
+#[test]
+fn build_watch_rebuilds_on_change() {
+    use std::{
+        io::{BufRead as _, BufReader},
+        process::Stdio,
+        sync::mpsc,
+        time::Duration,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let out_dir = dir.path().join("dist");
+    std::fs::write(dir.path().join("tsconfig.json"), "{}").unwrap();
+    std::fs::write(
+        dir.path().join("main.ts"),
+        "import { two } from './two.js';\nexport const four: number = two * 2;\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("two.ts"), "export const two: number = 2;\n").unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_trioxide"))
+        .args(["build", "--watch", "--out-dir"])
+        .arg(&out_dir)
+        .arg(dir.path().join("main.ts"))
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (lines, receiver) = mpsc::channel();
+    let stderr = child.stderr.take().unwrap();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            if lines.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    let wait_for_build = || loop {
+        let line = receiver.recv_timeout(Duration::from_secs(60)).unwrap();
+        if line.contains("watching for changes") {
+            return line;
+        }
+    };
+
+    let first = wait_for_build();
+    assert!(first.contains("built 2 modules"), "{first}");
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("two.js")).unwrap(),
+        "export const two = 2;\n//# sourceMappingURL=two.js.map\n"
+    );
+
+    std::fs::write(
+        dir.path().join("two.ts"),
+        "export const two: number = 22;\n",
+    )
+    .unwrap();
+    wait_for_build();
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("two.js")).unwrap(),
+        "export const two = 22;\n//# sourceMappingURL=two.js.map\n"
+    );
+
+    std::fs::write(dir.path().join("two.ts"), "export const two: = ;\n").unwrap();
+    let failed = wait_for_build();
+    assert!(!failed.contains("built"), "{failed}");
+
+    child.kill().unwrap();
+    child.wait().unwrap();
 }

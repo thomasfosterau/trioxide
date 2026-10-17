@@ -1878,10 +1878,12 @@ name = "trioxide_cli"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "json-strip-comments",
  "oxc_diagnostics",
  "serde_json",
  "tempfile",
  "trioxide",
+ "trioxide_wasm",
 ]
 
 [[package]]
@@ -1922,6 +1924,7 @@ dependencies = [
  "napi-derive",
  "serde_json",
  "trioxide",
+ "trioxide_cli",
 ]
 
 [[package]]

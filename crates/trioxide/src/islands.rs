@@ -29,7 +29,7 @@ pub(crate) fn cargo_builder(root: &Path, options: &Options) -> CargoIslandBuilde
                 GlueMode::Tla => trioxide_wasm::GlueMode::Tla,
                 GlueMode::Ready => trioxide_wasm::GlueMode::Ready,
             },
-            wasm_url: WasmUrl::Sibling,
+            wasm_url: WasmUrl::Placeholder,
         },
         path: None,
     })

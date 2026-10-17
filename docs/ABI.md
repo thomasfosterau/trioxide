@@ -463,10 +463,14 @@ the ABI version 2.
 `generate_glue(spec, options)` emits an ESM module. The output for every hand-written island
 is snapshotted in `crates/trioxide_wasm/tests/snapshots/`.
 
-- **Loading.** `const $url = new URL("./<id>.wasm", import.meta.url)`. That is the pattern
-  Vite turns into a hashed asset. With a `file:` URL (Node) the bytes come from
+- **Loading.** `const $url = new URL("__TRIOXIDE_WASM_URL__", import.meta.url)`: the glue in
+  `IslandArtifact` refers to its module by `WASM_URL_PLACEHOLDER`, and whoever emits it
+  replaces the placeholder with the `.wasm`'s URL relative to the glue (PLAN §7, "Glue ↔
+  emitter contract"). `trioxide build` writes `./<id>.wasm`; the Vite plugin writes its
+  hashed asset, or a `data:` URL in dev. With a `file:` URL (Node) the bytes come from
   `node:fs/promises`, which the glue imports dynamically through a variable so bundlers leave
-  it alone. Otherwise they come from `fetch`. `GlueOptions::wasm_url` can instead name a
+  it alone. Otherwise they come from `fetch` (which also handles `data:` URLs).
+  `GlueOptions::wasm_url` can instead name the sibling file directly (`WasmUrl::Sibling`), a
   path (`WasmUrl::Path`) or any JS expression (`WasmUrl::Expression`, e.g.
   `import.meta.ROLLUP_FILE_URL_<ref>` in a virtual module).
 - **Instantiation** with an empty import object, then a check that
@@ -515,7 +519,7 @@ inside the project so the project's `rust-toolchain.toml`, if any, picks the too
 
 **Toolchain.** `trioxide_wasm::toolchain` finds `cargo`, `rustc`, the wasm32 standard library
 (in `rustc --print sysroot`) and `wasm-opt` on `PATH`, for the builder and for
-`trioxide check-toolchain` (`toolchain::detect`). When something is missing the build goes
+`trioxide check-toolchain` (`toolchain::Toolchain::detect`). When something is missing the build goes
 on: the islands' functions stay JS and the report gets **one** warning
 (`trioxide(wasm-toolchain)`) naming the islands and how to fix it. `--require-wasm`
 (`wasm.require`) makes that, and any failed island build, an error. `--no-wasm`

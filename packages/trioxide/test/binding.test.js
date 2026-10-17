@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { test } from 'vitest';
 
-import { Project, build, explain, hasTsrs, optionsSchema, transform } from 'trioxide';
-import trioxideVite from 'trioxide/vite';
+import { spawnSync } from 'node:child_process';
+
+import { Project, build, explain, findConfig, hasTsrs, loadConfig, transform } from 'trioxide';
 
 test('transform strips types and returns a sourcemap', () => {
   const out = transform('const x: number = 1;\nexport { x };\n', '/virtual/a.ts');
@@ -54,15 +56,32 @@ test('Project builds, updates and transforms', () => {
   assert.equal(explain([path.join(dir, 'main.ts')], 'main.ts', { root: dir }).modules.length, 1);
 });
 
-test('the declared options cover the schema', () => {
-  const declared = readFileSync(new URL('../src/index.d.ts', import.meta.url), 'utf8');
-  const options = declared.slice(declared.indexOf('interface TrioxideOptions'), declared.indexOf('interface FunctionDecision'));
-  for (const key of Object.keys(optionsSchema().properties)) {
-    const name = key.replace('$', '\\$');
-    assert.match(options, new RegExp(`^\\s+${name}\\?:`, 'm'), `TrioxideOptions lacks ${key}`);
-  }
+test('config files are found up the tree and loaded as written', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'trioxide-'));
+  mkdirSync(path.join(dir, '.git'));
+  mkdirSync(path.join(dir, 'app/src'), { recursive: true });
+  assert.equal(findConfig(path.join(dir, 'app/src')), null);
+  writeFileSync(path.join(dir, 'trioxide.jsonc'), '{ // c\n "trustTypes": true, }');
+  const found = findConfig(path.join(dir, 'app/src'));
+  assert.equal(path.basename(found), 'trioxide.jsonc');
+  assert.deepEqual(loadConfig(found), { trustTypes: true });
+  writeFileSync(found, '{ "trustTypes": 1 }');
+  assert.throws(() => loadConfig(found), /invalid type/);
 });
 
-test('the vite plugin is a stub', () => {
-  assert.throws(() => trioxideVite(), /not yet implemented/);
+test('the trioxide bin runs the CLI in the binding', () => {
+  const bin = fileURLToPath(new URL('../bin/trioxide.js', import.meta.url));
+  const version = spawnSync(process.execPath, [bin, '--version'], { encoding: 'utf8' });
+  assert.equal(version.status, 0, version.stderr);
+  assert.match(version.stdout, /^trioxide \d+\.\d+\.\d+/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), 'trioxide-'));
+  writeFileSync(path.join(dir, 'a.ts'), 'export const a: number = 1;\n');
+  const out = spawnSync(process.execPath, [bin, 'transform', path.join(dir, 'a.ts')], { encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /^export const a = 1;\n/);
+
+  const bad = spawnSync(process.execPath, [bin, 'nonsense'], { encoding: 'utf8' });
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /unrecognized subcommand/);
 });

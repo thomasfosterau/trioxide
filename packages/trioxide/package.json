@@ -2,6 +2,14 @@
   "name": "trioxide",
   "version": "0.0.0",
   "description": "A TypeScript-aware optimising compiler: readable JS or Rust/WASM, per function.",
+  "keywords": [
+    "typescript",
+    "compiler",
+    "optimizer",
+    "wasm",
+    "vite-plugin",
+    "oxc"
+  ],
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -11,6 +19,9 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "bin": {
+    "trioxide": "./bin/trioxide.js"
   },
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
@@ -23,24 +34,49 @@
       "types": "./src/vite.d.ts",
       "default": "./src/vite.js"
     },
+    "./schema.json": "./schema.json",
     "./package.json": "./package.json"
   },
   "files": [
+    "bin",
+    "binding/index.cjs",
+    "binding/index.d.cts",
     "src",
-    "binding"
+    "schema.json"
   ],
   "napi": {
     "binaryName": "trioxide",
+    "packageName": "@trioxide/binding",
     "targets": [
-      "x86_64-unknown-linux-gnu"
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
     ]
   },
   "scripts": {
     "build": "napi build --platform --manifest-path ../../crates/trioxide_napi/Cargo.toml --output-dir binding --js index.cjs --dts index.d.cts",
     "build:release": "napi build --platform --release --manifest-path ../../crates/trioxide_napi/Cargo.toml --output-dir binding --js index.cjs --dts index.d.cts",
-    "test": "node --test \"test/*.test.js\""
+    "generate": "node scripts/generate-types.js",
+    "test": "node scripts/generate-types.js --check && tsc -p test/tsconfig.json && vitest run"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@napi-rs/cli": "3.10.8"
+    "@napi-rs/cli": "3.10.8",
+    "@types/node": "22.19.1",
+    "playwright-core": "1.56.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
   }
 }

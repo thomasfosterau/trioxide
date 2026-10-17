@@ -58,8 +58,10 @@ jobs:
         run: pnpm --filter trioxide build
       - name: Generated binding loader is committed and current
         run: git diff --exit-code -- packages/trioxide/binding
-      - name: npm package tests
+      - name: npm package tests (plugin, bin, types; Chromium is the runner's Google Chrome)
         run: pnpm --filter trioxide test
+      - name: dom-app with and without trioxide
+        run: pnpm --filter trioxide-example-dom-app test
       - name: Differential suite
         env:
           TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide

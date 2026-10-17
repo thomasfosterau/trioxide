@@ -170,7 +170,7 @@ fn builds_all_islands_once_then_serves_the_cache() {
             );
         }
         assert!(artifact.warnings.is_empty(), "{:?}", artifact.warnings);
-        assert!(artifact.glue.contains(&artifact.wasm_file_name()));
+        assert!(artifact.glue.contains(trioxide_wasm::WASM_URL_PLACEHOLDER));
     }
 
     // PATH with the real rustc but a cargo that records every call and fails builds.
@@ -329,7 +329,10 @@ pub extern "C" fn __abi_make(n: f64) -> u32 {
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("traps.wasm"), &artifact.wasm).unwrap();
-    std::fs::write(dir.path().join("traps.js"), &artifact.glue).unwrap();
+    let glue = artifact
+        .glue
+        .replace(trioxide_wasm::WASM_URL_PLACEHOLDER, "./traps.wasm");
+    std::fs::write(dir.path().join("traps.js"), glue).unwrap();
     let ready_glue = generate_glue(
         &island.spec,
         &GlueOptions {

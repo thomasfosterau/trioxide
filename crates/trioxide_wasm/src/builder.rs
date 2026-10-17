@@ -29,7 +29,7 @@ use crate::{
     BuildError, IslandArtifact, IslandBuilder,
     glue::{GlueOptions, generate_glue},
     spec::{ABI_VERSION, IslandSpec, SpecError},
-    toolchain::{self, Probe, Rustc, Tool, WASM_TARGET},
+    toolchain::{self, Probe, Program, Rustc, WASM_TARGET},
 };
 
 /// The `libm` requirement of `trioxide_rt`, repeated in the runtime manifest the builder
@@ -239,7 +239,7 @@ impl BuilderOptions {
 pub struct CargoIslandBuilder {
     options: BuilderOptions,
     rustc: OnceLock<Result<Rustc, String>>,
-    wasm_opt: OnceLock<Option<Tool>>,
+    wasm_opt: OnceLock<Option<Program>>,
     cargo_runs: AtomicUsize,
 }
 
@@ -283,7 +283,7 @@ impl CargoIslandBuilder {
             .map_err(|error| BuildError::ToolchainUnavailable(error.clone()))
     }
 
-    fn wasm_opt(&self) -> Option<&Tool> {
+    fn wasm_opt(&self) -> Option<&Program> {
         if !self.options.wasm_opt {
             return None;
         }
@@ -320,7 +320,7 @@ impl CargoIslandBuilder {
         feed(WORKSPACE_MANIFEST.as_bytes());
         feed(island_manifest("", "").as_bytes());
         feed(WASM_TARGET.as_bytes());
-        feed(rustc.tool.version.as_bytes());
+        feed(rustc.program.version.as_bytes());
         feed(
             self.wasm_opt()
                 .map_or(&b"no wasm-opt"[..], |tool| tool.version.as_bytes()),

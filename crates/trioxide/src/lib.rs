@@ -41,11 +41,11 @@ pub use project::{Project, strip_types};
 pub use report::{ExplainQuery, ModuleReport, Report};
 pub use trioxide_common::{Diagnostic, Label, Severity, Span, log};
 /// The WASM island contract, builder, glue generator and toolchain detection
-/// (`trioxide check-toolchain` uses [`wasm::toolchain::detect`]).
+/// (`trioxide check-toolchain` uses [`wasm::toolchain::Toolchain`]).
 pub use trioxide_wasm as wasm;
 pub use trioxide_wasm::{
     BuildError as IslandBuildError, IslandArtifact, IslandBuilder, IslandId, IslandRef,
-    IslandSource, IslandSpec,
+    IslandSource, IslandSpec, WASM_URL_PLACEHOLDER,
 };
 
 /// Whether this build embeds the tsrs type checker (the `tsrs` Cargo feature).

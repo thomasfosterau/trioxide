@@ -64,11 +64,10 @@ fn builds_debug_islands_into_the_output() {
     assert_eq!(ids, ["nbody", "bitwise"]);
     for island in &output.islands {
         assert_eq!(&island.wasm[..4], b"\0asm");
-        assert!(
-            island
-                .glue
-                .contains(&format!("new URL(\"./{}\"", island.wasm_file_name()))
-        );
+        assert!(island.glue.contains(&format!(
+            "new URL(\"{}\", import.meta.url)",
+            trioxide::WASM_URL_PLACEHOLDER
+        )));
     }
     assert!(
         output.islands[0]

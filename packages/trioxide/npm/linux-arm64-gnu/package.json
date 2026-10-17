@@ -1,0 +1,27 @@
+{
+  "name": "@trioxide/binding-linux-arm64-gnu",
+  "version": "0.0.0",
+  "cpu": [
+    "arm64"
+  ],
+  "main": "trioxide.linux-arm64-gnu.node",
+  "files": [
+    "trioxide.linux-arm64-gnu.node"
+  ],
+  "description": "The trioxide native binding for linux-arm64-gnu. Installed automatically as an optional dependency of `trioxide`.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/trioxide",
+    "directory": "packages/trioxide/npm/linux-arm64-gnu"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}

@@ -10,40 +10,9 @@ import type {
 
 export type { BuildOutput, Diagnostic, Invalidation, IslandArtifact, IslandRef, Label, ModuleOutput };
 
-/** Options, in the shape of `trioxide.json` (see `schema/trioxide.schema.json`). */
-export interface TrioxideOptions {
-  /** The JSON schema reference; ignored. */
-  $schema?: string;
-  /** How aggressively functions move to WebAssembly. Default `"auto"`. */
-  mode?: 'js-only' | 'auto' | 'wasm-preferred';
-  /** Closed world (`app`) or open world (`library`). */
-  world?: 'app' | 'library';
-  /** Treat declared TypeScript types as proof. Default `false`. */
-  trustTypes?: boolean;
-  /** Report TypeScript type errors. Default `false`. */
-  check?: boolean;
-  /** The tsconfig to use; default the nearest one above the root. */
-  tsconfig?: string;
-  /** Override the tsconfig's `target`. */
-  target?: string;
-  /** Generate sourcemaps. Default `true`. */
-  sourcemap?: boolean;
-  /** Turn passes on or off by name. */
-  passes?: Record<string, boolean>;
-  /** WebAssembly output. */
-  wasm?: {
-    enabled?: boolean;
-    require?: boolean;
-    wasmOpt?: boolean;
-    glue?: 'tla' | 'ready';
-  };
-  /** Vite dev-server settings. */
-  dev?: { wasm?: boolean };
-  /** Where to cache compiled islands. */
-  cacheDir?: string;
-  /** Per-file overrides, later entries win. */
-  overrides?: Array<{ files: string[]; target: 'js' | 'wasm' }>;
-}
+import type { TrioxideOptions } from './options.d.ts';
+
+export type * from './options.d.ts';
 
 /** Per function: JS or WASM, and why. */
 export interface FunctionDecision {
@@ -106,5 +75,26 @@ export declare function explain(
 /** The JSON schema of `trioxide.json`. */
 export declare function optionsSchema(): Record<string, unknown>;
 
+/**
+ * The string island glue uses in place of its `.wasm` URL, as in
+ * `new URL("__TRIOXIDE_WASM_URL__", import.meta.url)`; emitters replace it.
+ */
+export declare const WASM_URL_PLACEHOLDER: string;
+
 /** Whether the loaded binding embeds the tsrs type checker. */
 export declare const hasTsrs: boolean;
+
+/**
+ * The nearest `trioxide.json` / `trioxide.jsonc` at or above `dir` (stopping at the
+ * repository root), or `null`.
+ */
+export declare function findConfig(dir: string): string | null;
+
+/** Reads and validates a config file; returns the options as written, without defaults. */
+export declare function loadConfig(path: string): TrioxideOptions;
+
+/**
+ * Runs the `trioxide` command line (`argv` without the program name) in this process and
+ * returns its exit code. Output goes to the process's stdout and stderr.
+ */
+export declare function runCli(argv: string[]): number;

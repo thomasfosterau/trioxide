@@ -34,6 +34,12 @@ pub use spec::{
     StructField, StructLayout, StructSpec, TypedArrayElement, WasmType,
 };
 
+/// The string glue uses in place of its `.wasm` file's URL, as in
+/// `new URL("__TRIOXIDE_WASM_URL__", import.meta.url)` ([`WasmUrl::Placeholder`], the
+/// default). Whoever emits the glue (the Vite plugin, `trioxide build`) replaces it with the
+/// emitted asset's URL relative to the glue.
+pub const WASM_URL_PLACEHOLDER: &str = "__TRIOXIDE_WASM_URL__";
+
 /// A built island, ready to be emitted next to the JS.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IslandArtifact {
@@ -41,9 +47,8 @@ pub struct IslandArtifact {
     pub spec: IslandSpec,
     /// The compiled (and possibly `wasm-opt`-ed) module.
     pub wasm: Vec<u8>,
-    /// The ESM glue module's source. By default it loads the module from
-    /// [`wasm_file_name`](Self::wasm_file_name) next to itself
-    /// ([`WasmUrl::Sibling`]).
+    /// The ESM glue module's source. It refers to the `.wasm` by [`WASM_URL_PLACEHOLDER`],
+    /// which the emitter replaces (`trioxide build` with `./<id>.wasm`).
     pub glue: String,
     /// Non-fatal problems, e.g. `wasm-opt` failing (the unoptimised module is used).
     pub warnings: Vec<String>,

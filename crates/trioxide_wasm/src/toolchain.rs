@@ -1,14 +1,13 @@
-//! Finding the Rust toolchain that island builds need (PLAN D6).
+//! Detecting the Rust toolchain that island builds need (PLAN D6).
 //!
-//! Islands need `cargo`, `rustc` and the `wasm32-unknown-unknown` standard library;
-//! `wasm-opt` is optional. [`detect`] reports on all of them, for `trioxide check-toolchain`.
-//! The island builder uses the same functions lazily, so a fully cached build runs nothing
-//! but `rustc -vV`.
+//! [`Toolchain::detect`] probes `rustc`, `cargo`, the `wasm32-unknown-unknown` target and
+//! `wasm-opt`. `trioxide check-toolchain` prints the result. The island builder uses the same
+//! [`Probe`] lazily, through [`rustc`], [`cargo`] and [`wasm_opt`], so a fully cached build
+//! runs nothing but `rustc -vV`.
 //!
-//! Tools are looked up on `PATH` only (never `$CARGO` or `$RUSTC`), and the lookup takes the
-//! `PATH` value explicitly so callers and tests can substitute it. Commands run in the
-//! directory the build will run in, because rustup picks the toolchain from the nearest
-//! `rust-toolchain.toml`.
+//! Tools are looked up on `PATH` only (never `$CARGO` or `$RUSTC`), and the probe can replace
+//! `PATH` so callers and tests can substitute it. Commands run in the probe's directory,
+//! because rustup picks the toolchain from the nearest `rust-toolchain.toml`.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -16,19 +15,136 @@ use std::{
     process::Command,
 };
 
+use serde::Serialize;
+
 /// The target islands compile to.
 pub const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
-/// Where and how to look for tools.
+/// Where to look for tools. The default probes the current process's `PATH` and working
+/// directory, which also decides which `rust-toolchain.toml` rustup honours.
 #[derive(Debug, Clone, Default)]
 pub struct Probe {
-    /// The `PATH` to search; `None` uses the process's `PATH`.
+    /// Replaces `PATH` for the lookup and for the probed commands.
     pub path: Option<OsString>,
-    /// The directory commands run in; `None` uses the working directory.
+    /// The directory the probed commands run in.
     pub cwd: Option<PathBuf>,
 }
 
+/// One external tool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tool {
+    /// The command name, e.g. `rustc`.
+    pub name: String,
+    /// Where it was found on `PATH`, if it was.
+    pub path: Option<PathBuf>,
+    /// The first line of `<name> --version`, if it ran.
+    pub version: Option<String>,
+}
+
+impl Tool {
+    /// Whether the tool ran.
+    pub fn is_available(&self) -> bool {
+        self.version.is_some()
+    }
+}
+
+/// What island builds can use on this machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Toolchain {
+    /// The Rust compiler (required).
+    pub rustc: Tool,
+    /// Cargo (required).
+    pub cargo: Tool,
+    /// Whether the standard library for [`WASM_TARGET`] is installed (required).
+    pub wasm32_target: bool,
+    /// The rustc sysroot the target was looked up in.
+    pub sysroot: Option<PathBuf>,
+    /// Binaryen's optimiser (optional; islands are smaller and faster with it).
+    pub wasm_opt: Tool,
+}
+
+impl Toolchain {
+    /// Probes the current environment.
+    pub fn detect() -> Self {
+        Self::detect_with(&Probe::default())
+    }
+
+    /// Probes with an explicit `PATH` and working directory.
+    pub fn detect_with(probe: &Probe) -> Self {
+        let rustc = probe.tool("rustc");
+        let sysroot = rustc
+            .is_available()
+            .then(|| probe.run("rustc", &["--print", "sysroot"]))
+            .flatten()
+            .map(PathBuf::from);
+        let wasm32_target = sysroot.as_deref().is_some_and(has_wasm_target);
+        Self {
+            rustc,
+            cargo: probe.tool("cargo"),
+            wasm32_target,
+            sysroot,
+            wasm_opt: probe.tool("wasm-opt"),
+        }
+    }
+
+    /// Whether everything required to build islands is present.
+    pub fn can_build_islands(&self) -> bool {
+        self.missing().is_empty()
+    }
+
+    /// What is missing for island builds, each with how to install it. `wasm-opt` is
+    /// optional and not listed.
+    pub fn missing(&self) -> Vec<Missing> {
+        let mut missing = Vec::new();
+        if !self.rustc.is_available() || !self.cargo.is_available() {
+            missing.push(Missing {
+                what: if self.rustc.is_available() {
+                    "cargo"
+                } else if self.cargo.is_available() {
+                    "rustc"
+                } else {
+                    "rustc and cargo"
+                },
+                fix: "install Rust with rustup: https://rustup.rs",
+            });
+        }
+        if self.rustc.is_available() && !self.wasm32_target {
+            missing.push(Missing {
+                what: "the wasm32-unknown-unknown target",
+                fix: "rustup target add wasm32-unknown-unknown",
+            });
+        }
+        missing
+    }
+}
+
+/// A missing requirement and how to fix it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Missing {
+    /// What is missing.
+    pub what: &'static str,
+    /// How to install it.
+    pub fix: &'static str,
+}
+
 impl Probe {
+    fn tool(&self, name: &str) -> Tool {
+        Tool {
+            name: name.to_string(),
+            path: self.find(name),
+            version: self
+                .run(name, &["--version"])
+                .and_then(|out| out.lines().next().map(str::to_string)),
+        }
+    }
+
+    /// Runs `program args` and returns its trimmed stdout if it succeeded.
+    fn run(&self, program: &str, args: &[&str]) -> Option<String> {
+        self.output(&self.find(program)?, args).ok()
+    }
+
     /// The `PATH` value in effect.
     pub fn path_var(&self) -> OsString {
         self.path
@@ -39,11 +155,19 @@ impl Probe {
 
     /// Finds an executable named `name` on the `PATH`.
     pub fn find(&self, name: &str) -> Option<PathBuf> {
-        let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+        let names: Vec<String> = if cfg!(windows) {
+            vec![
+                format!("{name}.exe"),
+                format!("{name}.cmd"),
+                name.to_string(),
+            ]
+        } else {
+            vec![name.to_string()]
+        };
         std::env::split_paths(&self.path_var())
             .filter(|dir| !dir.as_os_str().is_empty())
-            .map(|dir| dir.join(&file))
-            .find(|path| is_executable(path))
+            .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
+            .find(|candidate| is_executable(candidate))
     }
 
     /// A command for `program` with this probe's `PATH` and working directory.
@@ -76,6 +200,14 @@ impl Probe {
     }
 }
 
+fn has_wasm_target(sysroot: &Path) -> bool {
+    sysroot
+        .join("lib/rustlib")
+        .join(WASM_TARGET)
+        .join("lib")
+        .is_dir()
+}
+
 #[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt as _;
@@ -88,9 +220,9 @@ fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
-/// A tool that was found.
+/// A program the builder runs: where it is and what it says its version is.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Tool {
+pub struct Program {
     /// Its path.
     pub path: PathBuf,
     /// Its version output (`rustc -vV` gives several lines).
@@ -100,8 +232,8 @@ pub struct Tool {
 /// `rustc` plus what it says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rustc {
-    /// The tool; `version` is the full `rustc -vV` output, used in cache keys.
-    pub tool: Tool,
+    /// The program; `version` is the full `rustc -vV` output, used in cache keys.
+    pub program: Program,
     /// The `release:` line, e.g. `1.99.1`.
     pub release: String,
     /// The sysroot (`rustc --print sysroot`).
@@ -111,11 +243,7 @@ pub struct Rustc {
 impl Rustc {
     /// Whether the sysroot has the wasm32 standard library.
     pub fn has_wasm_target(&self) -> bool {
-        self.sysroot
-            .join("lib/rustlib")
-            .join(WASM_TARGET)
-            .join("lib")
-            .is_dir()
+        has_wasm_target(&self.sysroot)
     }
 }
 
@@ -132,74 +260,26 @@ pub fn rustc(probe: &Probe) -> Result<Rustc, String> {
         .to_string();
     let sysroot = PathBuf::from(probe.output(&path, &["--print", "sysroot"])?);
     Ok(Rustc {
-        tool: Tool { path, version },
+        program: Program { path, version },
         release,
         sysroot,
     })
 }
 
 /// Finds `cargo` and asks for its version.
-pub fn cargo(probe: &Probe) -> Result<Tool, String> {
+pub fn cargo(probe: &Probe) -> Result<Program, String> {
     let path = probe
         .find("cargo")
         .ok_or_else(|| "`cargo` was not found on PATH".to_string())?;
     let version = probe.output(&path, &["--version"])?;
-    Ok(Tool { path, version })
+    Ok(Program { path, version })
 }
 
 /// Finds `wasm-opt` (Binaryen) and asks for its version.
-pub fn wasm_opt(probe: &Probe) -> Option<Tool> {
+pub fn wasm_opt(probe: &Probe) -> Option<Program> {
     let path = probe.find("wasm-opt")?;
     let version = probe.output(&path, &["--version"]).ok()?;
-    Some(Tool { path, version })
-}
-
-/// The state of every tool island builds use.
-#[derive(Debug, Clone)]
-pub struct ToolchainReport {
-    /// `cargo`, or why it is unusable.
-    pub cargo: Result<Tool, String>,
-    /// `rustc`, or why it is unusable.
-    pub rustc: Result<Rustc, String>,
-    /// Whether the `wasm32-unknown-unknown` standard library is installed for that `rustc`.
-    pub wasm_target: bool,
-    /// `wasm-opt`, if it is on `PATH` (optional).
-    pub wasm_opt: Option<Tool>,
-}
-
-impl ToolchainReport {
-    /// Whether islands can be built.
-    pub fn is_ready(&self) -> bool {
-        self.problems().is_empty()
-    }
-
-    /// What is missing, with how to fix it. Empty when [`is_ready`](Self::is_ready).
-    pub fn problems(&self) -> Vec<String> {
-        let mut problems = Vec::new();
-        if let Err(error) = &self.cargo {
-            problems.push(format!("{error}; install Rust from https://rustup.rs"));
-        }
-        match &self.rustc {
-            Err(error) => problems.push(format!("{error}; install Rust from https://rustup.rs")),
-            Ok(rustc) if !self.wasm_target => problems.push(format!(
-                "the {WASM_TARGET} target is not installed for rustc {}; run `rustup target add {WASM_TARGET}`",
-                rustc.release
-            )),
-            Ok(_) => {}
-        }
-        problems
-    }
-}
-
-/// Reports on every tool.
-pub fn detect(probe: &Probe) -> ToolchainReport {
-    let rustc = rustc(probe);
-    ToolchainReport {
-        cargo: cargo(probe),
-        wasm_target: rustc.as_ref().is_ok_and(Rustc::has_wasm_target),
-        rustc,
-        wasm_opt: wasm_opt(probe),
-    }
+    Some(Program { path, version })
 }
 
 /// Environment variables that would change how cargo builds an island; the builder removes
@@ -242,29 +322,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_tools_are_reported() {
-        let empty = tempfile::tempdir().unwrap();
+    fn an_empty_path_finds_nothing() {
+        let dir = std::env::temp_dir();
         let probe = Probe {
-            path: Some(empty.path().as_os_str().to_owned()),
-            cwd: None,
+            path: Some(OsString::new()),
+            cwd: Some(dir),
         };
-        let report = detect(&probe);
-        assert!(!report.is_ready());
-        let problems = report.problems().join("\n");
-        assert!(problems.contains("`cargo` was not found"), "{problems}");
-        assert!(problems.contains("`rustc` was not found"), "{problems}");
-        assert!(report.wasm_opt.is_none());
+        let toolchain = Toolchain::detect_with(&probe);
+        assert!(!toolchain.rustc.is_available());
+        assert!(!toolchain.wasm32_target);
+        assert!(!toolchain.can_build_islands());
+        assert_eq!(toolchain.missing()[0].what, "rustc and cargo");
+        assert_eq!(rustc(&probe).unwrap_err(), "`rustc` was not found on PATH");
+        assert_eq!(cargo(&probe).unwrap_err(), "`cargo` was not found on PATH");
+        assert!(wasm_opt(&probe).is_none());
     }
 
     #[test]
-    fn finds_the_real_toolchain() {
-        let report = detect(&Probe::default());
-        assert!(report.is_ready(), "{:?}", report.problems());
-        let rustc = report.rustc.unwrap();
-        assert!(
-            rustc.tool.version.contains("release: "),
-            "{}",
-            rustc.tool.version
-        );
+    fn the_workspace_toolchain_is_complete() {
+        // The workspace pins a toolchain with the wasm32 target (rust-toolchain.toml).
+        let probe = Probe {
+            path: None,
+            cwd: Some(PathBuf::from(env!("CARGO_MANIFEST_DIR"))),
+        };
+        let toolchain = Toolchain::detect_with(&probe);
+        assert!(toolchain.rustc.is_available(), "{toolchain:?}");
+        assert!(toolchain.cargo.is_available(), "{toolchain:?}");
+        assert!(toolchain.wasm32_target, "{toolchain:?}");
+        assert!(toolchain.can_build_islands());
+        let rustc = rustc(&probe).unwrap();
+        assert!(rustc.has_wasm_target());
+        assert!(rustc.program.version.contains("release: "));
     }
 }
