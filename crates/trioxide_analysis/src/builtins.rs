@@ -117,7 +117,7 @@ pub enum CallbackParam {
 }
 
 /// What kind of value a method is looked up on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Receiver {
     /// A global function or value (`parseInt`, `NaN`) or a namespace member (`Math.floor`).
     Global,
@@ -396,16 +396,21 @@ pub const NAMESPACES: [&str; 7] = ["Math", "Number", "JSON", "Object", "Array", 
 
 /// The model of a global or namespace member, e.g. `"Math.floor"`.
 pub fn global(name: &str) -> Option<&'static Builtin> {
-    BUILTINS
-        .iter()
-        .find(|builtin| builtin.receiver == Receiver::Global && builtin.name == name)
+    method_of(Receiver::Global, name)
 }
 
 /// The model of a method on a proven receiver kind.
 pub fn method_of(receiver: Receiver, name: &str) -> Option<&'static Builtin> {
-    BUILTINS
-        .iter()
-        .find(|builtin| builtin.receiver == receiver && builtin.name == name)
+    static INDEX: std::sync::LazyLock<rustc_hash::FxHashMap<(Receiver, &'static str), &'static Builtin>> =
+        std::sync::LazyLock::new(|| {
+            let mut index = rustc_hash::FxHashMap::default();
+            for builtin in BUILTINS {
+                // The first entry wins, as in a linear search.
+                index.entry((builtin.receiver, builtin.name)).or_insert(builtin);
+            }
+            index
+        });
+    INDEX.get(&(receiver, name)).copied()
 }
 
 /// Properties every plain object inherits from `Object.prototype`. Reading one that is not an

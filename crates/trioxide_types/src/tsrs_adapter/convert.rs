@@ -130,7 +130,7 @@ impl Converter<'_> {
                 .first()
                 .copied()
                 .map_or(Type::Unknown, |element| self.convert_at(element, depth - 1));
-            return Type::Array(Box::new(element));
+            return Type::Array(std::sync::Arc::new(element));
         }
         if tsrs_checker::is_tuple_type_exported(ty) {
             return self.convert_tuple(ty, depth);
@@ -170,10 +170,10 @@ impl Converter<'_> {
             return match calls {
                 [signature] => {
                     let signature = self.convert_signature_at(*signature, depth - 1);
-                    Type::Function(Box::new(signature), id)
+                    Type::Function(std::sync::Arc::new(signature), id)
                 }
                 // An overloaded function: callable, but which overload applies depends on the call.
-                _ => Type::Function(Box::default(), id),
+                _ => Type::opaque_function(id),
             };
         }
 
@@ -198,7 +198,7 @@ impl Converter<'_> {
                 .properties
                 .push((property.name().to_string(), converted));
         }
-        Type::Object(shape)
+        Type::Object(std::sync::Arc::new(shape))
     }
 
     /// Whether `ty` is a plain property bag: no index signatures and declared (if at all) in
@@ -260,10 +260,10 @@ impl Converter<'_> {
             .map(|&element| self.convert_at(element, depth - 1))
             .collect();
         if fixed {
-            Type::Tuple(elements)
+            Type::Tuple(elements.into())
         } else {
             // Optional or rest elements: still an array, of any of the element types.
-            Type::Array(Box::new(Type::union(
+            Type::Array(std::sync::Arc::new(Type::union(
                 elements.into_iter().chain([Type::Undefined]),
             )))
         }

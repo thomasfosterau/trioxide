@@ -38,6 +38,13 @@ use crate::{
     world::{Body, Module, Unit, World},
 };
 
+/// Global objects the lib declares with interface types (which the oracle answers `Unknown`
+/// for), when not shadowed.
+const LIB_OBJECTS: [&str; 16] = [
+    "console", "Math", "JSON", "Object", "Number", "String", "Array", "Date", "Promise", "Reflect", "Symbol", "Map",
+    "Set", "globalThis", "Intl", "Error",
+];
+
 /// Rounds after which numeric facts in the whole-program tables are widened.
 const WIDEN_AFTER: usize = 3;
 /// Rounds after which the analysis gives up and reports nothing.
@@ -46,6 +53,30 @@ const MAX_ROUNDS: usize = 40;
 const LOOP_WIDEN_AFTER: usize = 2;
 /// Loop iterations after which the loop's environment is abandoned to `Unknown`.
 const MAX_LOOP_ITERATIONS: usize = 12;
+
+/// A whole-program table entry a unit's interpretation read. When one changes, the units
+/// that read it are interpreted again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Dep {
+    Symbol(SymbolRef),
+    Params(NodeRef),
+    This(NodeRef),
+    Return(NodeRef),
+    Heap(AllocId),
+    Super(NodeRef),
+    Default(NodeRef),
+}
+
+/// Who read what, and which units must run again.
+#[derive(Default)]
+struct Deps {
+    current: Option<NodeRef>,
+    /// What the current unit has read in this run.
+    current_reads: FxHashSet<Dep>,
+    readers: FxHashMap<Dep, Vec<NodeRef>>,
+    seen: FxHashSet<(Dep, NodeRef)>,
+    dirty: FxHashSet<NodeRef>,
+}
 
 /// How far an object may be seen by code other than the unit that created it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -152,9 +183,10 @@ pub struct State {
     pub heap: FxHashMap<AllocId, Obj>,
     /// The value each class extends.
     pub supers: FxHashMap<NodeRef, Val>,
+    /// The value of each `export default <expression>`, by expression node.
+    pub defaults: FxHashMap<NodeRef, Val>,
     /// Classes with an instance site that escapes to unknown code.
     pub open_instances: FxHashSet<NodeRef>,
-    changed: bool,
 }
 
 /// A call edge recorded while interpreting.
@@ -182,7 +214,7 @@ pub struct UnitRecord {
     pub allocations: Vec<AllocId>,
 }
 
-/// What one round of interpretation recorded.
+/// What interpretation recorded (for one unit, or merged for all).
 #[derive(Default)]
 pub struct Output {
     /// The value of each expression and binding node.
@@ -193,11 +225,31 @@ pub struct Output {
     pub units: FxHashMap<NodeRef, UnitRecord>,
 }
 
+impl Output {
+    fn merge(&mut self, other: Self) {
+        for (node, value) in other.nodes {
+            match self.nodes.entry(node) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    let joined = entry.get().join(&value);
+                    entry.insert(joined);
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(value);
+                }
+            }
+        }
+        for (node, trust) in other.in_bounds {
+            self.in_bounds.entry(node).and_modify(|old| *old = (*old).min(trust)).or_insert(trust);
+        }
+        self.units.extend(other.units);
+    }
+}
+
 /// The analysis's results once the tables are stable.
 pub struct Results {
     /// The stable tables.
     pub state: State,
-    /// The last round's recordings.
+    /// Every unit's last recordings, merged.
     pub output: Output,
     /// Whether a fixed point was reached (if not, nothing may be trusted).
     pub converged: bool,
@@ -210,8 +262,12 @@ pub struct Results {
 /// Counters for one analysis run.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Stats {
-    /// Rounds over every unit until nothing changed.
+    /// Sweeps over the units with changed inputs until there were none.
     pub rounds: usize,
+    /// Units (module bodies, functions, class initialisers, static blocks).
+    pub units: usize,
+    /// Unit interpretations, over all sweeps.
+    pub interpretations: usize,
     /// Type oracle queries (cache misses).
     pub oracle_queries: usize,
     /// Time spent in the oracle.
@@ -235,33 +291,43 @@ pub fn run(
         state: State::default(),
         output: Output::default(),
         round: 0,
+        deps: std::cell::RefCell::default(),
+        outputs: FxHashMap::default(),
         ts_cache: FxHashMap::default(),
         patched: patched_builtins(world),
         stats: Stats::default(),
     };
     let started = std::time::Instant::now();
     let mut converged = false;
+    analyzer.deps.get_mut().dirty.extend(world.unit_order.iter().copied());
+    analyzer.stats.units = world.unit_order.len();
     while analyzer.round < MAX_ROUNDS {
-        analyzer.state.changed = false;
-        analyzer.output = Output::default();
         for &unit in &world.unit_order {
+            if !analyzer.deps.get_mut().dirty.remove(&unit) {
+                continue;
+            }
             let unit = world.unit(unit);
             if world.module(unit.id.module).broken {
                 continue;
             }
+            analyzer.stats.interpretations += 1;
             analyzer.interpret(unit);
         }
         analyzer.round += 1;
-        if !analyzer.state.changed {
+        if analyzer.deps.get_mut().dirty.is_empty() {
             converged = true;
             break;
         }
     }
     analyzer.stats.rounds = analyzer.round;
     analyzer.stats.total_time = started.elapsed();
+    let mut output = Output::default();
+    for unit_output in analyzer.outputs.into_values() {
+        output.merge(unit_output);
+    }
     Results {
         state: analyzer.state,
-        output: analyzer.output,
+        output,
         converged,
         patched: analyzer.patched,
         stats: analyzer.stats,
@@ -357,6 +423,8 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub state: State,
     pub output: Output,
     pub round: usize,
+    deps: std::cell::RefCell<Deps>,
+    outputs: FxHashMap<NodeRef, Output>,
     ts_cache: FxHashMap<NodeRef, Option<Type>>,
     pub patched: FxHashSet<String>,
     stats: Stats,
@@ -470,6 +538,12 @@ pub(crate) struct Cx<'c, 'w, 'a> {
 
 impl<'w, 'a> Analyzer<'w, 'a> {
     fn interpret(&mut self, unit: &'w Unit<'a>) {
+        let deps = self.deps.get_mut();
+        deps.current = Some(unit.id);
+        deps.current_reads.clear();
+        let capacity = self.outputs.get(&unit.id).map_or(0, |output| output.nodes.len());
+        self.output = Output::default();
+        self.output.nodes.reserve(capacity);
         let module = self.world.module(unit.id.module);
         let this = self.this_for(unit);
         let mut cx = Cx {
@@ -530,6 +604,59 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let record = std::mem::take(&mut cx.record);
         self.join_return(unit.id, returned);
         self.output.units.insert(unit.id, record);
+        let output = std::mem::take(&mut self.output);
+        self.outputs.insert(unit.id, output);
+        self.deps.get_mut().current = None;
+    }
+
+    /// Notes that the current unit read `dep`.
+    pub fn read(&self, dep: Dep) {
+        let mut deps = self.deps.borrow_mut();
+        let Some(unit) = deps.current else { return };
+        if deps.current_reads.insert(dep) && deps.seen.insert((dep, unit)) {
+            deps.readers.entry(dep).or_default().push(unit);
+        }
+    }
+
+    /// Notes that `dep` changed: every unit that read it runs again.
+    pub fn touch(&self, dep: Dep) {
+        let mut deps = self.deps.borrow_mut();
+        let Deps { current, current_reads, readers, dirty, .. } = &mut *deps;
+        if let Some(units) = readers.get(&dep) {
+            // The current unit's result depends only on what this run read so far.
+            let skip = current.filter(|_| !current_reads.contains(&dep));
+            dirty.extend(units.iter().copied().filter(|&unit| Some(unit) != skip));
+        }
+    }
+
+    /// The heap entry of `site`, as a dependency of the current unit.
+    pub fn heap(&self, site: &AllocId) -> Option<&Obj> {
+        self.read(Dep::Heap(*site));
+        self.state.heap.get(site)
+    }
+
+    /// Every value `symbol` holds, as a dependency of the current unit.
+    pub fn symbol_value(&self, symbol: &SymbolRef) -> Option<&Val> {
+        self.read(Dep::Symbol(*symbol));
+        self.state.symbols.get(symbol)
+    }
+
+    /// What `unit` returns, as a dependency of the current unit.
+    pub fn returned(&self, unit: &NodeRef) -> Option<&Val> {
+        self.read(Dep::Return(*unit));
+        self.state.returns.get(unit)
+    }
+
+    /// What `class` extends, as a dependency of the current unit.
+    pub fn super_of(&self, class: &NodeRef) -> Option<&Val> {
+        self.read(Dep::Super(*class));
+        self.state.supers.get(class)
+    }
+
+    /// The value of an `export default` expression, as a dependency of the current unit.
+    pub fn default_value(&self, node: &NodeRef) -> Option<&Val> {
+        self.read(Dep::Default(*node));
+        self.state.defaults.get(node)
     }
 
     /// `this` for a unit: what known callers passed, or what TypeScript says if unknown code
@@ -561,6 +688,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     }
 
     fn recorded_this(&mut self, unit: &Unit<'a>) -> Val {
+        self.read(Dep::This(unit.id));
         let recorded = self.state.this.get(&unit.id).cloned().unwrap_or_else(Val::never);
         if self.is_open(unit) {
             recorded.join(&Val::unknown())
@@ -571,19 +699,26 @@ impl<'w, 'a> Analyzer<'w, 'a> {
 
     /// The value of the class object for `class`.
     fn class_value(&self, class: NodeRef) -> Val {
-        Val::object(Type::Function(Box::default(), Some(class)), class)
+        Val::object(Type::opaque_function(Some(class)), class)
     }
 
     /// Whether code trioxide does not see may call `unit` (so its parameters and `this` are
     /// whatever TypeScript declares).
     pub fn is_open(&self, unit: &Unit<'a>) -> bool {
+        self.read(Dep::Heap(unit.id));
+        if let Some(class) = unit.class.or_else(|| self.world.member_of.get(&unit.id).copied()) {
+            self.read(Dep::Heap(class));
+            if let Some(info) = self.world.classes.get(&class) {
+                self.read(Dep::Heap(info.init));
+            }
+        }
         unit_open(self.world, &self.state, unit)
     }
 
     /// Joins into a whole-program table entry, noting whether it changed.
-    fn join_into(round: usize, changed: &mut bool, slot: &mut Val, value: &Val) {
+    fn join_into(round: usize, slot: &mut Val, value: &Val) -> bool {
         if slot == value || (value.ty == Type::Never && value.pts.is_none()) {
-            return;
+            return false;
         }
         let mut joined = slot.join(value);
         if round >= WIDEN_AFTER
@@ -591,48 +726,67 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         {
             joined.ty = Type::Number(numeric::widen(*old, *new));
         }
-        if joined != *slot {
-            *slot = joined;
-            *changed = true;
+        if joined == *slot {
+            return false;
         }
+        *slot = joined;
+        true
     }
 
     fn join_symbol(&mut self, symbol: SymbolRef, value: &Val) {
         let slot = self.state.symbols.entry(symbol).or_insert_with(Val::never);
-        Self::join_into(self.round, &mut self.state.changed, slot, value);
+        if Self::join_into(self.round, slot, value) {
+            self.touch(Dep::Symbol(symbol));
+        }
     }
 
     fn join_return(&mut self, unit: NodeRef, value: Val) {
         let slot = self.state.returns.entry(unit).or_insert_with(Val::never);
-        Self::join_into(self.round, &mut self.state.changed, slot, &value);
+        if Self::join_into(self.round, slot, &value) {
+            self.touch(Dep::Return(unit));
+        }
     }
 
     fn join_this(&mut self, unit: NodeRef, value: &Val) {
         let slot = self.state.this.entry(unit).or_insert_with(Val::never);
-        Self::join_into(self.round, &mut self.state.changed, slot, value);
+        if Self::join_into(self.round, slot, value) {
+            self.touch(Dep::This(unit));
+        }
     }
 
     fn join_param(&mut self, unit: NodeRef, index: usize, value: &Val) {
         let params = self.state.params.entry(unit).or_default();
+        let mut changed = false;
         if params.len() <= index {
             params.resize_with(index + 1, Val::never);
-            self.state.changed = true;
+            changed = true;
         }
-        Self::join_into(self.round, &mut self.state.changed, &mut params[index], value);
+        if Self::join_into(self.round, &mut params[index], value) || changed {
+            self.touch(Dep::Params(unit));
+        }
     }
 
     fn join_super(&mut self, class: NodeRef, value: &Val) {
         let slot = self.state.supers.entry(class).or_insert_with(Val::never);
-        Self::join_into(self.round, &mut self.state.changed, slot, value);
+        if Self::join_into(self.round, slot, value) {
+            self.touch(Dep::Super(class));
+        }
+    }
+
+    /// Joins into the value of an `export default` expression.
+    pub fn join_default(&mut self, node: NodeRef, value: &Val) {
+        let slot = self.state.defaults.entry(node).or_insert_with(Val::never);
+        if Self::join_into(self.round, slot, value) {
+            self.touch(Dep::Default(node));
+        }
     }
 
     /// The heap entry of `site`, created (empty) on first use.
     fn obj(&mut self, site: AllocId, kind: ObjKind, unit: NodeRef) -> &mut Obj {
-        let changed = &mut self.state.changed;
-        self.state.heap.entry(site).or_insert_with(|| {
-            *changed = true;
-            Obj::new(kind, unit)
-        })
+        if !self.state.heap.contains_key(&site) {
+            self.touch(Dep::Heap(site));
+        }
+        self.state.heap.entry(site).or_insert_with(|| Obj::new(kind, unit))
     }
 
     /// Marks every site in `pts` (and what it reaches) as reaching code that may redefine its
@@ -644,7 +798,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 && !obj.poisoned
             {
                 obj.poisoned = true;
-                self.state.changed = true;
+                self.touch(Dep::Heap(site));
             }
         }
     }
@@ -663,19 +817,21 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 continue;
             }
             obj.escape = level;
-            self.state.changed = true;
-            if level == Escape::Unknown
-                && let ObjKind::Instance(class) = obj.kind
-            {
-                self.state.open_instances.insert(class);
-            }
+            let kind = obj.kind;
             for value in obj.props.values().chain([&obj.elem]) {
                 if let Some(inner) = value.pts.sites() {
                     pending.extend_from_slice(inner);
                 }
             }
+            self.touch(Dep::Heap(site));
+            if level == Escape::Unknown
+                && let ObjKind::Instance(class) = kind
+                && self.state.open_instances.insert(class)
+            {
+                self.touch(Dep::Heap(class));
+            }
             // A namespace object reaches every export.
-            if let ObjKind::Namespace(module) = obj.kind {
+            if let ObjKind::Namespace(module) = kind {
                 let mut exported = Vec::new();
                 self.exported_values(module, &mut exported, &mut FxHashSet::default());
                 pending.extend(exported);
@@ -683,7 +839,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             }
             // A class's prototype, constructor and methods go with it, and so do an
             // instance's (`instance.constructor` reaches the class).
-            if let ObjKind::Class(class) | ObjKind::Instance(class) | ObjKind::Prototype(class) = obj.kind
+            if let ObjKind::Class(class) | ObjKind::Instance(class) | ObjKind::Prototype(class) = kind
                 && let Some(info) = self.world.classes.get(&class)
             {
                 pending.push(class);
@@ -702,7 +858,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let info = self.world.module(module);
         for (index, symbol) in info.symbols.iter().enumerate() {
             if symbol.exported
-                && let Some(value) = self.state.symbols.get(&info.symbol(SymbolId::from_usize(index)))
+                && let Some(value) = self.symbol_value(&info.symbol(SymbolId::from_usize(index)))
                 && let Some(sites) = value.pts.sites()
             {
                 out.extend_from_slice(sites);
@@ -721,13 +877,13 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         for (import, target) in self.links.imports() {
             if import.module == module && info.info(import.symbol).exported
                 && let crate::link::Target::Symbol(target) = target
-                && let Some(sites) = self.state.symbols.get(&target).and_then(|value| value.pts.sites())
+                && let Some(sites) = self.symbol_value(&target).and_then(|value| value.pts.sites())
             {
                 out.extend_from_slice(sites);
             }
         }
         if let crate::link::Target::Expression(node) = crate::link::resolve_export(self.world, info, "default", &mut FxHashSet::default())
-            && let Some(sites) = self.output.nodes.get(&node).and_then(|value| value.pts.sites())
+            && let Some(sites) = self.default_value(&node).and_then(|value| value.pts.sites())
         {
             out.extend_from_slice(sites);
         }
@@ -738,7 +894,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let program = self.world.module(module).program.node_id.get();
         let site = NodeRef { module, node: program };
         self.obj(site, ObjKind::Namespace(module), unit);
-        Val::object(Type::Object(trioxide_types::Shape::default()), site)
+        Val::object(Type::empty_object(), site)
     }
 
     /// TypeScript's type at `node`, as a declared value (cached).
@@ -774,7 +930,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     /// The value with TypeScript's declared type filled in if the analysis knows nothing.
     pub fn or_declared(&mut self, value: Val, node: NodeId, span: Span) -> Val {
-        if value.trust != Trust::Unknown || value.poisoned {
+        if value.trust != Trust::Unknown || value.poisoned || self.declared_type_unused(node) {
             return value;
         }
         let key = self.node(node);
@@ -786,6 +942,25 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 declared
             }
             _ => value,
+        }
+    }
+
+    /// Whether asking TypeScript about `node` can't tell anything: the value of an expression
+    /// statement is discarded, and the lib's global objects (`console`, `Math`) have types the
+    /// oracle answers `Unknown` for.
+    fn declared_type_unused(&self, node: NodeId) -> bool {
+        use oxc_ast::AstKind;
+        let nodes = self.module.semantic.nodes();
+        match nodes.kind(node) {
+            AstKind::CallExpression(_) => matches!(nodes.parent_kind(node), AstKind::ExpressionStatement(_)),
+            AstKind::IdentifierReference(ident) => {
+                LIB_OBJECTS.contains(&ident.name.as_str())
+                    && ident
+                        .reference_id
+                        .get()
+                        .is_some_and(|reference| self.module.semantic.scoping().get_reference(reference).symbol_id().is_none())
+            }
+            _ => false,
         }
     }
 
@@ -872,12 +1047,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         if mutable {
             self.always(EffectKind::Reads);
         }
-        self.an
-            .state
-            .symbols
-            .get(&self.module.symbol(symbol))
-            .cloned()
-            .unwrap_or_else(Val::never)
+        self.an.symbol_value(&self.module.symbol(symbol)).cloned().unwrap_or_else(Val::never)
     }
 
     /// The value an import binding refers to.
@@ -892,20 +1062,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     return Val::poisoned();
                 }
                 self.always(EffectKind::Reads);
-                self.an
-                    .state
-                    .symbols
-                    .get(&target)
-                    .cloned()
-                    .unwrap_or_else(Val::never)
+                self.an.symbol_value(&target).cloned().unwrap_or_else(Val::never)
             }
-            Some(crate::link::Target::Expression(node)) => self
-                .an
-                .output
-                .nodes
-                .get(&node)
-                .cloned()
-                .unwrap_or_else(Val::unknown),
+            Some(crate::link::Target::Expression(node)) if !self.an.world.module(node.module).broken => {
+                self.an.default_value(&node).cloned().unwrap_or_else(Val::never)
+            }
             Some(crate::link::Target::Namespace(module)) => {
                 let unit = self.unit.id;
                 self.an.namespace(module, unit)
@@ -966,19 +1127,20 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let Some(obj) = self.an.state.heap.get_mut(&site) else {
             return;
         };
-        let changed = &mut self.an.state.changed;
+        let mut changed = false;
         if !obj.props.contains_key(key) {
             obj.order.push(key.to_string());
+            changed = true;
         }
-        let slot = obj.props.entry(key.to_string()).or_insert_with(|| {
-            *changed = true;
-            Val::never()
-        });
-        Analyzer::join_into(round, changed, slot, value);
+        let slot = obj.props.entry(key.to_string()).or_insert_with(Val::never);
+        changed |= Analyzer::join_into(round, slot, value);
         if !creating && !obj.present.contains(key) && obj.unit != own_unit && obj.added.insert(key.to_string()) {
-            *changed = true;
+            changed = true;
         }
         let level = obj.escape.max(Escape::Known);
+        if changed {
+            self.an.touch(Dep::Heap(site));
+        }
         self.an.escape(&value.pts, level);
     }
 
@@ -988,19 +1150,22 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let Some(obj) = self.an.state.heap.get_mut(&site) else {
             return;
         };
-        let changed = &mut self.an.state.changed;
-        Analyzer::join_into(round, changed, &mut obj.elem, value);
+        let changed = Analyzer::join_into(round, &mut obj.elem, value);
         let level = obj.escape.max(Escape::Known);
+        if changed {
+            self.an.touch(Dep::Heap(site));
+        }
         self.an.escape(&value.pts, level);
     }
 
     /// Updates a heap entry's flags.
     pub fn mark(&mut self, site: AllocId, update: impl FnOnce(&mut Obj)) {
+        self.an.read(Dep::Heap(site));
         if let Some(obj) = self.an.state.heap.get_mut(&site) {
             let before = (obj.dynamic, obj.deleted, obj.holey, obj.length, obj.present.len());
             update(obj);
             if before != (obj.dynamic, obj.deleted, obj.holey, obj.length, obj.present.len()) {
-                self.an.state.changed = true;
+                self.an.touch(Dep::Heap(site));
             }
         }
     }

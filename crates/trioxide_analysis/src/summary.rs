@@ -133,7 +133,7 @@ fn refine(ty: &Type, pts: &Pts, state: &State, depth: usize) -> Type {
     match ty {
         Type::Union(members) => Type::union(members.iter().map(|member| refine(member, pts, state, depth))),
         Type::Object(shape) if shape.properties.is_empty() && !shape.exact => object_shape(pts, state, depth).unwrap_or_else(|| ty.clone()),
-        Type::Array(element) if **element == Type::Unknown => array_element(pts, state, depth).map_or_else(|| ty.clone(), |element| Type::Array(Box::new(element))),
+        Type::Array(element) if **element == Type::Unknown => array_element(pts, state, depth).map_or_else(|| ty.clone(), |element| Type::Array(std::sync::Arc::new(element))),
         other => other.clone(),
     }
 }
@@ -181,7 +181,7 @@ fn object_shape(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
             (key, ty)
         })
         .collect();
-    Some(Type::Object(Shape { properties, exact }))
+    Some(Type::Object(std::sync::Arc::new(Shape { properties, exact })))
 }
 
 fn array_element(pts: &Pts, state: &State, depth: usize) -> Option<Type> {

@@ -113,7 +113,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 Some(sites) if sites.len() > 1 => sites
                     .iter()
                     .map(|&object| {
-                        let ty = match self.an.state.heap.get(&object).map(|obj| obj.kind) {
+                        let ty = match self.an.heap(&object).map(|obj| obj.kind) {
                             Some(ObjKind::Instance(class)) => Type::Instance(class),
                             _ => receiver.ty.clone(),
                         };
@@ -159,7 +159,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         match function.pts.sites() {
             Some(sites) => {
                 for &target in sites {
-                    match self.an.state.heap.get(&target).map(|obj| obj.kind) {
+                    match self.an.heap(&target).map(|obj| obj.kind) {
                         Some(ObjKind::Function(unit)) => {
                             let value = self.call_unit(site, unit, &this, args, spread);
                             result = result.join(&value);
@@ -204,7 +204,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             self.escape_value(value, level);
         }
         if spread && self.an.state.spread_called.insert(unit) {
-            self.an.state.changed = true;
+            self.an.touch(super::Dep::Params(unit));
         }
         self.an.join_this(unit, this);
         self.escape_value(this, level);
@@ -222,7 +222,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             self.always(EffectKind::Allocates);
             return Val::unknown();
         }
-        self.an.state.returns.get(&unit).cloned().unwrap_or_else(Val::never)
+        self.an.returned(&unit).cloned().unwrap_or_else(Val::never)
     }
 
     /// A call trioxide can't follow.
@@ -299,9 +299,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     /// The single program class `class` extends, if known.
     fn superclass(&self, class: NodeRef) -> Option<NodeRef> {
-        let parent = self.an.state.supers.get(&class)?;
+        let parent = self.an.super_of(&class)?;
         match parent.pts.sites()? {
-            [site] => match self.an.state.heap.get(site)?.kind {
+            [site] => match self.an.heap(site)?.kind {
                 ObjKind::Class(parent) => Some(parent),
                 _ => None,
             },
@@ -360,11 +360,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return;
         };
         let this = self.this.clone();
-        let parent = self.an.state.supers.get(&class).cloned().unwrap_or_else(Val::unknown);
+        let parent = self.an.super_of(&class).cloned().unwrap_or_else(Val::unknown);
         match parent.pts.sites() {
             Some(sites) if parent.trust == Trust::Proven => {
                 for &site_ref in sites {
-                    match self.an.state.heap.get(&site_ref).map(|obj| obj.kind) {
+                    match self.an.heap(&site_ref).map(|obj| obj.kind) {
                         Some(ObjKind::Class(parent_class)) => self.construct_class(site, parent_class, &this, args),
                         _ => {
                             let _ = self.unknown_call(site, &parent, &this, &args.values);
@@ -401,11 +401,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         }
         if heritage {
             // The default derived constructor passes its arguments to `super`.
-            let parent = self.an.state.supers.get(&class).cloned().unwrap_or_else(Val::unknown);
+            let parent = self.an.super_of(&class).cloned().unwrap_or_else(Val::unknown);
             match parent.pts.sites() {
                 Some(sites) if parent.trust == Trust::Proven => {
                     for &site_ref in sites {
-                        match self.an.state.heap.get(&site_ref).map(|obj| obj.kind) {
+                        match self.an.heap(&site_ref).map(|obj| obj.kind) {
                             Some(ObjKind::Class(parent_class)) if parent_class != class => {
                                 self.construct_class(site, parent_class, this, args);
                             }
@@ -440,10 +440,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let mut result = Val::never();
         let mut unknown = constructor.pts.sites().is_none();
         for &target in constructor.pts.sites().unwrap_or_default() {
-            match self.an.state.heap.get(&target).map(|obj| obj.kind) {
+            match self.an.heap(&target).map(|obj| obj.kind) {
                 Some(ObjKind::Class(class)) => {
                     let instance = self.alloc(site, ObjKind::Instance(class));
-                    if self.an.state.heap.get(&instance).is_some_and(|obj| obj.present.is_empty() && obj.props.is_empty()) {
+                    if self.an.heap(&instance).is_some_and(|obj| obj.present.is_empty() && obj.props.is_empty()) {
                         let present = crate::shapes::definite_fields(self.an.world, class);
                         self.mark(instance, |obj| obj.present.extend(present));
                     }
@@ -455,7 +455,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     // `new f()` of a plain function: a fresh object as `this`.
                     let object = self.alloc(site, ObjKind::Object);
                     self.mark(object, |obj| obj.dynamic = true);
-                    let this = Val::object(Type::Object(trioxide_types::Shape::default()), object);
+                    let this = Val::object(Type::empty_object(), object);
                     let _ = self.call_unit(site, unit, &this, &args.values, args.spread);
                     result = result.join(&this);
                 }
@@ -504,7 +504,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                         let lengths: Option<Vec<Option<f64>>> = value.pts.sites().map(|sites| {
                             sites
                                 .iter()
-                                .map(|site| self.an.state.heap.get(site).filter(|obj| obj.kind == ObjKind::Array && !obj.dynamic && obj.escape != Escape::Unknown).and_then(|obj| obj.length))
+                                .map(|site| self.an.heap(site).filter(|obj| obj.kind == ObjKind::Array && !obj.dynamic && obj.escape != Escape::Unknown).and_then(|obj| obj.length))
                                 .collect()
                         });
                         match lengths.as_deref() {
@@ -520,7 +520,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     None
                 }
             };
-            let fresh = self.an.state.heap.get(&object).is_some_and(|obj| obj.length.is_none() && obj.props.is_empty() && !obj.holey);
+            let fresh = self.an.heap(&object).is_some_and(|obj| obj.length.is_none() && obj.props.is_empty() && !obj.holey);
             self.mark(object, |obj| {
                 if fresh && !obj.dynamic {
                     obj.length = length;
@@ -562,7 +562,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 }
             }
             self.always(EffectKind::Allocates);
-            return Val::object(Type::Array(Box::new(Type::Unknown)), object);
+            return Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), object);
         }
         self.unknown_construct(args, site)
     }
@@ -608,7 +608,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             if receiver.trust == Trust::Proven {
                 let sites = receiver.pts.sites()?;
                 let intact = sites.iter().all(|site| {
-                    self.an.state.heap.get(site).is_some_and(|obj| {
+                    self.an.heap(site).is_some_and(|obj| {
                         matches!(obj.kind, ObjKind::Array | ObjKind::TypedArray(_)) && !obj.dynamic && obj.escape != Escape::Unknown
                     })
                 });
@@ -665,7 +665,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         value.pts.sites().is_some_and(|sites| {
             !sites.is_empty()
                 && sites.iter().all(|site| {
-                    self.an.state.heap.get(site).is_some_and(|obj| obj.unit == self.unit.id && obj.escape == Escape::None)
+                    self.an.heap(site).is_some_and(|obj| obj.unit == self.unit.id && obj.escape == Escape::None)
                 })
         })
     }
@@ -711,7 +711,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let unknown = match callback.pts.sites() {
             Some(sites) => {
                 for &target in sites {
-                    match self.an.state.heap.get(&target).map(|obj| obj.kind) {
+                    match self.an.heap(&target).map(|obj| obj.kind) {
                         Some(ObjKind::Function(unit)) => targets.push(unit),
                         _ => return self.unknown_callback(site, callback),
                     }
@@ -724,7 +724,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return self.unknown_callback(site, callback);
         }
         for unit in targets {
-            let accumulator = self.an.state.returns.get(&unit).cloned().unwrap_or_else(Val::never);
+            let accumulator = self.an.returned(&unit).cloned().unwrap_or_else(Val::never);
             let accumulator = match &initial {
                 Some(initial) => accumulator.join(initial),
                 None => accumulator.join(&element),
@@ -787,7 +787,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 let object = self.alloc(site, ObjKind::Array);
                 self.store_elem(object, &element);
                 self.mark(object, |obj| obj.length = None);
-                Val::object(Type::Array(Box::new(Type::Unknown)), object)
+                Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), object)
             }
             Ret::ReceiverTypedArray => {
                 let Some(Type::TypedArray(kind)) = receiver.map(|receiver| receiver.ty.clone()) else {
@@ -853,7 +853,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             .into_iter()
             .filter(|&(_, array)| {
                 let value = self.env.vars.get(&array).cloned().or_else(|| {
-                    self.an.state.symbols.get(&self.module.symbol(array)).cloned()
+                    self.an.symbol_value(&self.module.symbol(array)).cloned()
                 });
                 value.is_some_and(|value| self.length_is_stable(&value))
             })
@@ -866,7 +866,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         value.pts.sites().is_some_and(|sites| {
             !sites.is_empty()
                 && sites.iter().all(|site| {
-                    self.an.state.heap.get(site).is_some_and(|obj| match obj.kind {
+                    self.an.heap(site).is_some_and(|obj| match obj.kind {
                         // Only code holding a typed array (or its buffer) can detach it.
                         ObjKind::TypedArray(_) => obj.escape != Escape::Unknown,
                         _ => obj.escape == Escape::None,

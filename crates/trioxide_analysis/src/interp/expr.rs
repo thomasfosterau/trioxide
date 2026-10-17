@@ -137,7 +137,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             Expression::TaggedTemplateExpression(tagged) => {
                 let tag = self.expr(&tagged.tag);
                 let strings = self.alloc(tagged.quasi.node_id.get(), ObjKind::Array);
-                let mut args = vec![Val::object(Type::Array(Box::new(Type::String)), strings)];
+                let mut args = vec![Val::object(Type::Array(std::sync::Arc::new(Type::String)), strings)];
                 for expression in &tagged.quasi.expressions {
                     args.push(self.expr(expression));
                 }
@@ -408,7 +408,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     fn function_value(&mut self, node: oxc_syntax::node::NodeId) -> Val {
         let site = self.alloc(node, ObjKind::Function(self.node(node)));
-        Val::object(Type::Function(Box::default(), Some(site)), site)
+        Val::object(Type::opaque_function(Some(site)), site)
     }
 
     fn array_literal(&mut self, array: &'a oxc_ast::ast::ArrayExpression<'a>) -> Val {
@@ -436,7 +436,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 }
             }
         }
-        let first = self.an.state.heap.get(&site).is_some_and(|obj| obj.elem.ty == Type::Never && obj.props.is_empty());
+        let first = self.an.heap(&site).is_some_and(|obj| obj.elem.ty == Type::Never && obj.props.is_empty());
         self.store_elem(site, &elem);
         self.mark(site, |obj| {
             obj.holey |= holey;
@@ -448,7 +448,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 None
             };
         });
-        Val::object(Type::Array(Box::new(Type::Unknown)), site)
+        Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site)
     }
 
     fn object_literal(&mut self, object: &'a oxc_ast::ast::ObjectExpression<'a>) -> Val {
@@ -506,7 +506,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                                     .filter(|obj| obj.kind == ObjKind::Object && !obj.dynamic && obj.escape != Escape::Unknown)
                                     .map(|obj| obj.props.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                                     .unwrap_or_default();
-                                let complete = self.an.state.heap.get(&source).is_some_and(|obj| obj.kind == ObjKind::Object && !obj.dynamic && obj.escape != Escape::Unknown);
+                                let complete = self.an.heap(&source).is_some_and(|obj| obj.kind == ObjKind::Object && !obj.dynamic && obj.escape != Escape::Unknown);
                                 if !complete {
                                     dynamic = true;
                                 }
@@ -524,7 +524,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 }
             }
         }
-        let first = self.an.state.heap.get(&site).is_some_and(|obj| obj.present.is_empty() && !obj.dynamic);
+        let first = self.an.heap(&site).is_some_and(|obj| obj.present.is_empty() && !obj.dynamic);
         self.mark(site, |obj| {
             obj.dynamic |= dynamic;
             if first {
@@ -533,7 +533,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 obj.present.retain(|key| keys.contains(key));
             }
         });
-        Val::object(Type::Object(Shape::default()), site)
+        Val::object(Type::empty_object(), site)
     }
 
     /// Defines a class: evaluates its heritage, computed keys and static members, and makes
@@ -551,7 +551,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 self.an.escape(&Pts::site(class_site), Escape::Unknown);
             }
         }
-        let class_value = Val::object(Type::Function(Box::default(), Some(class_ref)), class_site);
+        let class_value = Val::object(Type::opaque_function(Some(class_ref)), class_site);
         // Decorators receive (and may replace or call) the class and its members.
         let decorated = !class.decorators.is_empty()
             || class.body.body.iter().any(|element| match element {
@@ -1028,7 +1028,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     let site = self.alloc(rest.node_id.get(), ObjKind::Array);
                     self.store_elem(site, &element);
                     self.mark(site, |obj| obj.length = None);
-                    self.assign_target(&rest.target, Val::object(Type::Array(Box::new(Type::Unknown)), site), node);
+                    self.assign_target(&rest.target, Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site), node);
                 }
             }
             AssignmentTarget::ObjectAssignmentTarget(object) => {
@@ -1068,7 +1068,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     let site = self.alloc(rest.node_id.get(), ObjKind::Object);
                     self.mark(site, |obj| obj.dynamic = true);
                     self.escape_value(&value, Escape::Known);
-                    self.assign_target(&rest.target, Val::object(Type::Object(Shape::default()), site), node);
+                    self.assign_target(&rest.target, Val::object(Type::empty_object(), site), node);
                 }
             }
             simple => {
@@ -1287,7 +1287,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             };
         };
         for &site in sites {
-            let Some(obj) = self.an.state.heap.get(&site) else {
+            let Some(obj) = self.an.heap(&site) else {
                 continue;
             };
             if obj.poisoned {
@@ -1321,7 +1321,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     fn site_prop(&mut self, site: AllocId, key: &Key, receiver: &Val, node: oxc_syntax::node::NodeId, depth: usize) -> Val {
         let undefined = Val::proven(Type::Undefined);
-        let Some(obj) = self.an.state.heap.get(&site).cloned() else {
+        let Some(obj) = self.an.heap(&site).cloned() else {
             return Val::unknown();
         };
         if obj.unit != self.unit.id || obj.escape != Escape::None {
@@ -1422,13 +1422,16 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 if world.module(target.module).info(target.symbol).tainted {
                     return Val::poisoned();
                 }
-                self.an.state.symbols.get(&target).cloned().unwrap_or_else(Val::never)
+                self.an.symbol_value(&target).cloned().unwrap_or_else(Val::never)
             }
             crate::link::Target::Namespace(inner) => {
                 let unit = self.unit.id;
                 self.an.namespace(inner, unit)
             }
-            crate::link::Target::Expression(node) => self.an.output.nodes.get(&node).cloned().unwrap_or_else(Val::unknown),
+            crate::link::Target::Expression(node) if !world.module(node.module).broken => {
+                self.an.default_value(&node).cloned().unwrap_or_else(Val::never)
+            }
+            crate::link::Target::Expression(_) => Val::unknown(),
             // Namespaces have no other properties (and no prototype).
             crate::link::Target::Unresolved => Val::proven(Type::Undefined),
             crate::link::Target::External => Val::unknown(),
@@ -1515,13 +1518,13 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 Val::proven(Type::Undefined)
             };
         }
-        let parent = self.an.state.supers.get(&class).cloned().unwrap_or_else(Val::never);
+        let parent = self.an.super_of(&class).cloned().unwrap_or_else(Val::never);
         let Some(sites) = parent.pts.sites().filter(|_| parent.trust == Trust::Proven) else {
             return Val::unknown();
         };
         let mut value = Val::never();
         for &site in sites {
-            let Some(parent_class) = self.an.state.heap.get(&site).and_then(|obj| match obj.kind {
+            let Some(parent_class) = self.an.heap(&site).and_then(|obj| match obj.kind {
                 ObjKind::Class(parent) => Some(parent),
                 _ => None,
             }) else {
@@ -1555,7 +1558,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return;
         };
         for site in sites {
-            let Some(obj) = self.an.state.heap.get(&site).cloned() else {
+            let Some(obj) = self.an.heap(&site).cloned() else {
                 continue;
             };
             if obj.unit != self.unit.id || obj.escape != Escape::None {

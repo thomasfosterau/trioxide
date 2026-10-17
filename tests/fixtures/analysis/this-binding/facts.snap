@@ -33,7 +33,7 @@ nodes:
   14:9 bind `unbound`: function@declared
   14:19 member `counter.increment`: function@declared
   14:19 ref `counter`: Counter@proven
-  16:5 call `unbound()`: number@declared
+  16:5 call `unbound()`: unknown
   16:5 ref `unbound`: function@declared
   18:5 call `console.log("unbound")`: unknown
   18:5 member `console.log`: unknown

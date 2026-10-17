@@ -333,7 +333,7 @@ impl<'a> World<'a> {
             member_of: FxHashMap::default(),
             unit_symbols: FxHashMap::default(),
         };
-        for (allocator, input) in allocators.iter().zip(inputs) {
+            for (allocator, input) in allocators.iter().zip(inputs) {
             let parsed = Parser::new(allocator, input.source, input.source_type).parse();
             let broken = parsed.fatal_error || !parsed.diagnostics.is_empty();
             let program: &'a Program<'a> = allocator.alloc(parsed.program);

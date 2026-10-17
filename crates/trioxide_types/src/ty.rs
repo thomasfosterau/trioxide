@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use trioxide_common::NodeRef;
 
@@ -13,7 +15,9 @@ pub type FunctionId = NodeRef;
 /// describes *values*, not TS syntax: aliases, generics and type parameters are resolved away
 /// by the oracle. How far a type can be trusted is tracked separately, by the trust level on
 /// each analysis fact.
-#[derive(Debug, Clone, PartialEq, Default)]
+///
+/// Nested parts are shared (`Arc`), so cloning a type is cheap.
+#[derive(Debug, Clone, Default)]
 pub enum Type {
     /// Any value: the top of the lattice, and the answer whenever trioxide can't tell.
     #[default]
@@ -35,19 +39,52 @@ pub enum Type {
     /// `undefined`.
     Undefined,
     /// An `Array` whose elements have the given type.
-    Array(Box<Type>),
+    Array(Arc<Type>),
     /// A typed array view such as `Float64Array`.
     TypedArray(TypedArrayKind),
     /// A fixed-length array with per-position types.
-    Tuple(Vec<Type>),
+    Tuple(Arc<[Type]>),
     /// A plain object with a closed shape.
-    Object(Shape),
+    Object(Arc<Shape>),
     /// An instance of a class whose fields are known and not mutated dynamically.
     Instance(ClassId),
     /// A callable, with the function it is known to be, if any.
-    Function(Box<Signature>, Option<FunctionId>),
+    Function(Arc<Signature>, Option<FunctionId>),
     /// One of several types. Never nested and never a single member.
-    Union(Vec<Type>),
+    Union(Arc<[Type]>),
+}
+
+impl Type {
+    /// A function with nothing known about its signature, known to be `id` if given.
+    pub fn opaque_function(id: Option<FunctionId>) -> Self {
+        static UNKNOWN: std::sync::LazyLock<Arc<Signature>> = std::sync::LazyLock::new(Arc::default);
+        Self::Function(Arc::clone(&UNKNOWN), id)
+    }
+
+    /// An object with no known properties.
+    pub fn empty_object() -> Self {
+        static EMPTY: std::sync::LazyLock<Arc<Shape>> = std::sync::LazyLock::new(Arc::default);
+        Self::Object(Arc::clone(&EMPTY))
+    }
+}
+
+impl PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Number(a), Self::Number(b)) => a == b,
+            (Self::Array(a), Self::Array(b)) => Arc::ptr_eq(a, b) || a == b,
+            (Self::TypedArray(a), Self::TypedArray(b)) => a == b,
+            (Self::Tuple(a), Self::Tuple(b)) | (Self::Union(a), Self::Union(b)) => Arc::ptr_eq(a, b) || a == b,
+            (Self::Object(a), Self::Object(b)) => Arc::ptr_eq(a, b) || a == b,
+            (Self::Instance(a), Self::Instance(b)) => a == b,
+            (Self::Function(a, x), Self::Function(b, y)) => x == y && (Arc::ptr_eq(a, b) || a == b),
+            (
+                Self::Unknown | Self::Never | Self::Boolean | Self::String | Self::BigInt | Self::Symbol | Self::Null | Self::Undefined,
+                _,
+            ) => std::mem::discriminant(self) == std::mem::discriminant(other),
+            _ => false,
+        }
+    }
 }
 
 /// What is known about a number beyond "it is a number".
@@ -192,7 +229,7 @@ impl Type {
             match ty {
                 Self::Unknown => return Self::Unknown,
                 Self::Never => {}
-                Self::Union(inner) => pending.extend(inner),
+                Self::Union(inner) => pending.extend(inner.iter().cloned()),
                 Self::Number(n) => number = Some(number.map_or(n, |m| m.join(n))),
                 other => {
                     if !members.contains(&other) {
@@ -206,15 +243,79 @@ impl Type {
         }
         members.reverse();
         // A canonical order, so equal unions compare equal whatever order they were built in.
-        members.sort_by_cached_key(|member| {
-            let rank = member.union_rank();
-            let detail = if rank == 7 { format!("{member:?}") } else { String::new() };
-            (rank, detail)
-        });
+        members.sort_by(Self::canonical_cmp);
         match members.len() {
             0 => Self::Never,
             1 => members.pop().expect("one member"),
-            _ => Self::Union(members),
+            _ => Self::Union(members.into()),
+        }
+    }
+
+    /// A total order on types that agrees with `==`: primitives first, in a fixed order, then
+    /// structured types by variant and contents.
+    fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        fn number(a: &NumberType, b: &NumberType) -> Ordering {
+            a.range
+                .min
+                .total_cmp(&b.range.min)
+                .then(a.range.max.total_cmp(&b.range.max))
+                .then(a.int.cmp(&b.int))
+                .then(a.non_nan.cmp(&b.non_nan))
+                .then(a.non_neg_zero.cmp(&b.non_neg_zero))
+        }
+        fn list(a: &[Type], b: &[Type]) -> Ordering {
+            a.len()
+                .cmp(&b.len())
+                .then_with(|| a.iter().zip(b).map(|(a, b)| a.canonical_cmp(b)).find(|o| o.is_ne()).unwrap_or(Ordering::Equal))
+        }
+        fn variant(ty: &Type) -> u8 {
+            match ty {
+                Type::Unknown => 0,
+                Type::Never => 1,
+                Type::Undefined => 2,
+                Type::Null => 3,
+                Type::Boolean => 4,
+                Type::Number(_) => 5,
+                Type::BigInt => 6,
+                Type::String => 7,
+                Type::Symbol => 8,
+                Type::Array(_) => 9,
+                Type::TypedArray(_) => 10,
+                Type::Tuple(_) => 11,
+                Type::Object(_) => 12,
+                Type::Instance(_) => 13,
+                Type::Function(..) => 14,
+                Type::Union(_) => 15,
+            }
+        }
+        let by_variant = self.union_rank().cmp(&other.union_rank()).then(variant(self).cmp(&variant(other)));
+        if by_variant.is_ne() {
+            return by_variant;
+        }
+        match (self, other) {
+            (Self::Number(a), Self::Number(b)) => number(a, b),
+            (Self::Array(a), Self::Array(b)) => a.canonical_cmp(b),
+            (Self::TypedArray(a), Self::TypedArray(b)) => (*a as u8).cmp(&(*b as u8)),
+            (Self::Tuple(a), Self::Tuple(b)) | (Self::Union(a), Self::Union(b)) => list(a, b),
+            (Self::Object(a), Self::Object(b)) => a.exact.cmp(&b.exact).then_with(|| {
+                a.properties.len().cmp(&b.properties.len()).then_with(|| {
+                    a.properties
+                        .iter()
+                        .zip(&b.properties)
+                        .map(|((ka, ta), (kb, tb))| ka.cmp(kb).then_with(|| ta.canonical_cmp(tb)))
+                        .find(|o| o.is_ne())
+                        .unwrap_or(Ordering::Equal)
+                })
+            }),
+            (Self::Instance(a), Self::Instance(b)) => a.cmp(b),
+            (Self::Function(a, x), Self::Function(b, y)) => x.cmp(y).then_with(|| {
+                a.rest
+                    .cmp(&b.rest)
+                    .then_with(|| list(&a.params, &b.params))
+                    .then_with(|| a.ret.canonical_cmp(&b.ret))
+            }),
+            _ => Ordering::Equal,
         }
     }
 
@@ -240,12 +341,12 @@ impl Type {
             (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
             (a, b) if a == b => a.clone(),
             (Self::Number(a), Self::Number(b)) => Self::Number(a.join(*b)),
-            (Self::Array(a), Self::Array(b)) => Self::Array(Box::new(a.join(b))),
+            (Self::Array(a), Self::Array(b)) => Self::Array(Arc::new(a.join(b))),
             (Self::Tuple(a), Self::Tuple(b)) if a.len() == b.len() => {
-                Self::Tuple(a.iter().zip(b).map(|(a, b)| a.join(b)).collect())
+                Self::Tuple(a.iter().zip(b.iter()).map(|(a, b)| a.join(b)).collect())
             }
             (Self::Tuple(a), Self::Array(b)) | (Self::Array(b), Self::Tuple(a)) => Self::Array(
-                Box::new(a.iter().fold((**b).clone(), |acc, ty| acc.join(ty))),
+                Arc::new(a.iter().fold((**b).clone(), |acc, ty| acc.join(ty))),
             ),
             (a, b) => Self::union([a.clone(), b.clone()]),
         }
@@ -333,19 +434,19 @@ impl Type {
         }
         let inner = |ty: &Self| ty.truncate(depth - 1);
         match self {
-            Self::Array(elem) => Self::Array(Box::new(inner(elem))),
+            Self::Array(elem) => Self::Array(Arc::new(inner(elem))),
             Self::Tuple(items) => Self::Tuple(items.iter().map(inner).collect()),
             Self::Union(items) => Self::union(items.iter().map(|ty| ty.truncate(depth))),
-            Self::Object(shape) => Self::Object(Shape {
+            Self::Object(shape) => Self::Object(Arc::new(Shape {
                 properties: shape
                     .properties
                     .iter()
                     .map(|(key, ty)| (key.clone(), inner(ty)))
                     .collect(),
                 exact: shape.exact,
-            }),
+            })),
             Self::Function(signature, id) => Self::Function(
-                Box::new(Signature {
+                Arc::new(Signature {
                     params: signature.params.iter().map(inner).collect(),
                     rest: signature.rest,
                     ret: inner(&signature.ret),

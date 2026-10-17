@@ -48,12 +48,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 continue;
             }
             let site = self.alloc(function.node_id.get(), ObjKind::Function(self.node(function.node_id.get())));
-            let value = Val::object(Type::Function(Box::default(), Some(site)), site);
+            let value = Val::object(Type::opaque_function(Some(site)), site);
             match function.id.as_ref().and_then(|id| id.symbol_id.get().map(|symbol| (id, symbol))) {
                 Some((id, symbol)) => self.write_symbol(symbol, value, Some(id.node_id.get())),
                 None => {
                     // `export default function () {}`
                     self.record_node(function.node_id.get(), &value);
+                    let node = self.node(function.node_id.get());
+                    self.an.join_default(node, &value);
                     if !self.an.options.closed_world {
                         self.escape_value(&value, Escape::Unknown);
                     }
@@ -179,6 +181,8 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 ExportDefaultDeclarationKind::ClassDeclaration(class) => {
                     let value = self.class_definition(class);
                     self.record_node(class.node_id.get(), &value);
+                    let node = self.node(class.node_id.get());
+                    self.an.join_default(node, &value);
                     if !self.an.options.closed_world {
                         self.escape_value(&value, Escape::Unknown);
                     }
@@ -187,6 +191,8 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 declaration => {
                     if let Some(expression) = declaration.as_expression() {
                         let value = self.expr(expression);
+                        let node = self.node(expression.node_id());
+                        self.an.join_default(node, &value);
                         let level = if self.an.options.closed_world { Escape::Known } else { Escape::Unknown };
                         self.escape_value(&value, level);
                     }
@@ -334,7 +340,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     let site = self.alloc(rest.node_id.get(), ObjKind::Object);
                     self.mark(site, |obj| obj.dynamic = true);
                     self.escape_value(&value, Escape::Known);
-                    self.bind_pattern(&rest.argument, Val::object(Type::Object(Shape::default()), site));
+                    self.bind_pattern(&rest.argument, Val::object(Type::empty_object(), site));
                 }
             }
             BindingPattern::ArrayPattern(array) => {
@@ -345,7 +351,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 if let Some(rest) = &array.rest {
                     let site = self.alloc(rest.node_id.get(), ObjKind::Array);
                     self.store_elem(site, &element);
-                    self.bind_pattern(&rest.argument, Val::object(Type::Array(Box::new(Type::Unknown)), site));
+                    self.bind_pattern(&rest.argument, Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site));
                 }
             }
             BindingPattern::AssignmentPattern(assignment) => {
@@ -363,6 +369,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     /// Binds a unit's parameters to what its callers pass.
     pub fn params(&mut self, params: &'a FormalParameters<'a>) {
         let open = self.an.is_open(self.unit);
+        self.an.read(super::Dep::Params(self.unit.id));
         let spread = self.an.state.spread_called.contains(&self.unit.id);
         let recorded = self.an.state.params.get(&self.unit.id).cloned().unwrap_or_default();
         let incoming = |index: usize| -> Val {
@@ -402,7 +409,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             }
             self.store_elem(site, &element);
             self.mark(site, |obj| obj.length = None);
-            let value = Val::object(Type::Array(Box::new(Type::Unknown)), site);
+            let value = Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site);
             self.bind_pattern(&rest.rest.argument, value);
         }
     }
@@ -575,7 +582,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let mut thrown = entry.join(&after_try);
         thrown.reachable = entry.reachable;
         for symbol in &writes {
-            let all = self.an.state.symbols.get(&self.module.symbol(*symbol)).cloned().unwrap_or_else(Val::unknown);
+            let all = self.an.symbol_value(&self.module.symbol(*symbol)).cloned().unwrap_or_else(Val::unknown);
             if let Some(value) = thrown.vars.get_mut(symbol) {
                 *value = value.join(&all);
             } else if self.is_tracked_here(*symbol) {

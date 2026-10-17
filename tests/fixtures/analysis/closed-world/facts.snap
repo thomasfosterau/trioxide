@@ -46,6 +46,6 @@ nodes:
   21:3 member `[1, 2].forEach`: unknown
   21:3 array `[1, 2]`: unknown[]@proven escape=unknown
   21:18 ref `escaping`: function@proven
-  22:3 call `setTimeout(escaping, 0)`: number@declared
+  22:3 call `setTimeout(escaping, 0)`: unknown
   22:3 ref `setTimeout`: function@declared
   22:14 ref `escaping`: function@proven
