@@ -2041,6 +2041,13 @@ impl<'a> Cx<'_, '_, 'a> {
         if matches!(key, Key::Unknown) || key.name() == Some("length") {
             self.forget_bounds_of(object);
         }
+        // `length`, or an index that may be past the end.
+        if matches!(key, Key::Unknown)
+            || key.name() == Some("length")
+            || (key.is_index() && !self.an.output.in_bounds.contains_key(&self.node(node)))
+        {
+            self.note_resize(object);
+        }
         let Some(sites) = object
             .pts
             .sites()

@@ -109,9 +109,9 @@ function exits(values, k) {
 }
 function locals() {
 	const arr = [
-		1,
-		2,
-		3
+		7,
+		8,
+		9
 	];
 	let t = 0;
 	for (let i = 0; i < 3; i++) {
@@ -130,6 +130,28 @@ function getter() {
 		k++;
 	}
 	return t;
+}
+function triple(x) {
+	return x * 3;
+}
+function quadruple(x) {
+	return x * 4;
+}
+function callbacks() {
+	const mapped = [1, 2].map(triple);
+	return mapped[0] + quadruple.call(undefined, 2);
+}
+function grow(a) {
+	a.push(1);
+}
+function nested() {
+	const grown = [11];
+	for (let i = 10; i > 0; i -= 2) {
+		for (let j = 0; j < i; j++) {
+			grow(grown);
+		}
+	}
+	return grown.length;
 }
 // Units the engine calls: their sites must not read as complete.
 async function thenable() {
@@ -186,7 +208,7 @@ export function main() {
 	]));
 	void thenable();
 	void promised();
-	console.log(coerced(), converted(), log, locals(), getter());
+	console.log(coerced(), converted(), log, locals(), getter(), callbacks(), nested());
 	console.log(captured([
 		1,
 		2,

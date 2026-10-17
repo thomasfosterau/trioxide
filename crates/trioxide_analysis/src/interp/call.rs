@@ -1016,6 +1016,9 @@ impl<'a> Cx<'_, '_, 'a> {
                 self.mark(site, |obj| obj.length = None);
             }
         }
+        if shrinks || grows {
+            self.note_resize(receiver);
+        }
         if shrinks {
             self.forget_bounds_of(receiver);
         }

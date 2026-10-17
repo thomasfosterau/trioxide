@@ -251,6 +251,10 @@ pub struct UnitRecord {
     pub reached: FxHashSet<NodeRef>,
     /// Statements interpreted (or skipped) with an unreachable one.
     pub skipped: FxHashSet<NodeRef>,
+    /// Arrays whose length the unit may change.
+    pub resized: FxHashSet<AllocId>,
+    /// It may change the length of an array it doesn't track.
+    pub resizes_untracked: bool,
 }
 
 /// One evaluation of an expression: its own effects (without its callees') and the edges
@@ -291,6 +295,10 @@ pub struct LoopRecord {
     /// It writes an object or a local a closure can see (writes to tracked locals are in
     /// `written`).
     pub shared_writes: bool,
+    /// Arrays whose length it may change (not counting callees).
+    pub resized: Vec<AllocId>,
+    /// It may change the length of an array it doesn't track.
+    pub resizes_untracked: bool,
 }
 
 impl LoopRecord {
@@ -298,6 +306,12 @@ impl LoopRecord {
         self.proven = union(self.proven, other.proven);
         self.declared = union(self.declared, other.declared);
         self.shared_writes |= other.shared_writes;
+        self.resizes_untracked |= other.resizes_untracked;
+        for site in &other.resized {
+            if !self.resized.contains(site) {
+                self.resized.push(*site);
+            }
+        }
         for (into, from) in [(&mut self.callees, &other.callees)] {
             for item in from {
                 if !into.contains(item) {
@@ -981,6 +995,9 @@ pub(crate) struct Cx<'c, 'w, 'a> {
     pub frames: Vec<Frame>,
     /// Locals assigned in each loop being interpreted.
     pub loop_writes: Vec<FxHashSet<SymbolId>>,
+    /// For each loop being interpreted: the arrays it resizes, and whether it resizes one
+    /// trioxide doesn't track.
+    pub loop_resized: Vec<(FxHashSet<AllocId>, bool)>,
     /// Arrays whose length relations were dropped, in order.
     pub dropped: Vec<SymbolId>,
 }
@@ -1017,6 +1034,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             position: 0,
             frames: Vec::new(),
             loop_writes: Vec::new(),
+            loop_resized: Vec::new(),
             dropped: Vec::new(),
         };
         cx.enter();
@@ -1614,6 +1632,21 @@ impl Cx<'_, '_, '_> {
         for frame in &mut self.frames {
             frame.local_writes = true;
             frame.shared_writes |= shared;
+        }
+    }
+
+    /// Notes that the length of the arrays `object` may be can change.
+    pub fn note_resize(&mut self, object: &Val) {
+        if let Some(sites) = object.pts.sites() {
+            self.record.resized.extend(sites.iter().copied());
+            for (resized, _) in &mut self.loop_resized {
+                resized.extend(sites.iter().copied());
+            }
+        } else {
+            self.record.resizes_untracked = true;
+            for (_, untracked) in &mut self.loop_resized {
+                *untracked = true;
+            }
         }
     }
 

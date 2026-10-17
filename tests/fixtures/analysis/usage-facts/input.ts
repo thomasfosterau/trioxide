@@ -118,7 +118,7 @@ function exits(values: number[], k: number): number {
 }
 
 function locals(): number {
-  const arr = [1, 2, 3];
+  const arr = [7, 8, 9];
   let t = 0;
   for (let i = 0; i < 3; i++) {
     t += arr[0] * 2;
@@ -137,6 +137,33 @@ function getter(): number {
     k++;
   }
   return t;
+}
+
+function triple(x: number): number {
+  return x * 3;
+}
+
+function quadruple(x: number): number {
+  return x * 4;
+}
+
+function callbacks(): number {
+  const mapped = [1, 2].map(triple);
+  return mapped[0] + quadruple.call(undefined, 2);
+}
+
+function grow(a: number[]): void {
+  a.push(1);
+}
+
+function nested(): number {
+  const grown: number[] = [11];
+  for (let i = 10; i > 0; i -= 2) {
+    for (let j = 0; j < i; j++) {
+      grow(grown);
+    }
+  }
+  return grown.length;
 }
 
 // Units the engine calls: their sites must not read as complete.
@@ -190,6 +217,6 @@ export function main(): void {
   console.log(guarded([1, 2], { x: 3 }), guarded([1], null), clock([1, 2]), boxed([1, 2, 3]));
   void thenable();
   void promised();
-  console.log(coerced(), converted(), log, locals(), getter());
+  console.log(coerced(), converted(), log, locals(), getter(), callbacks(), nested());
   console.log(captured([1, 2, 3]), method([1, 2], new Scale()), exits([1, 2, 3, 4, 5, 6], 2));
 }

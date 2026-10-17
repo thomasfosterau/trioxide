@@ -106,6 +106,24 @@ fn usage_queries() {
     // Callers.
     let square_unit = resolution.callees[0];
     assert_eq!(facts.call_graph().callers(square_unit).count(), 1);
+    assert_eq!(
+        facts.callers_complete(square_unit),
+        trioxide_analysis::Fact::proven(true)
+    );
+    let unit = |text: &str| fixture.node(text, |kind| matches!(kind, AstKind::Function(_)));
+    // A builtin callback is called at the builtin's site; `call` isn't modelled.
+    let triple = unit("function triple(x: number): number {\n  return x * 3;\n}");
+    assert_eq!(facts.call_graph().callers(triple).count(), 1);
+    assert_eq!(
+        facts.callers_complete(triple),
+        trioxide_analysis::Fact::proven(true)
+    );
+    let quadruple = unit("function quadruple(x: number): number {\n  return x * 4;\n}");
+    assert_eq!(facts.call_graph().callers(quadruple).count(), 0);
+    assert_eq!(
+        facts.callers_complete(quadruple),
+        trioxide_analysis::Fact::proven(false)
+    );
 
     // Points-to.
     let literal = fixture.node("{ x: 1 }", |kind| {
@@ -127,12 +145,19 @@ fn usage_queries() {
     assert!(!facts_of.effects.0.writes, "{facts_of:?}");
     assert_eq!(facts_of.length_changed, Vec::new());
     assert_eq!(facts_of.written.len(), 2, "{facts_of:?}");
-    assert!(
-        facts_of
-            .induction
-            .iter()
-            .any(|(_, range)| range.value.int && range.value.range.min >= 0.0)
-    );
+    assert!(facts_of.resized.is_empty() && !facts_of.resizes_untracked);
+    // `i` counts up by one; `total` accumulates.
+    let [counter, total] = facts_of.induction.as_slice() else {
+        panic!("{facts_of:?}");
+    };
+    let (counter, total) = if counter.counter {
+        (counter, total)
+    } else {
+        (total, counter)
+    };
+    assert!(counter.range.value.int && counter.range.value.range.min >= 0.0);
+    assert_eq!((counter.step, counter.counter), (Some(1.0), true));
+    assert_eq!((total.step, total.counter), (None, false));
     let popping = fixture.node(
         "for (let i = 0; i < values.length; i++) {\n    values.pop();\n    total += i;\n  }",
         |kind| matches!(kind, AstKind::ForStatement(_)),
@@ -231,6 +256,25 @@ fn usage_queries() {
         "for (let i = 0; i < 3; i++) {\n    t += arr[0] * 2;\n    arr[0] = i + 10;\n    arr.push(i);\n  }",
     );
     assert!(locals_loop.effects.0.writes, "{locals_loop:?}");
+    let arr = fixture.node("[7, 8, 9]", |kind| {
+        matches!(kind, AstKind::ArrayExpression(_))
+    });
+    assert_eq!(locals_loop.resized, vec![arr], "{locals_loop:?}");
+
+    // A nested loop's counter isn't the outer loop's; a callee's resize counts.
+    let outer = for_loop(
+        "for (let i = 10; i > 0; i -= 2) {\n    for (let j = 0; j < i; j++) {\n      grow(grown);\n    }\n  }",
+    );
+    let [counter] = outer.induction.as_slice() else {
+        panic!("{outer:?}");
+    };
+    assert_eq!(
+        (counter.step, counter.counter),
+        (Some(-2.0), true),
+        "{outer:?}"
+    );
+    let grown = fixture.node("[11]", |kind| matches!(kind, AstKind::ArrayExpression(_)));
+    assert_eq!(outer.resized, vec![grown], "{outer:?}");
     assert!(
         !locals_loop.invariant.contains(&binary("arr[0] * 2")),
         "{locals_loop:?}"

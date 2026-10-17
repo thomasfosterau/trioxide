@@ -580,6 +580,7 @@ impl<'a> Cx<'_, '_, 'a> {
     ) {
         self.frames.push(super::Frame::new(self.record.edges.len()));
         self.loop_writes.push(FxHashSet::default());
+        self.loop_resized.push((FxHashSet::default(), false));
         let dropped = self.dropped.len();
         let entry = self.env.clone();
         let mut head = entry.clone();
@@ -675,6 +676,9 @@ impl<'a> Cx<'_, '_, 'a> {
             })
             .collect();
         let callees = self.callees_since(frame.edges);
+        let (resized, resizes_untracked) = self.loop_resized.pop().unwrap_or_default();
+        let mut resized: Vec<_> = resized.into_iter().collect();
+        resized.sort_unstable();
         let record = super::LoopRecord {
             proven: frame.proven,
             declared: frame.declared,
@@ -683,6 +687,8 @@ impl<'a> Cx<'_, '_, 'a> {
             length_changed,
             induction,
             shared_writes: frame.shared_writes,
+            resized,
+            resizes_untracked,
         };
         let key = self.node(node);
         self.record

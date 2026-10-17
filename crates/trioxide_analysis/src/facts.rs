@@ -353,11 +353,16 @@ pub struct LoopFacts {
     /// The function's own locals it assigns.
     pub written: Vec<SymbolRef>,
     /// Arrays whose length the loop condition bounds and the loop may change (so `a[i]` is
-    /// not in bounds through them).
+    /// not in bounds through them). Every array the loop resizes is in `resized`.
     pub length_changed: Vec<SymbolRef>,
-    /// Numeric locals it assigns, with their range at the loop head (loop counters among
-    /// them).
-    pub induction: Vec<(SymbolRef, Fact<NumberType>)>,
+    /// The allocation sites of every array whose length the loop, or a unit it calls, may
+    /// change (`push`, `pop`, `length = …`, a write past the end).
+    pub resized: Vec<NodeRef>,
+    /// It may also change the length of arrays trioxide doesn't track (or runs unknown code).
+    pub resizes_untracked: bool,
+    /// Numeric locals of the loop's function that it assigns and that live across its
+    /// iterations (not ones declared in its body or a nested loop).
+    pub induction: Vec<Induction>,
     /// The largest expressions inside it whose value is the same on every iteration and that
     /// can be evaluated once, before the first iteration's body, after the loop's first test
     /// passes. Each is in the test or the body (not a `for` loop's update, nor a `for-in`/`of`
@@ -368,6 +373,22 @@ pub struct LoopFacts {
     /// no object or shared local when the loop writes any, and is not a callee, a write
     /// target or a `delete` operand. Identifiers and literals are left out.
     pub invariant: Vec<NodeRef>,
+}
+
+/// A numeric local a loop assigns (see [`LoopFacts::induction`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Induction {
+    /// The local.
+    pub symbol: SymbolRef,
+    /// Its range at the loop head: on entry and before every iteration's test.
+    pub range: Fact<NumberType>,
+    /// What it changes by per iteration, when the loop's only write to it is one `++`, `--`,
+    /// `+= c`, `-= c` or `= x ± c` with a constant `c`, run once per iteration (a `for`
+    /// loop's update, or a statement of the body when nothing `continue`s past it), and no
+    /// nested function writes it. Negative when it counts down.
+    pub step: Option<f64>,
+    /// It is the loop's counter: it has a `step` and the loop's test reads it.
+    pub counter: bool,
 }
 
 impl Facts {
@@ -484,6 +505,20 @@ impl Facts {
         &self.call_graph
     }
 
+    /// Whether [`CallGraph::callers`] lists every site that may call `function`: `Proven`
+    /// true when no code trioxide doesn't see can reach it (it is not
+    /// [`open`](FunctionInfo::open)), so every call is one trioxide followed, accessor uses
+    /// and modelled builtins' callbacks (`arr.map(f)`) included; `Proven` false when it is
+    /// open (passed to code trioxide doesn't model, such as `f.call(…)`, or exported in an
+    /// open world); `Unknown` for a unit the analysis has nothing on. Check this before
+    /// relying on a function having a single caller.
+    pub fn callers_complete(&self, function: FunctionId) -> Fact<bool> {
+        match self.functions.get(&function) {
+            None => Fact::unknown(),
+            Some(info) => Fact::proven(!info.open),
+        }
+    }
+
     /// What the analysis knows about a code unit.
     pub fn function(&self, function: FunctionId) -> Option<&FunctionInfo> {
         self.functions.get(&function)
@@ -494,9 +529,23 @@ impl Facts {
         self.imports.get(&symbol).copied()
     }
 
-    /// What the call (or `new`, or implicit-call) site `site` may call. Its callees are the
-    /// call graph's; it is complete, at the edges' trust, unless code trioxide doesn't see may
-    /// run there too. A site never evaluated is `Unknown`.
+    /// What the call (or `new`, or implicit-call) site `site` may call: the call graph's
+    /// callees there, including the callbacks a modelled builtin calls at the site
+    /// (`arr.map(f)` lists `f`) and the constructor and field initialisers of a `new`.
+    ///
+    /// `complete` says whether those are all the program code that may run at the site:
+    /// - `true` at `Proven`: nothing else runs there (a site in code that never runs is
+    ///   vacuously complete; [`reachable`](Self::reachable) tells those apart);
+    /// - `true` at `Declared`: so, if TypeScript's types hold (some callee was resolved
+    ///   through a declared class);
+    /// - `false` at `Proven`: code trioxide doesn't see may run there (an unknown callee, an
+    ///   unmodelled builtin or constructor such as `new Promise(executor)`, or a conversion
+    ///   that may call `valueOf`/`toString`);
+    /// - `Unknown`: the site was never evaluated.
+    ///
+    /// A generator's (or async generator's) body doesn't run at the call: the call creates
+    /// the generator, and the body runs at its `next()` calls. Its unit is listed as the
+    /// callee all the same; an inliner must check the callee's kind.
     pub fn site_resolution(&self, site: NodeRef) -> SiteResolution {
         let edges: Vec<&CallEdge> = self.call_graph.callees(site).collect();
         let mut callees: Vec<FunctionId> = edges.iter().map(|edge| edge.callee).collect();
@@ -560,7 +609,8 @@ impl Facts {
 
     /// Whether `node` (a unit, statement or expression) may be executed. `Proven` false for
     /// units nothing calls or can reach and for statements after every path left; otherwise
-    /// `Unknown` true. Distinct from a `never` type, which also means "no value seen yet".
+    /// `Unknown` true, which passes must never treat as dead. Distinct from a `never` type,
+    /// which also means "no value seen yet".
     pub fn reachable(&self, node: NodeRef) -> Fact<bool> {
         if self.unreachable.contains(&node) {
             Fact::proven(false)

@@ -4,13 +4,13 @@ use oxc_span::Span;
 use oxc_syntax::symbol::SymbolId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_common::{NodeId, NodeRef, SymbolRef};
-use trioxide_types::{Shape, Type};
+use trioxide_types::{NumberType, Shape, Type};
 
 use crate::{
     AnalysisOptions, callgraph,
     facts::{
-        AllocKind, Allocation, ClassShape, Effects, Escape, Fact, Facts, FunctionInfo, LoopFacts,
-        Trust,
+        AllocKind, Allocation, ClassShape, Effects, Escape, Fact, Facts, FunctionInfo, Induction,
+        LoopFacts, Trust,
     },
     interp::{self, ObjKind, Results, State},
     link::{Links, Target},
@@ -327,14 +327,14 @@ fn usage_facts(
                     .map(|&symbol| module.symbol(symbol))
                     .collect()
             };
-            let induction = record
+            let ranges: Vec<(SymbolId, Fact<NumberType>)> = record
                 .induction
                 .iter()
                 .filter_map(|(symbol, value)| {
                     let fact = value.fact();
                     let number = fact.value.as_number()?;
                     Some((
-                        module.symbol(*symbol),
+                        *symbol,
                         Fact {
                             value: number,
                             trust: fact.trust,
@@ -342,6 +342,28 @@ fn usage_facts(
                     ))
                 })
                 .collect();
+            let induction = induction_variables(world, node, &ranges);
+            // Arrays resized here or by any unit it calls, transitively.
+            let mut resized: FxHashSet<NodeRef> = record.resized.iter().copied().collect();
+            let mut resizes_untracked = record.resizes_untracked || effects.0.calls_unknown;
+            let mut pending: Vec<NodeRef> = record.callees.clone();
+            let mut seen: FxHashSet<NodeRef> = pending.iter().copied().collect();
+            while let Some(callee) = pending.pop() {
+                match results.output.units.get(&callee) {
+                    Some(callee) => {
+                        resized.extend(callee.resized.iter().copied());
+                        resizes_untracked |= callee.resizes_untracked;
+                    }
+                    None => resizes_untracked = true,
+                }
+                for edge in graph.edges_from(callee) {
+                    if seen.insert(edge.callee) {
+                        pending.push(edge.callee);
+                    }
+                }
+            }
+            let mut resized: Vec<NodeRef> = resized.into_iter().collect();
+            resized.sort_unstable();
             let written = symbols(&record.written);
             pending_loops.push((
                 node,
@@ -349,6 +371,8 @@ fn usage_facts(
                     effects,
                     written,
                     length_changed: symbols(&record.length_changed),
+                    resized,
+                    resizes_untracked,
                     induction,
                     invariant: Vec::new(),
                 },
@@ -444,6 +468,172 @@ fn union(a: Effects, b: Effects) -> Effects {
 }
 
 /// The largest loop-invariant expressions of the loop `node` (see [`LoopFacts::invariant`]).
+/// The numeric locals of the loop `node` with their head ranges, minus those declared inside
+/// it (a nested loop's, the body's), with their steps.
+fn induction_variables(
+    world: &World<'_>,
+    node: NodeRef,
+    ranges: &[(SymbolId, Fact<NumberType>)],
+) -> Vec<Induction> {
+    use oxc_ast::{
+        AstKind,
+        ast::{AssignmentOperator, BinaryOperator, Expression, UpdateOperator},
+    };
+    use oxc_span::GetSpan;
+    let module = world.module(node.module);
+    let nodes = module.semantic.nodes();
+    let scoping = module.semantic.scoping();
+    let loop_kind = nodes.kind(node.node);
+    let loop_span = loop_kind.span();
+    let (head, test, update, body) = match loop_kind {
+        AstKind::ForStatement(stmt) => (
+            stmt.init.as_ref().map(GetSpan::span),
+            stmt.test.as_ref().map(GetSpan::span),
+            stmt.update.as_ref().map(GetSpan::span),
+            stmt.body.span(),
+        ),
+        AstKind::WhileStatement(stmt) => (None, Some(stmt.test.span()), None, stmt.body.span()),
+        AstKind::DoWhileStatement(stmt) => (None, Some(stmt.test.span()), None, stmt.body.span()),
+        AstKind::ForInStatement(stmt) => (Some(stmt.left.span()), None, None, stmt.body.span()),
+        AstKind::ForOfStatement(stmt) => (Some(stmt.left.span()), None, None, stmt.body.span()),
+        _ => return Vec::new(),
+    };
+    let within = |inner: Span, outer: Span| outer.start <= inner.start && inner.end <= outer.end;
+    // The top-level statements of the body, which run once per iteration unless a
+    // `continue` skips them.
+    let body_statements: Vec<Span> = match loop_kind {
+        AstKind::ForStatement(stmt) => statements_of(&stmt.body),
+        AstKind::WhileStatement(stmt) => statements_of(&stmt.body),
+        AstKind::DoWhileStatement(stmt) => statements_of(&stmt.body),
+        _ => Vec::new(),
+    };
+    let unit_of = |id: NodeId| {
+        nodes.ancestor_ids(id).find(|&ancestor| {
+            matches!(
+                nodes.kind(ancestor),
+                AstKind::Function(_)
+                    | AstKind::ArrowFunctionExpression(_)
+                    | AstKind::StaticBlock(_)
+            )
+        })
+    };
+    let loop_unit = unit_of(node.node);
+    let continues = nodes
+        .iter()
+        .filter(|candidate| matches!(candidate.kind(), AstKind::ContinueStatement(_)))
+        .any(|candidate| {
+            within(candidate.kind().span(), body) && unit_of(candidate.id()) == loop_unit
+        });
+    ranges
+        .iter()
+        .filter_map(|(symbol, range)| {
+            let (symbol, range) = (*symbol, range.clone());
+            let declared = nodes.kind(scoping.symbol_declaration(symbol)).span();
+            if within(declared, loop_span) && !head.is_some_and(|head| within(declared, head)) {
+                return None;
+            }
+            let mut writes = Vec::new();
+            let mut tested = false;
+            for &reference in scoping.get_resolved_reference_ids(symbol) {
+                let reference = scoping.get_reference(reference);
+                let at = reference.node_id();
+                let span = nodes.kind(at).span();
+                if reference.is_write() {
+                    if unit_of(at) != loop_unit {
+                        // A closure writes it: anything may happen between iterations.
+                        writes.push(None);
+                    } else if within(span, loop_span) {
+                        writes.push(Some(at));
+                    }
+                }
+                if reference.is_read() && test.is_some_and(|test| within(span, test)) {
+                    tested = true;
+                }
+            }
+            let step = match writes.as_slice() {
+                [Some(at)] => {
+                    // The expression the write is the target of.
+                    let expression = nodes.parent_id(*at);
+                    let span = nodes.kind(expression).span();
+                    let once = update == Some(span)
+                        || (!continues && body_statements.contains(&span));
+                    let constant = |expression: &Expression<'_>| match expression.without_parentheses() {
+                        Expression::NumericLiteral(literal) => Some(literal.value),
+                        Expression::UnaryExpression(unary)
+                            if unary.operator == oxc_ast::ast::UnaryOperator::UnaryNegation =>
+                        {
+                            match unary.argument.without_parentheses() {
+                                Expression::NumericLiteral(literal) => Some(-literal.value),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    let names = |expression: &Expression<'_>| {
+                        matches!(expression.without_parentheses(), Expression::Identifier(ident)
+                            if ident.reference_id.get().and_then(|reference| scoping.get_reference(reference).symbol_id()) == Some(symbol))
+                    };
+                    let step = match nodes.kind(expression) {
+                        AstKind::UpdateExpression(update) => Some(match update.operator {
+                            UpdateOperator::Increment => 1.0,
+                            UpdateOperator::Decrement => -1.0,
+                        }),
+                        AstKind::AssignmentExpression(assign) => match assign.operator {
+                            AssignmentOperator::Addition => constant(&assign.right),
+                            AssignmentOperator::Subtraction => constant(&assign.right).map(|c| -c),
+                            AssignmentOperator::Assign => match assign.right.without_parentheses() {
+                                Expression::BinaryExpression(binary)
+                                    if binary.operator == BinaryOperator::Addition =>
+                                {
+                                    if names(&binary.left) {
+                                        constant(&binary.right)
+                                    } else if names(&binary.right) {
+                                        constant(&binary.left)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Expression::BinaryExpression(binary)
+                                    if binary.operator == BinaryOperator::Subtraction
+                                        && names(&binary.left) =>
+                                {
+                                    constant(&binary.right).map(|c| -c)
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    step.filter(|step| once && step.is_finite())
+                }
+                _ => None,
+            };
+            Some(Induction {
+                symbol: module.symbol(symbol),
+                range,
+                step,
+                counter: step.is_some() && tested,
+            })
+        })
+        .collect()
+}
+
+/// The spans of the statements directly in `body` (itself, if it isn't a block), as
+/// expression statements' expressions.
+fn statements_of(body: &oxc_ast::ast::Statement<'_>) -> Vec<Span> {
+    use oxc_ast::ast::Statement;
+    use oxc_span::GetSpan;
+    let expression = |statement: &Statement<'_>| match statement {
+        Statement::ExpressionStatement(statement) => Some(statement.expression.span()),
+        _ => None,
+    };
+    match body {
+        Statement::BlockStatement(block) => block.body.iter().filter_map(expression).collect(),
+        statement => expression(statement).into_iter().collect(),
+    }
+}
+
 /// Expressions in the loop `node` that give the same value on every iteration and can be
 /// evaluated once, before the first iteration's body, after the loop's first test passes.
 fn invariant_expressions(
