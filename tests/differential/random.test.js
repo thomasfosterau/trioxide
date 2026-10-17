@@ -3,8 +3,8 @@
 // generated function is forced into an island with `"use wasm"`. All three must print the
 // same.
 //
-// Each program is a function over two numbers, a Float64Array, an Int32Array and one other
-// typed array (any kind): local variables (and `x++` as a value, also inside the right-hand
+// Each program is a function over two numbers, a Float64Array, an Int32Array, one other
+// typed array (any kind) and a number[] that may have holes: local variables (and `x++` as a value, also inside the right-hand
 // side of an assignment to `x`), arithmetic, bitwise, logical and `Math` expressions,
 // ternaries, typed array and `number[]` reads and writes (in and out of bounds), bounded
 // `for`/`while`/`do…while` loops with `break`/`continue` (labelled or not), and calls to a
@@ -77,7 +77,9 @@ function program(random, name) {
   // What expressions may use: helpers see only their parameters.
   let cx = {
     locals: ['a', 'b'],
-    arrays: ['xs', 'ys', 'us', ...(zsLength ? ['zs'] : [])],
+    // `ws` is a number[] parameter, which may have holes: it is only written in loops over
+    // its length, through arithmetic.
+    arrays: ['xs', 'ys', 'us', 'ws', ...(zsLength ? ['zs'] : [])],
     calls: true,
   };
   const assignable = () => cx.locals.filter((local) => !COUNTERS.includes(local));
@@ -182,6 +184,14 @@ function program(random, name) {
       } else if (roll < 0.5 && zsLength) {
         const at = Math.floor(random() * zsLength);
         lines.push(chance(0.5) ? `zs[${at}] = +(${expr()});` : `zs[${at}] ${pick(['+=', '-=', '*='])} ${expr()};`);
+      } else if (roll < 0.52 && !cx.locals.includes('i')) {
+        // Arithmetic that may keep a hole's bits (`* 1`, `- 0`, `/ 1` fold to `x`; `-x` and
+        // `Math.abs` only touch the sign) stored back into the number[].
+        cx.locals.push('i');
+        const value = chance(0.5) ? 'ws[i]' : expr(1);
+        cx.locals.pop();
+        const stored = pick([`(${value}) * 1`, `(${value}) - 0`, `(${value}) / 1`, `-(${value})`, `-(-(${value}))`, `Math.abs(${value})`]);
+        lines.push(chance(0.2) ? `for (let i = 0; i < ws.length; i++) ws[i] ${pick(['+=', '-=', '*='])} ${pick(['0', '1', value])};` : `for (let i = 0; i < ws.length; i++) ws[i] = ${stored};`);
       } else if (roll < 0.55 && loops.length) {
         const target = pick(loops);
         lines.push(`if (${condition(0)}) ${pick(['break', 'continue'])}${target ? ` ${target}` : ''};`);
@@ -200,7 +210,7 @@ function program(random, name) {
       } else if (roll < 0.86 && depth < 2 && !cx.locals.includes('m')) {
         lines.push('{', 'let m = 0;', ...loop(depth, loops, 'm', ['do {', 'm++;'], [`} while (m < ${pick(['2', '3'])});`]), '}');
       } else {
-        const array = pick(cx.arrays);
+        const array = pick(cx.arrays.filter((name) => name !== 'ws'));
         lines.push(array === 'zs' ? `zs[${Math.floor(random() * zsLength)}] = +(${expr()});` : `${array}[${index(1)}] = ${expr()};`);
       }
     }
@@ -224,7 +234,7 @@ function program(random, name) {
   const code = [
     ...(used.h ? [`function ${name}h(x: number, y: number): number {`, `  return +(${helper});`, '}', ''] : []),
     ...(used.r ? [`function ${name}r(k: number, x: number): number {`, `  return k <= 0 ? x : ${name}r(k - 1, +(${step}));`, '}', ''] : []),
-    `export function ${name}(a: number, b: number, xs: Float64Array, ys: Int32Array, us: ${kind}): number {`,
+    `export function ${name}(a: number, b: number, xs: Float64Array, ys: Int32Array, us: ${kind}, ws: number[]): number {`,
     ...body.map((line) => `  ${line}`),
     `  return ${result};`,
     '}',
@@ -232,11 +242,14 @@ function program(random, name) {
   return { code, kind };
 }
 
+// a, b, xs (a Float64Array expression), ys, us and ws (a number[] expression). `payload()`
+// holds NaNs with the bits the glue gives holes; `ownLength` gives a typed array a `length`
+// property that isn't its length.
 const INPUTS = [
-  ['1', '2', '[1, 2, 3, 4]', '[5, -6, 7]', '[1, 250, 3]'],
-  ['-0', 'NaN', '[]', '[2147483647]', '[]'],
-  ['0.5', '-3', '[NaN, -0, Infinity]', '[0, -1, 2, 3, 4, 5]', '[0.5, -7, 300, 65537]'],
-  ['1e10', '2147483648', '[0.1, 0.2]', '[]', '[1e10]'],
+  ['1', '2', 'new Float64Array([1, 2, 3, 4])', '[5, -6, 7]', '[1, 250, 3]', '[1, , 3]'],
+  ['-0', 'NaN', 'new Float64Array([])', '[2147483647]', '[]', '[]'],
+  ['0.5', '-3', 'payload()', '[0, -1, 2, 3, 4, 5]', '[0.5, -7, 300, 65537]', 'Array.from(payload())'],
+  ['1e10', '2147483648', 'ownLength(new Float64Array([0.1, 0.2, 0.3]), 5)', '[]', '[1e10]', '[NaN, -0, , 2.5, , ]'],
 ];
 
 function sources() {
@@ -261,6 +274,19 @@ function sources() {
     ...imports,
     '',
     'const show = (x: number): string => (Object.is(x, -0) ? "-0" : String(x));',
+    'const showAll = (xs: number[]): string => Array.from({ length: xs.length }, (_, i) => (i in xs ? show(xs[i]) : "_")).join(",");',
+    '',
+    'function payload(): Float64Array {',
+    '  const xs = new Float64Array(4);',
+    '  new BigUint64Array(xs.buffer).set([0x7ff4_7472_696f_7869n, 0xfff4_7472_696f_7869n, 0x7ff8_0000_0000_0001n]);',
+    '  xs[3] = 1;',
+    '  return xs;',
+    '}',
+    '',
+    'function ownLength(xs: Float64Array, length: number): Float64Array {',
+    '  Object.defineProperty(xs, "length", { value: length });',
+    '  return xs;',
+    '}',
     '',
     'function run(name: string, results: string[]): void {',
     '  console.log([name, ...results].join(" "));',
@@ -270,8 +296,8 @@ function sources() {
     ...all.map((name) => [
       '  {',
       '    const r: string[] = [];',
-      ...INPUTS.map(([a, b, xs, ys, us]) =>
-        `    { const xs = new Float64Array(${xs}); const ys = new Int32Array(${ys}); const us = new ${kinds.get(name)}(${us}); r.push(show(${name}(${a}, ${b}, xs, ys, us)), Array.from(xs, show).join(","), ys.join(","), Array.from(us, show).join(",")); }`),
+      ...INPUTS.map(([a, b, xs, ys, us, ws]) =>
+        `    { const xs = ${xs}; const ys = new Int32Array(${ys}); const us = new ${kinds.get(name)}(${us}); const ws = ${ws} as number[]; r.push(show(${name}(${a}, ${b}, xs, ys, us, ws)), Array.from(xs, show).join(","), ys.join(","), Array.from(us, show).join(","), showAll(ws)); }`),
       `    run("${name}", r);`,
       '  }',
     ].join('\n')),

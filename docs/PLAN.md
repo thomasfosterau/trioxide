@@ -458,15 +458,17 @@ failed, a failing callee's result) are dropped, so diagnostics name the cause.
   node's range fact proves the result in range; `+`/`-` on int32s feeding ToInt32 wrap, as JS
   does. Everything else is `f64`.
 - *Arrays.* Locals holding arrays are either created in the call (`&'static mut [E]`) or
-  read-only (`&[E]`); writes through a variable that may hold a parameter, copies between
-  array variables, returning a parameter and passing one array twice to a callee that writes
-  to it are ineligible. Accesses are unchecked only where `in_bounds` is usable. Besides the
-  facts, the backend proves two island-local bounds, used only for eligibility (whether a
-  `number[]` write may grow the array, whether a read may be `undefined`) and never to skip a
-  check: `a[i]` and `b[i]` inside `for (let i = k; i < a.length; i++)` when only the update
-  writes `i`, `a` is never reassigned and `b` was created with `a.length` elements; and a
-  constant index below an array's constant length. Both hold because array lengths can't
-  change inside an island.
+  read-only (`&[E]`); writes through a variable that may hold a parameter, copies between array
+  variables, returning a parameter and passing one array twice to a callee that writes to it
+  are ineligible. Accesses are unchecked only where `in_bounds` is proven (a declared fact that
+  is wrong would read or write outside the array), and a `number[]` element counts as defined
+  only with proof too, since TypeScript's `number[]` doesn't rule out holes. Besides the facts,
+  the backend proves two island-local bounds, used only for eligibility (whether a `number[]`
+  write may grow the array, whether a read may be `undefined`) and never to skip a check:
+  `a[i]` and `b[i]` inside `for (let i = k; i < a.length; i++)` when only the update writes
+  `i`, `a` is never reassigned and `b` was created with `a.length` elements; and a constant
+  index below an array's constant length. Both hold because array lengths can't change inside
+  an island.
 - *Objects.* Object parameters become boundary structs (one per declared type, or per
   parameter for inline types; a union of object shapes is one too). Their fields are
   the ones the island accesses, each typed by the facts of its reads (a field the island only
