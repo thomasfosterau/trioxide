@@ -641,6 +641,11 @@ impl Facts {
         self.allocations.retain(|node, _| other(node));
         self.expr_effects.retain(|node, _| other(node));
         self.loops.retain(|node, _| other(node));
+        for facts in self.loops.values_mut() {
+            let count = facts.resized.len();
+            facts.resized.retain(other);
+            facts.resizes_untracked |= facts.resized.len() != count;
+        }
         self.open_sites.retain(other);
         // Unknown reachability is "may run".
         self.unreachable.retain(other);
@@ -717,6 +722,11 @@ impl Facts {
         table(&mut self.expr_effects, &node, Some);
         table(&mut self.loops, &node, |mut facts| {
             facts.invariant = facts.invariant.into_iter().filter_map(node).collect();
+            // A resized array whose site is gone is one trioxide no longer tracks.
+            let resized = std::mem::take(&mut facts.resized);
+            let count = resized.len();
+            facts.resized = resized.into_iter().filter_map(node).collect();
+            facts.resizes_untracked |= facts.resized.len() != count;
             Some(facts)
         });
         table(&mut self.points_to, &node, |sites| {
