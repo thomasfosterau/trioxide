@@ -20,7 +20,11 @@ pub const MAX_TYPED_ARRAY_LENGTH: f64 = 9_007_199_254_740_991.0;
 
 /// The largest length of an array (`typed`: a typed array).
 pub fn max_length(typed: bool) -> f64 {
-    if typed { MAX_TYPED_ARRAY_LENGTH } else { MAX_ARRAY_LENGTH }
+    if typed {
+        MAX_TYPED_ARRAY_LENGTH
+    } else {
+        MAX_ARRAY_LENGTH
+    }
 }
 /// The largest valid string length (`2^53 - 1`).
 pub const MAX_STRING_LENGTH: f64 = 9_007_199_254_740_991.0;
@@ -430,7 +434,8 @@ pub fn sqrt(a: NumberType) -> NumberType {
 /// elements and object properties too, so a growing range anywhere stops growing.
 pub fn widen_type(old: &Type, new: &Type) -> Type {
     use std::sync::Arc;
-    let member = |matches: &dyn Fn(&Type) -> bool| old.members().iter().find(|m| matches(m)).cloned();
+    let member =
+        |matches: &dyn Fn(&Type) -> bool| old.members().iter().find(|m| matches(m)).cloned();
     match new {
         Type::Number(new) => match member(&|m| matches!(m, Type::Number(_))) {
             Some(Type::Number(old)) => Type::Number(widen(old, *new)),
@@ -441,18 +446,18 @@ pub fn widen_type(old: &Type, new: &Type) -> Type {
             Some(Type::Array(old)) => Type::Array(Arc::new(widen_type(&old, element))),
             _ => new.clone(),
         },
-        Type::Tuple(items) => match member(
-            &|m| matches!(m, Type::Tuple(old) if old.len() == items.len()),
-        ) {
-            Some(Type::Tuple(old)) => Type::Tuple(
-                items
-                    .iter()
-                    .zip(old.iter())
-                    .map(|(new, old)| widen_type(old, new))
-                    .collect(),
-            ),
-            _ => new.clone(),
-        },
+        Type::Tuple(items) => {
+            match member(&|m| matches!(m, Type::Tuple(old) if old.len() == items.len())) {
+                Some(Type::Tuple(old)) => Type::Tuple(
+                    items
+                        .iter()
+                        .zip(old.iter())
+                        .map(|(new, old)| widen_type(old, new))
+                        .collect(),
+                ),
+                _ => new.clone(),
+            }
+        }
         Type::Object(shape) => match member(&|m| matches!(m, Type::Object(_))) {
             Some(Type::Object(old)) => Type::Object(Arc::new(Shape {
                 properties: shape

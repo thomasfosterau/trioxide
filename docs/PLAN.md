@@ -18,7 +18,7 @@ These shape everything else. All of them are agreed.
 | # | Decision | Choice |
 |---|----------|--------|
 | D1 | **How far to trust TS types** | TS types are unsound (`any`, `as`, bivariance, unchecked indexing), even when the checker computes them correctly. Every fact has a trust level: `Proven` (from literals, flow, or a TS type with no unsound construct feeding it), `Declared` (a TS type that rests on an annotation, cast, `any` or an open-world boundary), or `Unknown`. By default, passes that change semantics when wrong need `Proven`. `trustTypes: true` lets `Declared` count as proof. |
-| D2 | **World assumption** | `app` mode (closed world: the whole module graph is visible and exports are only used internally, as in a Vite app build) vs `library` mode (open world: exported signatures are `Declared` at best). Vite builds default to `app`; the CLI defaults to `library` unless entries are given. |
+| D2 | **World assumption** | `app` mode (closed world: the whole module graph is visible and exports are only used internally, as in a Vite app build — except the entry modules' exports and what they re-export, which the host calls) vs `library` mode (open world: exported signatures are `Declared` at best). Vite builds default to `app`; the CLI defaults to `library` unless entries are given. |
 | D3 | **Type checking via tsrs** | [tsrs](https://github.com/oxc-project/tsrs) (the oxc project's Rust port of the TypeScript 7 checker) is embedded in-process as the source of TS types: types at locations, symbols, resolved signatures, flags. It sits behind the `trioxide_types` adapter crate so its API never leaks. Trioxide does not reimplement TS inference; its own analysis adds only what tsrs lacks (ranges, integer-ness, effects, escape, shapes). Reporting TS errors is opt-in (`check: true`). tsrs is behind a default-on Cargo feature. |
 | D4 | **Partition granularity** | Per function, grouped into **WASM islands**: connected clusters of eligible functions in the call graph. One island becomes one Rust crate and one `.wasm` module. |
 | D5 | **Every island keeps a JS fallback** | The optimised-JS version of each island function is always produced. It is used in dev mode, when the Rust toolchain is missing (with a warning), and as the oracle for differential tests. |
@@ -188,13 +188,27 @@ back to TS where it knows nothing:
   prototype or an instance may reach code trioxide doesn't see: escape analysis over
   allocation sites, with library-mode exports, unknown callees, `eval`/`with` scopes,
   decorators, JSX factories and TS namespaces as escape points. In app mode an export alone
-  does not escape.
+  does not escape, unless it is an entry module's (or re-exported by one): hosts, HTML module
+  scripts and test runners call those. A site joined with an unknown object (so no longer
+  followed) escapes too.
 - *Poisoned values.* Values from `eval`, `Proxy`, `Reflect`/`Object.defineProperty` targets
   and similar reflection are `Unknown` *and* skip the TS fallback, since TS's type for them
   is not evidence.
-- *Builtin integrity.* Builtin models assume the program doesn't patch builtins. Any
-  shadowing, assignment, or use of a namespace (`Math`, `JSON`, …) or the global object
-  other than a plain member read or call turns that namespace's models off.
+- *Builtin integrity.* Builtin models assume code outside the program doesn't patch
+  builtins, and check that the program doesn't. Any shadowing, assignment, or use of a
+  namespace (`Math`, `JSON`, …), a typed array constructor or the global object other than a
+  plain member read, call, construction or `instanceof` turns those models off; any way of
+  reaching a prototype without naming it (`__proto__`, `getPrototypeOf`, `.constructor`,
+  `X.prototype` of anything but a program class, `Reflect`, `Function`, `eval`) turns all of
+  them off. Without integrity, method models, `Object.prototype` lookups, holes and iteration
+  are `Unknown`. A key computed at run time that happens to be `"__proto__"` is not detected.
+- *Temporal dead zones.* Reading a `let`/`const`/`class` binding before its declaration
+  runs throws: in its own unit when the read comes first in the text (or in a `switch`), in
+  another unit when the declaring unit may call out before the declaration, and across an
+  import cycle.
+- *Convergence.* Whole-program entries that still change after 20 rounds are given up (set
+  to "any value", their objects escaping), so the run always reaches a fixed point and only
+  facts depending on those entries are lost, with a warning.
 - *Effects* are computed twice, once counting only `Proven` facts and once counting
   `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;

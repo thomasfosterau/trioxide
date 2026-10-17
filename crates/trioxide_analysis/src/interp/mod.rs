@@ -425,8 +425,7 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
             }
         }
         if scoping.symbol_ids().any(|symbol| {
-            TypedArrayKind::from_constructor_name(scoping.symbol_name(symbol))
-                .is_some()
+            TypedArrayKind::from_constructor_name(scoping.symbol_name(symbol)).is_some()
         }) {
             patched.insert(TYPED_ARRAY.to_string());
         }
@@ -477,7 +476,10 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
             },
             AstKind::ObjectProperty(property) => {
                 !property.computed
-                    && property.key.static_name().is_some_and(|key| key == "__proto__")
+                    && property
+                        .key
+                        .static_name()
+                        .is_some_and(|key| key == "__proto__")
             }
             AstKind::BindingProperty(property) => property
                 .key

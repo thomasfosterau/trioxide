@@ -12,7 +12,7 @@ use oxc_syntax::operator::{
 };
 use trioxide_types::{NumberType, Type};
 
-use super::{Cx, EffectKind, Escape, ObjKind};
+use super::{Cx, EffectKind, Escape, ObjKind, call::Accessor};
 use crate::{
     builtins,
     facts::Trust,
@@ -395,12 +395,16 @@ impl<'a> Cx<'_, '_, 'a> {
     /// The frozen strings array a tag receives, with its frozen `raw` array.
     fn template_strings(&mut self, quasi: &'a TemplateLiteral<'a>) -> Val {
         // Cooked strings are `undefined` where an escape is invalid.
-        let cooked = if quasi.quasis.iter().all(|element| element.value.cooked.is_some()) {
+        let cooked = if quasi
+            .quasis
+            .iter()
+            .all(|element| element.value.cooked.is_some())
+        {
             Type::String
         } else {
             Type::union([Type::String, Type::Undefined])
         };
-        let length = Some(quasi.quasis.len() as f64);
+        let length = u32::try_from(quasi.quasis.len()).ok().map(f64::from);
         let array = |cx: &mut Self, node: oxc_syntax::node::NodeId, element: Type| {
             let site = cx.alloc(node, ObjKind::Array);
             let first = cx
@@ -409,19 +413,22 @@ impl<'a> Cx<'_, '_, 'a> {
                 .is_some_and(|obj| obj.elem.ty == Type::Never && obj.props.is_empty());
             cx.store_elem(site, &Val::proven(element.clone()));
             cx.mark(site, |obj| {
-                obj.length = if (first && obj.length.is_none() && !obj.dynamic)
-                    || obj.length == length
-                {
-                    length
-                } else {
-                    None
-                };
+                obj.length =
+                    if (first && obj.length.is_none() && !obj.dynamic) || obj.length == length {
+                        length
+                    } else {
+                        None
+                    };
             });
-            (site, Val::object(Type::Array(std::sync::Arc::new(element)), site))
+            (
+                site,
+                Val::object(Type::Array(std::sync::Arc::new(element)), site),
+            )
         };
-        let raw_node = quasi.quasis.first().map_or(quasi.node_id.get(), |element| {
-            element.node_id.get()
-        });
+        let raw_node = quasi
+            .quasis
+            .first()
+            .map_or(quasi.node_id.get(), |element| element.node_id.get());
         let (_, raw) = array(self, raw_node, Type::String);
         let (strings, value) = array(self, quasi.node_id.get(), cooked);
         self.store_prop(strings, "raw", &raw, true);
@@ -1699,7 +1706,9 @@ impl<'a> Cx<'_, '_, 'a> {
                     }
                     Key::Name(name) if name == "length" => match obj.length {
                         Some(length) => Val::number(NumberType::constant(length)),
-                        None => Val::number(numeric::int_range(0.0, numeric::MAX_TYPED_ARRAY_LENGTH)),
+                        None => {
+                            Val::number(numeric::int_range(0.0, numeric::MAX_TYPED_ARRAY_LENGTH))
+                        }
                     },
                     key if key.is_index() => {
                         let element = kind.element().map_or(Type::BigInt, Type::Number);
@@ -1740,7 +1749,7 @@ impl<'a> Cx<'_, '_, 'a> {
             _ => None,
         };
         if let Some((class, is_static)) = class
-            && let Some(getter) = self.accessor(
+            && let getter @ (Accessor::Unit(_) | Accessor::Missing) = self.accessor(
                 class,
                 name,
                 super::super::world::MethodRole::Getter,
@@ -1748,8 +1757,8 @@ impl<'a> Cx<'_, '_, 'a> {
             )
         {
             let value = match getter {
-                Some(getter) => self.call_unit_as_getter(getter, receiver, node),
-                None => Val::proven(Type::Undefined),
+                Accessor::Unit(getter) => self.call_unit_as_getter(getter, receiver, node),
+                _ => Val::proven(Type::Undefined),
             };
             // A field may define an own property of the same name, shadowing the accessor
             // (`useDefineForClassFields`).
@@ -2060,7 +2069,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         _ => None,
                     };
                     if let Some((class, is_static)) = class
-                        && let Some(setter) = self.accessor(
+                        && let setter @ (Accessor::Unit(_) | Accessor::Missing) = self.accessor(
                             class,
                             name,
                             super::super::world::MethodRole::Setter,
@@ -2068,10 +2077,12 @@ impl<'a> Cx<'_, '_, 'a> {
                         )
                     {
                         match setter {
-                            Some(setter) => self.call_unit_as_setter(setter, object, value, node),
+                            Accessor::Unit(setter) => {
+                                self.call_unit_as_setter(setter, object, value, node);
+                            }
                             // A getter without a setter: class code is strict, so this throws.
-                            None if !defining => self.always(EffectKind::Throws),
-                            None => {}
+                            _ if !defining => self.always(EffectKind::Throws),
+                            _ => {}
                         }
                         if !defining {
                             continue;

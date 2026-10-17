@@ -266,9 +266,9 @@ impl<'a> Cx<'_, '_, 'a> {
             .get_resolved_references(symbol)
             .any(|reference| {
                 reference.is_write()
-                    && span.contains_inclusive(
-                        oxc_span::GetSpan::span(&semantic.nodes().kind(reference.node_id())),
-                    )
+                    && span.contains_inclusive(oxc_span::GetSpan::span(
+                        &semantic.nodes().kind(reference.node_id()),
+                    ))
             });
         (!written).then_some(symbol)
     }

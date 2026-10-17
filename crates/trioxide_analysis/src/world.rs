@@ -714,7 +714,8 @@ impl<'a> World<'a> {
                 let in_class_init =
                     declared_in.is_some_and(|u| matches!(u.body, Body::ClassInit(_)));
                 let tainted = tainted || aliased_param;
-                let lexical = flags.intersects(SymbolFlags::BlockScopedVariable | SymbolFlags::Class)
+                let lexical = flags
+                    .intersects(SymbolFlags::BlockScopedVariable | SymbolFlags::Class)
                     && !flags.contains(SymbolFlags::Function);
                 let declaration = scoping.symbol_declaration(symbol);
                 let declared_at = module.semantic.nodes().kind(declaration).span().end;

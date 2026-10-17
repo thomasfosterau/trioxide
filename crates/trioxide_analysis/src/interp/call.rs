@@ -359,24 +359,27 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// The getter or setter `name` of `class` (or a superclass), if it has one.
     pub fn class_accessor(&self, class: NodeRef, name: &str, role: MethodRole) -> Option<NodeRef> {
-        self.accessor(class, name, role, false).flatten()
+        match self.accessor(class, name, role, false) {
+            Accessor::Unit(unit) => Some(unit),
+            Accessor::Data | Accessor::Missing => None,
+        }
     }
 
     /// How `class` (or a superclass) defines `name` as an accessor, among its static members
-    /// with `is_static`: `None` when the nearest definition isn't an accessor, `Some(None)`
-    /// when it is one without `role` (reads give `undefined`, writes throw), and
-    /// `Some(Some(unit))` for the getter or setter itself.
+    /// with `is_static`.
     pub fn accessor(
         &self,
         class: NodeRef,
         name: &str,
         role: MethodRole,
         is_static: bool,
-    ) -> Option<Option<NodeRef>> {
+    ) -> Accessor {
         let mut class = Some(class);
         let mut depth = 0;
         while let Some(id) = class {
-            let info = self.an.world.classes.get(&id)?;
+            let Some(info) = self.an.world.classes.get(&id) else {
+                return Accessor::Data;
+            };
             let members: Vec<_> = info
                 .members
                 .iter()
@@ -387,22 +390,21 @@ impl<'a> Cx<'_, '_, 'a> {
                     matches!(member.role, Some(MethodRole::Getter | MethodRole::Setter))
                 });
                 if !accessor {
-                    return None;
+                    return Accessor::Data;
                 }
-                return Some(
-                    members
-                        .iter()
-                        .find(|member| member.role == Some(role))
-                        .and_then(|member| member.unit),
-                );
+                return members
+                    .iter()
+                    .find(|member| member.role == Some(role))
+                    .and_then(|member| member.unit)
+                    .map_or(Accessor::Missing, Accessor::Unit);
             }
             class = self.superclass(id);
             depth += 1;
             if depth > 16 {
-                return None;
+                return Accessor::Data;
             }
         }
-        None
+        Accessor::Data
     }
 
     /// Reading a property backed by a getter.
@@ -455,16 +457,14 @@ impl<'a> Cx<'_, '_, 'a> {
         match parent.pts.sites() {
             Some(sites) if parent.trust == Trust::Proven => {
                 for &site_ref in sites {
-                    match self.an.heap(site_ref).map(|obj| obj.kind) {
-                        Some(ObjKind::Class(parent_class)) => {
-                            let value = self.construct_class(site, parent_class, &this, args);
-                            replaced = replaced.join(&value);
-                        }
-                        _ => {
-                            let value = self.unknown_call(site, &parent, &this, &args.values);
-                            replaced = replaced.join(&value);
-                        }
-                    }
+                    let value = if let Some(ObjKind::Class(parent_class)) =
+                        self.an.heap(site_ref).map(|obj| obj.kind)
+                    {
+                        self.construct_class(site, parent_class, &this, args)
+                    } else {
+                        self.unknown_call(site, &parent, &this, &args.values)
+                    };
+                    replaced = replaced.join(&value);
                 }
             }
             _ => {
@@ -552,9 +552,17 @@ impl<'a> Cx<'_, '_, 'a> {
     /// (a primitive is ignored for base classes and throws for derived ones; joining it
     /// only loses precision).
     fn replacement(&mut self, constructor: NodeRef) -> Val {
-        let returned = self.an.returned(constructor).cloned().unwrap_or_else(Val::never);
+        let returned = self
+            .an
+            .returned(constructor)
+            .cloned()
+            .unwrap_or_else(Val::never);
         let value = super::expr::without_undefined(&returned);
-        if is_nothing(&value) { Val::never() } else { value }
+        if is_nothing(&value) {
+            Val::never()
+        } else {
+            value
+        }
     }
 
     /// A `new` expression.
@@ -576,13 +584,9 @@ impl<'a> Cx<'_, '_, 'a> {
             match self.an.heap(target).map(|obj| obj.kind) {
                 Some(ObjKind::Class(class)) => {
                     let instance = self.alloc(site, ObjKind::Instance(class));
-                    if self
-                        .an
-                        .heap(instance)
-                        .is_some_and(|obj| {
-                            obj.present.is_empty() && obj.props.is_empty() && !obj.deleted
-                        })
-                    {
+                    if self.an.heap(instance).is_some_and(|obj| {
+                        obj.present.is_empty() && obj.props.is_empty() && !obj.deleted
+                    }) {
                         let present = crate::shapes::definite_fields(self.an.world, class);
                         self.mark(instance, |obj| obj.present.extend(present));
                     }
@@ -1371,4 +1375,15 @@ fn param_count(unit: &crate::world::Unit<'_>) -> usize {
 /// Whether `value` is no value at all.
 fn is_nothing(value: &Val) -> bool {
     value.ty == Type::Never && value.pts.sites().is_some_and(<[_]>::is_empty)
+}
+
+/// How a class defines a property, as far as accessors go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Accessor {
+    /// The nearest definition is a data property or method (or there is none).
+    Data,
+    /// An accessor without the role asked for: reads give `undefined`, writes throw.
+    Missing,
+    /// The getter or setter.
+    Unit(NodeRef),
 }
