@@ -305,6 +305,9 @@ use trioxide_rt::prelude::*;
   are, and live until the call ends. `new Array<number>(n).fill(0)` is `alloc_array::<f64>`.
 - **Internal calls** go straight to the Rust functions, never through a shim, so values
   aren't copied between functions of one island.
+- **Division.** The Rust backend writes `a / core::hint::black_box(b)` for every `f64`
+  division by a non-literal: rustc 1.99.1's LLVM otherwise folds `0.0 / sitofp(x)` to a signed
+  zero when the quotient feeds a multiplication, losing the NaN of `0 / 0` (see PLAN §6).
 
 ### Structs
 

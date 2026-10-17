@@ -311,6 +311,17 @@ call edge into a component from JS code is a boundary entry.
 and the diagnostic explains why. `"use js"` forbids one. Config globs do the same per file.
 `mode: "js-only" | "auto" | "wasm-preferred"`.
 
+Directives are implemented (S6; the cost model is S8's): a `"use wasm"` function directive, a
+file directive (every top-level function declaration of the file) or a `/** @trioxide wasm */`
+tag forces a function; `"use js"` (or `@trioxide js`) keeps a function, and anything calling
+it, out of every island. Directives override `mode`; `wasm.enabled: false` (`--no-wasm`) turns
+them off. Only top-level function declarations can be forced. The forced functions of one
+module form **one island** (one glue module and instantiation per module), exporting them and
+containing every function they call, from any module, as internal Rust functions; a forced
+function that can't be compiled is an error listing every reason, and the module's other
+forced functions still become the island. `trioxide_rust::eligibility::clusters` computes the
+connected components of eligible functions for the cost model.
+
 **Explainability.** `trioxide explain [file[:fn]]` prints each decision, the failed
 eligibility rule with its source span, and the cost-model numbers. This is how users come to
 trust the partitioner.
@@ -345,6 +356,71 @@ shape of the generated crate.
   arithmetic). An unprovable pattern where OOB would change semantics makes the function
   ineligible
 - integer division and NaN comparisons follow JS
+
+**How the backend works (`trioxide_rust`, S6).** Lowering *is* the subset checker: a function
+is eligible exactly when it and every function it calls lower to RIR with JS-exact semantics,
+so the checker can't disagree with the code generator. Each unsupported construct records a
+reason with its span; reasons that only echo another failure (a value whose own lowering
+failed, a failing callee's result) are dropped, so diagnostics name the cause.
+
+- *Kinds before types.* Lowering runs in rounds over the island: the kinds of locals,
+  parameters, returns and fields (boolean, number, number-or-`undefined`, array with its
+  origin, immutable object, object parameter) are joined over every assignment, argument and
+  return until nothing changes; a final round picks Rust types and produces RIR. Exported
+  functions' parameters come from the facts at the boundary; internal functions' from their
+  island call sites. Object values carry their field kinds, so `new Vec2(xs[i], ys[i])` and
+  `new Vec2(a.x + b.x, …)` differ.
+- *`undefined` as NaN.* A read the analysis can't prove in bounds is `number | undefined`. The
+  island represents it as NaN and only allows it where JS converts it to a number anyway
+  (arithmetic, ordering comparisons, bitwise operators, `Math.*`, typed array stores,
+  truthiness, `===` against a value that is never `undefined`); returning it, storing it in a
+  `number[]` or an object field the boundary sees, or comparing two of them makes the
+  function ineligible.
+- *Integers.* A local, parameter or return is `i32`/`u32` only when its symbol's (or every
+  returned value's) range fact proves int32/uint32 without `-0`; values computed in `f64` are
+  then converted exactly. An operation runs on `i32`/`u32` only when both operands do and the
+  node's range fact proves the result in range; `+`/`-` on int32s feeding ToInt32 wrap, as JS
+  does. Everything else is `f64`.
+- *Arrays.* Locals holding arrays are either created in the call (`&'static mut [E]`) or
+  read-only (`&[E]`); writes through a variable that may hold a parameter, copies between
+  array variables, returning a parameter and passing one array twice to a callee that writes
+  to it are ineligible. Accesses are unchecked only where `in_bounds` is usable. Besides the
+  facts, the backend proves two island-local bounds, used only for eligibility (whether a
+  `number[]` write may grow the array, whether a read may be `undefined`) and never to skip a
+  check: `a[i]` and `b[i]` inside `for (let i = k; i < a.length; i++)` when only the update
+  writes `i`, `a` is never reassigned and `b` was created with `a.length` elements; and a
+  constant index below an array's constant length. Both hold because array lengths can't
+  change inside an island.
+- *Objects.* Object parameters become boundary structs (one per TS type name). Their fields are
+  the ones the island accesses, each typed by the facts of its reads (a field the island only
+  writes, or that a read can't prove a number or boolean, is ineligible); this leans on the
+  analysis heap being flow-insensitive, so a proven read type holds at function entry too.
+  `ExtraFacts::param_field` is the hook for a direct "fields at entry" query. Classes used only
+  inside the island are immutable Rust values (`Copy` structs with methods); they need a
+  usable, stable class shape and a constructor that only assigns fields. Exported functions
+  may return object literals, never class instances.
+- *Facts the analysis doesn't provide yet* go through `trioxide_rust::ExtraFacts`, whose
+  defaults answer "unknown".
+- *The emitter* builds Rust text, parses it with `syn` and prints it with `prettyplease`;
+  `// SAFETY:` comments, which `prettyplease` would drop, travel as numbered marker macros.
+  rustc 1.99.1's LLVM rewrites `0.0 / sitofp(x)` to `copysign(0.0, x)` when the quotient feeds
+  a multiplication, losing the NaN of `0 / 0` (found by the random-program differential
+  tests); inlining can expose any division to it, so generated code passes every non-literal
+  `f64` divisor through `core::hint::black_box`.
+
+**Calling islands from JS.** The facade builds the partition's islands before compiling
+modules, and only islands that built change any module: after TypeScript is stripped
+(`trioxide_js::emit_with`), named imports of an island's exports whose every use is a direct
+call move to an import of the island's glue (`\0trioxide:island/<id>`); the original import
+stays, specifier-less if need be, so evaluation order is unchanged. Calls in the defining
+module itself go through an aliased glue import, except in an island that needs the aliasing
+fallback: the glue imports that module as its `fallback`, which would make an import cycle, so
+its own calls stay JS. Calls inside island functions' JS versions stay JS, so the fallback
+never re-enters the island. Uses other than direct calls (a function passed as a value,
+namespace imports, re-exports) keep the JS function. The `fallback` specifier is relative to
+`trioxide build`'s layout (`<out>/_islands/<id>.js` next to `<out>/<module>.js`); the Vite plugin
+does not resolve it from its virtual glue modules yet (S3 follow-up), so an island whose exports
+write to one of several array or struct arguments doesn't work under Vite.
 
 **ABI and glue** (specified in `docs/ABI.md`). Numbers and booleans pass directly. Typed
 arrays, `number[]` and plain-data structs are copied into linear memory through an exported
@@ -446,7 +522,14 @@ Parallel sessions rely on this to stay safe.
   trioxide JS, trioxide JS+WASM) and asserts identical output. CI fails on any divergence.
 - **Generated programs**: a small generator of random programs in the numeric subset
   (expressions, loops, typed arrays), fed through the differential runner, to fuzz the Rust
-  backend's semantics.
+  backend's semantics (`tests/differential/random.test.js`: 500 programs with a fixed seed in
+  CI, `RANDOM_SEED`/`RANDOM_PROGRAMS` for longer runs).
+- **WASM lowering fixtures**: `tests/wasm/<rule>/` (one per lowering rule, run by the
+  differential suite) and `"use wasm"` variants of every hand-written island
+  (`tests/islands/<case>/wasm/`), with the generated crate snapshotted in `generated.snap`;
+  `tests/wasm-errors/<rule>/`, one per eligibility rule, snapshot the diagnostics. Fixtures whose
+  `main()` passes values the analysis only knows from TypeScript (subarray views, arrays with
+  holes, objects kept in arrays) set `trustTypes: true` in their `trioxide.jsonc`.
 - **Conformance smoke**: run the JS passes over a corpus of real TS projects (e.g. vendored
   snapshots of a few libraries) and check they still parse, typecheck-strip, and pass their
   own tests where cheap.
