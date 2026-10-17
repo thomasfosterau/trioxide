@@ -1,3 +1,4 @@
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use trioxide_analysis::{Analysis, AnalysisOptions, ModuleInput, analyze};
@@ -294,15 +295,55 @@ impl Project {
         self.report().filter(query)
     }
 
+    /// Re-analyses the program with some modules' sources replaced, e.g. by the regenerated
+    /// (still TypeScript) source of a module the passes rewrote, and returns the new facts.
+    ///
+    /// The type oracle reloads the replaced sources too. Node ids in the facts are those a
+    /// fresh parse of each source gets (`Parser::new(..)` with the module's source type, then
+    /// `SemanticBuilder`), so a pass manager continues on a reparse of the text it passed.
+    /// Modules not listed keep their graph sources; a path that isn't in the graph is ignored.
+    pub fn reanalyse(&mut self, sources: &[(PathBuf, String)]) -> &trioxide_analysis::Facts {
+        let overrides: FxHashMap<ModuleId, &str> = sources
+            .iter()
+            .filter_map(|(path, source)| Some((self.graph.get(path)?, source.as_str())))
+            .collect();
+        let diagnostics = self.run_analysis(&overrides);
+        self.diagnostics.extend(diagnostics);
+        self.outputs.clear();
+        &self.analysis.facts
+    }
+
     /// Runs the whole-program stages: type oracle, analysis and partitioning.
     fn analyse(&mut self) {
+        let diagnostics = self.run_analysis(&FxHashMap::default());
+        let partitioner = Partitioner::new(PartitionOptions {
+            mode: match self.options.mode {
+                Mode::JsOnly => PartitionMode::JsOnly,
+                Mode::Auto => PartitionMode::Auto,
+                Mode::WasmPreferred => PartitionMode::WasmPreferred,
+            },
+            wasm: self.options.wasm.enabled,
+        });
+        let partition = partitioner.partition(&self.analysis.facts);
+        debug_assert!(partition.is_all_js(), "island emission is not wired up yet");
+
+        // The facts changed, so outputs computed against older facts are stale.
+        self.outputs.clear();
+        self.diagnostics
+            .retain(|diagnostic| diagnostic.code.as_deref() == Some("trioxide(target)"));
+        self.diagnostics.extend(diagnostics);
+    }
+
+    /// Loads the oracle and analyses the graph, with `overrides` in place of some modules'
+    /// sources. Returns the diagnostics.
+    fn run_analysis(&mut self, overrides: &FxHashMap<ModuleId, &str>) -> Vec<Diagnostic> {
         let modules = self.graph.modules();
         let sources: Vec<SourceText<'_>> = modules
             .iter()
             .map(|module| SourceText {
                 module: module.id,
                 path: &module.path,
-                source: &module.source,
+                source: overrides.get(&module.id).copied().unwrap_or(&module.source),
             })
             .collect();
         let input = OracleInput {
@@ -319,7 +360,12 @@ impl Project {
         }
 
         let world = self.options.world_or(self.built_from_entries);
-        let inputs = analysis_inputs(&self.graph);
+        let mut inputs = analysis_inputs(&self.graph);
+        for input in &mut inputs {
+            if let Some(source) = overrides.get(&input.id) {
+                input.source = source;
+            }
+        }
         self.analysis = analyze(
             &inputs,
             &mut *self.oracle,
@@ -342,23 +388,7 @@ impl Project {
             },
         );
         diagnostics.append(&mut self.analysis.diagnostics);
-
-        let partitioner = Partitioner::new(PartitionOptions {
-            mode: match self.options.mode {
-                Mode::JsOnly => PartitionMode::JsOnly,
-                Mode::Auto => PartitionMode::Auto,
-                Mode::WasmPreferred => PartitionMode::WasmPreferred,
-            },
-            wasm: self.options.wasm.enabled,
-        });
-        let partition = partitioner.partition(&self.analysis.facts);
-        debug_assert!(partition.is_all_js(), "island emission is not wired up yet");
-
-        // The facts changed, so outputs computed against older facts are stale.
-        self.outputs.clear();
-        self.diagnostics
-            .retain(|diagnostic| diagnostic.code.as_deref() == Some("trioxide(target)"));
-        self.diagnostics.extend(diagnostics);
+        diagnostics
     }
 
     fn compile(&mut self, id: ModuleId) -> ModuleOutput {
