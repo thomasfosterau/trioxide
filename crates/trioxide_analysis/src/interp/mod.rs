@@ -575,6 +575,8 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let deps = self.deps.get_mut();
         deps.current = Some(unit.id);
         deps.current_reads.clear();
+        // Losses from outside an interpretation (summaries, merges) don't concern this unit.
+        let _ = crate::value::take_lost();
         let capacity = self
             .outputs
             .get(&unit.id)
@@ -640,6 +642,19 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let returned = std::mem::replace(&mut cx.returned, Val::never());
         let record = std::mem::take(&mut cx.record);
         self.join_return(unit.id, &returned);
+        // A site joined with an unknown object is no longer followed: anything may happen to
+        // it from here, so it escapes.
+        loop {
+            let mut lost = crate::value::take_lost();
+            if lost.is_empty() {
+                break;
+            }
+            lost.sort_unstable();
+            lost.dedup();
+            for site in lost {
+                self.escape(&Pts::site(site), Escape::Unknown);
+            }
+        }
         self.output.units.insert(unit.id, record);
         let output = std::mem::take(&mut self.output);
         self.outputs.insert(unit.id, output);

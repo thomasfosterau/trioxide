@@ -357,6 +357,20 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// The getter or setter `name` of `class` (or a superclass), if it has one.
     pub fn class_accessor(&self, class: NodeRef, name: &str, role: MethodRole) -> Option<NodeRef> {
+        self.accessor(class, name, role, false).flatten()
+    }
+
+    /// How `class` (or a superclass) defines `name` as an accessor, among its static members
+    /// with `is_static`: `None` when the nearest definition isn't an accessor, `Some(None)`
+    /// when it is one without `role` (reads give `undefined`, writes throw), and
+    /// `Some(Some(unit))` for the getter or setter itself.
+    pub fn accessor(
+        &self,
+        class: NodeRef,
+        name: &str,
+        role: MethodRole,
+        is_static: bool,
+    ) -> Option<Option<NodeRef>> {
         let mut class = Some(class);
         let mut depth = 0;
         while let Some(id) = class {
@@ -364,13 +378,21 @@ impl<'a> Cx<'_, '_, 'a> {
             let members: Vec<_> = info
                 .members
                 .iter()
-                .filter(|member| !member.is_static && member.name == name)
+                .filter(|member| member.is_static == is_static && member.name == name)
                 .collect();
             if !members.is_empty() {
-                return members
-                    .iter()
-                    .find(|member| member.role == Some(role))
-                    .and_then(|member| member.unit);
+                let accessor = members.iter().any(|member| {
+                    matches!(member.role, Some(MethodRole::Getter | MethodRole::Setter))
+                });
+                if !accessor {
+                    return None;
+                }
+                return Some(
+                    members
+                        .iter()
+                        .find(|member| member.role == Some(role))
+                        .and_then(|member| member.unit),
+                );
             }
             class = self.superclass(id);
             depth += 1;
@@ -383,7 +405,9 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// Reading a property backed by a getter.
     pub fn call_unit_as_getter(&mut self, unit: NodeRef, receiver: &Val, node: NodeId) -> Val {
-        self.call_unit(node, unit, receiver, &[], false)
+        let value = self.call_unit(node, unit, receiver, &[], false);
+        self.after_call(false);
+        value
     }
 
     /// Writing a property backed by a setter.
@@ -395,6 +419,7 @@ impl<'a> Cx<'_, '_, 'a> {
         node: NodeId,
     ) {
         let _ = self.call_unit(node, unit, receiver, std::slice::from_ref(value), false);
+        self.after_call(false);
     }
 
     /// `super.name` inside a method: the superclass's prototype member.
@@ -424,22 +449,32 @@ impl<'a> Cx<'_, '_, 'a> {
             .super_of(class)
             .cloned()
             .unwrap_or_else(Val::unknown);
+        let mut replaced = Val::never();
         match parent.pts.sites() {
             Some(sites) if parent.trust == Trust::Proven => {
                 for &site_ref in sites {
                     match self.an.heap(site_ref).map(|obj| obj.kind) {
                         Some(ObjKind::Class(parent_class)) => {
-                            self.construct_class(site, parent_class, &this, args);
+                            let value = self.construct_class(site, parent_class, &this, args);
+                            replaced = replaced.join(&value);
                         }
                         _ => {
-                            let _ = self.unknown_call(site, &parent, &this, &args.values);
+                            let value = self.unknown_call(site, &parent, &this, &args.values);
+                            replaced = replaced.join(&value);
                         }
                     }
                 }
             }
             _ => {
-                let _ = self.unknown_call(site, &parent, &this, &args.values);
+                let value = self.unknown_call(site, &parent, &this, &args.values);
+                replaced = replaced.join(&value);
             }
+        }
+        if !is_nothing(&replaced) {
+            // The parent constructor returned another object: it is `this` from here on, and
+            // what this constructor gives back.
+            self.this = self.this.join(&replaced);
+            self.returned = self.returned.join(&replaced);
         }
         if let Some(info) = self.an.world.classes.get(&class) {
             let init = info.init;
@@ -453,10 +488,11 @@ impl<'a> Cx<'_, '_, 'a> {
         self.after_call(false);
     }
 
-    /// Runs `class`'s constructor (or its default one) on `this`.
-    fn construct_class(&mut self, site: NodeId, class: NodeRef, this: &Val, args: &Args) {
+    /// Runs `class`'s constructor (or its default one) on `this`. Returns what the
+    /// constructor may return instead of `this` (`Never` when it returns nothing else).
+    fn construct_class(&mut self, site: NodeId, class: NodeRef, this: &Val, args: &Args) -> Val {
         let Some(info) = self.an.world.classes.get(&class) else {
-            return;
+            return Val::never();
         };
         let (constructor, init, heritage) = (info.constructor, info.init, info.has_heritage);
         if let Some(constructor) = constructor {
@@ -470,8 +506,9 @@ impl<'a> Cx<'_, '_, 'a> {
                     trust: Trust::Proven,
                 });
             }
-            return;
+            return self.replacement(constructor);
         }
+        let mut replaced = Val::never();
         if heritage {
             // The default derived constructor passes its arguments to `super`.
             let parent = self
@@ -484,16 +521,19 @@ impl<'a> Cx<'_, '_, 'a> {
                     for &site_ref in sites {
                         match self.an.heap(site_ref).map(|obj| obj.kind) {
                             Some(ObjKind::Class(parent_class)) if parent_class != class => {
-                                self.construct_class(site, parent_class, this, args);
+                                let parent = self.construct_class(site, parent_class, this, args);
+                                replaced = replaced.join(&parent);
                             }
                             _ => {
-                                let _ = self.unknown_call(site, &parent, this, &args.values);
+                                let value = self.unknown_call(site, &parent, this, &args.values);
+                                replaced = replaced.join(&value);
                             }
                         }
                     }
                 }
                 _ => {
-                    let _ = self.unknown_call(site, &parent, this, &args.values);
+                    let value = self.unknown_call(site, &parent, this, &args.values);
+                    replaced = replaced.join(&value);
                 }
             }
         }
@@ -503,6 +543,16 @@ impl<'a> Cx<'_, '_, 'a> {
             callee: init,
             trust: Trust::Proven,
         });
+        replaced
+    }
+
+    /// What `constructor` may return instead of `this`: anything it returns but `undefined`
+    /// (a primitive is ignored for base classes and throws for derived ones; joining it
+    /// only loses precision).
+    fn replacement(&mut self, constructor: NodeRef) -> Val {
+        let returned = self.an.returned(constructor).cloned().unwrap_or_else(Val::never);
+        let value = super::expr::without_undefined(&returned);
+        if is_nothing(&value) { Val::never() } else { value }
     }
 
     /// A `new` expression.
@@ -533,8 +583,8 @@ impl<'a> Cx<'_, '_, 'a> {
                         self.mark(instance, |obj| obj.present.extend(present));
                     }
                     let this = Val::object(Type::Instance(class), instance);
-                    self.construct_class(site, class, &this, &args);
-                    result = result.join(&this);
+                    let replaced = self.construct_class(site, class, &this, &args);
+                    result = result.join(&this).join(&replaced);
                 }
                 Some(ObjKind::Function(unit)) => {
                     // `new f()` of a plain function: a fresh object as `this`.
@@ -542,7 +592,8 @@ impl<'a> Cx<'_, '_, 'a> {
                     self.mark(object, |obj| obj.dynamic = true);
                     let this = Val::object(Type::empty_object(), object);
                     let _ = self.call_unit(site, unit, &this, &args.values, args.spread);
-                    result = result.join(&this);
+                    let replaced = self.replacement(unit);
+                    result = result.join(&this).join(&replaced);
                 }
                 _ => unknown = true,
             }
@@ -909,6 +960,21 @@ impl<'a> Cx<'_, '_, 'a> {
         if unknown {
             return self.unknown_callback(site, callback);
         }
+        // Element callbacks (`forEach`, `map`, …) take a `thisArg`; the others don't.
+        let this = if builtin.callback.first() == Some(&CallbackParam::Element)
+            && builtin.callback.contains(&CallbackParam::Index)
+        {
+            args.values
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| Val::proven(Type::Undefined))
+        } else {
+            Val::proven(Type::Undefined)
+        };
+        if args.spread {
+            // Where the `thisArg` is isn't known.
+            return self.unknown_callback(site, callback);
+        }
         for unit in targets {
             let accumulator = self.an.returned(unit).cloned().unwrap_or_else(Val::never);
             let accumulator = match &initial {
@@ -925,7 +991,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     CallbackParam::Accumulator => accumulator.clone(),
                 })
                 .collect();
-            let value = self.call_unit(site, unit, &Val::proven(Type::Undefined), &params, false);
+            let value = self.call_unit(site, unit, &this, &params, false);
             results = results.join(&value);
             if builtin.name == "reduce" {
                 results = results.join(&accumulator);
@@ -1058,10 +1124,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 MathOp::Sign => numeric::sign(arg(0)),
                 MathOp::Sqrt => numeric::sqrt(arg(0)),
                 MathOp::Wave => numeric::unit_wave(arg(0)),
-                MathOp::Fround => NumberType {
-                    int: false,
-                    ..arg(0)
-                },
+                MathOp::Fround => numeric::fround(arg(0)),
                 MathOp::Min | MathOp::Max => {
                     let max = op == MathOp::Max;
                     if args.is_empty() {
@@ -1080,7 +1143,7 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// After a call: relations that callee code could break are forgotten. `pure`: the callee
     /// writes nothing.
-    fn after_call(&mut self, pure: bool) {
+    pub fn after_call(&mut self, pure: bool) {
         if pure || self.env.bounds.is_empty() {
             return;
         }
@@ -1196,4 +1259,9 @@ fn param_count(unit: &crate::world::Unit<'_>) -> usize {
         Body::Arrow(arrow) => arrow.params.items.len(),
         _ => 0,
     }
+}
+
+/// Whether `value` is no value at all.
+fn is_nothing(value: &Val) -> bool {
+    value.ty == Type::Never && value.pts.sites().is_some_and(<[_]>::is_empty)
 }

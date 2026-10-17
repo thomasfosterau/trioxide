@@ -35,7 +35,9 @@ impl Pts {
         Self::Sites(vec![site])
     }
 
-    /// Either.
+    /// Either. Sites that the join can no longer name (it gives `Any`) are noted in
+    /// [`take_lost`]: a value that may be them is no longer followed, so they must be treated
+    /// as escaping.
     #[must_use]
     pub fn join(&self, other: &Self) -> Self {
         match (self, other) {
@@ -47,12 +49,17 @@ impl Pts {
                     }
                 }
                 if sites.len() > MAX_SITES {
+                    lose(&sites);
                     Self::Any
                 } else {
                     Self::Sites(sites)
                 }
             }
-            _ => Self::Any,
+            (Self::Sites(sites), Self::Any) | (Self::Any, Self::Sites(sites)) => {
+                lose(sites);
+                Self::Any
+            }
+            (Self::Any, Self::Any) => Self::Any,
         }
     }
 
@@ -68,6 +75,21 @@ impl Pts {
     pub fn is_none(&self) -> bool {
         matches!(self, Self::Sites(sites) if sites.is_empty())
     }
+}
+
+thread_local! {
+    static LOST: std::cell::RefCell<Vec<AllocId>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn lose(sites: &[AllocId]) {
+    if !sites.is_empty() {
+        LOST.with(|lost| lost.borrow_mut().extend_from_slice(sites));
+    }
+}
+
+/// The sites joins on this thread have dropped into [`Pts::Any`] since the last call.
+pub fn take_lost() -> Vec<AllocId> {
+    LOST.with(|lost| std::mem::take(&mut *lost.borrow_mut()))
 }
 
 /// An abstract value.

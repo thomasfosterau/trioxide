@@ -63,7 +63,7 @@ impl Key {
     fn is_index(&self) -> bool {
         match self {
             Self::Index(..) => true,
-            Self::Name(name) => name.parse::<u32>().is_ok(),
+            Self::Name(name) => is_array_index(name),
             Self::Unknown => false,
         }
     }
@@ -136,11 +136,8 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             Expression::TaggedTemplateExpression(tagged) => {
                 let tag = self.expr(&tagged.tag);
-                let strings = self.alloc(tagged.quasi.node_id.get(), ObjKind::Array);
-                let mut args = vec![Val::object(
-                    Type::Array(std::sync::Arc::new(Type::String)),
-                    strings,
-                )];
+                let strings = self.template_strings(&tagged.quasi);
+                let mut args = vec![strings];
                 for expression in &tagged.quasi.expressions {
                     args.push(self.expr(expression));
                 }
@@ -394,6 +391,45 @@ impl<'a> Cx<'_, '_, 'a> {
         }
     }
 
+    /// The frozen strings array a tag receives, with its frozen `raw` array.
+    fn template_strings(&mut self, quasi: &'a TemplateLiteral<'a>) -> Val {
+        // Cooked strings are `undefined` where an escape is invalid.
+        let cooked = if quasi.quasis.iter().all(|element| element.value.cooked.is_some()) {
+            Type::String
+        } else {
+            Type::union([Type::String, Type::Undefined])
+        };
+        let length = Some(quasi.quasis.len() as f64);
+        let array = |cx: &mut Self, node: oxc_syntax::node::NodeId, element: Type| {
+            let site = cx.alloc(node, ObjKind::Array);
+            let first = cx
+                .an
+                .heap(site)
+                .is_some_and(|obj| obj.elem.ty == Type::Never && obj.props.is_empty());
+            cx.store_elem(site, &Val::proven(element.clone()));
+            cx.mark(site, |obj| {
+                obj.length = if (first && obj.length.is_none() && !obj.dynamic)
+                    || obj.length == length
+                {
+                    length
+                } else {
+                    None
+                };
+            });
+            (site, Val::object(Type::Array(std::sync::Arc::new(element)), site))
+        };
+        let raw_node = quasi.quasis.first().map_or(quasi.node_id.get(), |element| {
+            element.node_id.get()
+        });
+        let (_, raw) = array(self, raw_node, Type::String);
+        let (strings, value) = array(self, quasi.node_id.get(), cooked);
+        self.store_prop(strings, "raw", &raw, true);
+        self.mark(strings, |obj| {
+            obj.present.insert("raw".to_string());
+        });
+        value
+    }
+
     fn template(&mut self, template: &'a TemplateLiteral<'a>) -> Val {
         for expression in &template.expressions {
             let value = self.expr(expression);
@@ -420,6 +456,8 @@ impl<'a> Cx<'_, '_, 'a> {
         self.effect(EffectKind::Throws, proven_free, declared_free);
         if !proven {
             self.escape_value(value, Escape::Known);
+            // `valueOf`, `toString` or `Symbol.toPrimitive` may run and change anything.
+            self.after_call(false);
         }
     }
 
@@ -803,7 +841,12 @@ impl<'a> Cx<'_, '_, 'a> {
             UnaryOperator::UnaryPlus => {
                 // ToNumber: always a number (it throws on bigints and symbols).
                 self.coerce(&value, true);
-                Val::number(to_number(&value))
+                // Always a number; its range only as far as the operand is proven.
+                if value.trust == Trust::Proven {
+                    Val::number(to_number(&value))
+                } else {
+                    Val::number(NumberType::ANY)
+                }
             }
             UnaryOperator::UnaryNegation => self.numeric_unary(&value, numeric::neg),
             UnaryOperator::BitwiseNot => self.numeric_unary(&value, numeric::bit_not),
@@ -1652,11 +1695,23 @@ impl<'a> Cx<'_, '_, 'a> {
             return Val::unknown();
         };
         // Accessors defined by the class run code.
-        if let ObjKind::Instance(class) | ObjKind::Prototype(class) = obj.kind
-            && let Some(getter) =
-                self.class_accessor(class, name, super::super::world::MethodRole::Getter)
+        let class = match obj.kind {
+            ObjKind::Instance(class) | ObjKind::Prototype(class) => Some((class, false)),
+            ObjKind::Class(class) => Some((class, true)),
+            _ => None,
+        };
+        if let Some((class, is_static)) = class
+            && let Some(getter) = self.accessor(
+                class,
+                name,
+                super::super::world::MethodRole::Getter,
+                is_static,
+            )
         {
-            return self.call_unit_as_getter(getter, receiver, node);
+            return match getter {
+                Some(getter) => self.call_unit_as_getter(getter, receiver, node),
+                None => Val::proven(Type::Undefined),
+            };
         }
         if obj.dynamic {
             self.always(EffectKind::CallsUnknown);
@@ -1944,14 +1999,24 @@ impl<'a> Cx<'_, '_, 'a> {
                         self.escape_value(value, Escape::Known);
                         continue;
                     };
-                    if let ObjKind::Instance(class) = obj.kind
-                        && let Some(setter) = self.class_accessor(
+                    let class = match obj.kind {
+                        ObjKind::Instance(class) => Some((class, false)),
+                        ObjKind::Class(class) => Some((class, true)),
+                        _ => None,
+                    };
+                    if let Some((class, is_static)) = class
+                        && let Some(setter) = self.accessor(
                             class,
                             name,
                             super::super::world::MethodRole::Setter,
+                            is_static,
                         )
                     {
-                        self.call_unit_as_setter(setter, object, value, node);
+                        match setter {
+                            Some(setter) => self.call_unit_as_setter(setter, object, value, node),
+                            // A getter without a setter: class code is strict, so this throws.
+                            None => self.always(EffectKind::Throws),
+                        }
                         continue;
                     }
                     let name = name.to_string();
@@ -2184,4 +2249,11 @@ pub fn without_undefined(value: &Val) -> Val {
 /// Whether the value has no possible value (unreached so far, or always throws).
 pub fn is_never(value: &Val) -> bool {
     value.ty == Type::Never && value.pts.is_none()
+}
+
+/// Whether `name` is an array index: the canonical form of an integer below 2^32 − 1
+/// (`"01"`, `"+1"` and `"1.0"` are ordinary property names).
+pub fn is_array_index(name: &str) -> bool {
+    name.parse::<u32>()
+        .is_ok_and(|index| index != u32::MAX && index.to_string() == name)
 }

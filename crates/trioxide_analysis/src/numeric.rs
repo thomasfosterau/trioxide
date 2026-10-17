@@ -418,6 +418,25 @@ pub fn sqrt(a: NumberType) -> NumberType {
     }
 }
 
+/// `Math.fround`: rounding to the nearest float32 is monotone, so the bounds round to the
+/// bounds. Values too small for a float32 become ±0 (so a negative range may give -0), too big
+/// ones ±Infinity.
+pub fn fround(a: NumberType) -> NumberType {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "rounding to float32 is the operation"
+    )]
+    let round = |x: f64| f64::from(x as f32);
+    let (min, max) = (round(a.range.min), round(a.range.max));
+    NumberType {
+        range: Interval::new(min, max),
+        int: false,
+        non_nan: a.non_nan,
+        // -0 stays -0; a negative that rounds to zero gives -0 too.
+        non_neg_zero: a.non_neg_zero && (a.range.min >= 0.0 || max < 0.0),
+    }
+}
+
 /// `Math.sign`.
 pub fn sign(a: NumberType) -> NumberType {
     let min = if a.range.min < 0.0 {
