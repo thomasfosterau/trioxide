@@ -34,7 +34,34 @@ pub fn watch(
         let mut before = stamps(entries.iter().chain(&settings_files));
         loop {
             let started = Instant::now();
-            match build_once(&mut project, entries, out_dir, renderer) {
+            let result = build_once(&mut project, entries, out_dir, renderer);
+
+            let mut watched: Vec<PathBuf> = project
+                .graph()
+                .modules()
+                .iter()
+                .map(|module| module.path.clone())
+                .chain(entries.iter().cloned())
+                .chain(settings_files.iter().cloned())
+                .collect();
+            watched.sort();
+            watched.dedup();
+            // Modules first seen in this build had no stamp before it. Stamp them now, and if a
+            // file no longer holds what the build read, it changed in between: rebuild.
+            for module in project.graph().modules() {
+                if !before.contains_key(&module.path) {
+                    let stamp = stamp(&module.path);
+                    let current = std::fs::read_to_string(&module.path).ok();
+                    let unchanged = current.as_deref() == Some(&*module.source);
+                    before.insert(module.path.clone(), if unchanged { stamp } else { None });
+                }
+            }
+            for (path, stamp) in stamps(&watched) {
+                before.entry(path).or_insert(stamp);
+            }
+            before.retain(|path, _| watched.contains(path));
+
+            match result {
                 Ok(()) => renderer.info(&format!(
                     "built {} modules in {} ms; watching for changes",
                     project.graph().modules().len(),
@@ -48,21 +75,6 @@ pub fn watch(
                 }
                 Err(usage @ Failure::Usage(_)) => return Err(usage),
             }
-
-            let mut watched: Vec<PathBuf> = project
-                .graph()
-                .modules()
-                .iter()
-                .map(|module| module.path.clone())
-                .chain(entries.iter().cloned())
-                .chain(settings_files.iter().cloned())
-                .collect();
-            watched.sort();
-            watched.dedup();
-            for (path, stamp) in stamps(&watched) {
-                before.entry(path).or_insert(stamp);
-            }
-            before.retain(|path, _| watched.contains(path));
             let changed = wait_for_changes(&before);
             if changed.iter().any(|path| settings_files.contains(path)) {
                 renderer.info("configuration changed; reloading");
@@ -99,11 +111,12 @@ fn wait_for_changes(before: &BTreeMap<PathBuf, Stamp>) -> Vec<PathBuf> {
 fn stamps<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> BTreeMap<PathBuf, Stamp> {
     paths
         .into_iter()
-        .map(|path| {
-            let stamp = std::fs::metadata(path)
-                .ok()
-                .and_then(|meta| Some((meta.modified().ok()?, meta.len())));
-            (path.clone(), stamp)
-        })
+        .map(|path| (path.clone(), stamp(path)))
         .collect()
+}
+
+fn stamp(path: &Path) -> Stamp {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|meta| Some((meta.modified().ok()?, meta.len())))
 }

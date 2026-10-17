@@ -71,6 +71,8 @@ export function createPlugin(pluginOptions = {}, { createProject }) {
     },
 
     buildStart(inputOptions) {
+      // The dev server starts every environment (client, SSR) but they share one project.
+      if (!isBuild && project) return;
       built.clear();
       islands.clear();
       served.clear();
@@ -171,7 +173,8 @@ export function createPlugin(pluginOptions = {}, { createProject }) {
         const chunks = Object.values(bundle).filter((chunk) => chunk.type === 'chunk' && chunk.code.includes(token));
         if (chunks.length === 0) continue;
         if (!files.has(id)) {
-          const ref = this.emitFile({ type: 'asset', name: `${id}.wasm`, source: island.wasm });
+          const name = `${id.replace(/[^\w.-]+/g, '_')}.wasm`;
+          const ref = this.emitFile({ type: 'asset', name, source: island.wasm });
           files.set(id, this.getFileName(ref));
         }
         for (const chunk of chunks) {

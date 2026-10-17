@@ -295,21 +295,40 @@ by `NodeRef`/`SymbolRef`, each fact with a `Trust`), `trioxide_js::{Pass, PassMa
 FactSource}`, `trioxide_partition::Partitioner`, `trioxide_wasm::{IslandSpec,
 IslandBuilder}`.
 
-**CLI:** `trioxide build [entries…] --out-dir dist`, `trioxide transform <file>` (stdout),
-`trioxide explain [target]`, `trioxide check-toolchain`. `--config`, `--root`, `--mode`,
-`--world`, `--trust-types`, `--no-wasm`, `--emit=js|rust|wasm|report`. A hidden
-`trioxide strip <file>` prints types-stripped-only output for the differential suite.
+**CLI:** `trioxide build [entries…] --out-dir dist [--watch]`, `trioxide transform <file>`
+(stdout), `trioxide explain [target]`, `trioxide check-toolchain [--json]`. `--config`,
+`--root`, `--mode`, `--world`, `--trust-types`, `--no-wasm`, `--emit=js|rust|wasm|report`,
+`--color=auto|always|never`. A hidden `trioxide strip <file>` prints types-stripped-only output
+for the differential suite. The CLI is the `trioxide_cli` library's `run(argv)`, which both the
+binary and the napi binding's `runCli` call. Without `--config`, the config file is the nearest
+`trioxide.json(c)` at or above the project root, stopping at the repository root (`.git`).
+`--watch` polls modification times of every module in the graph plus the config and tsconfig.
+`check-toolchain` uses `trioxide_wasm::toolchain`, the same probe the island builder uses.
 
 **npm:** `import { transform, build, explain } from 'trioxide'` and
 `import trioxide from 'trioxide/vite'`. The `trioxide` npm bin calls into the napi binding,
 so there is one implementation (the oxlint/rolldown pattern). Prebuilt platform binaries
-ship as `@trioxide/binding-<triple>` optional dependencies.
+ship as `@trioxide/binding-<platform>` optional dependencies, using napi-rs platform names
+(`linux-x64-gnu`, `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`,
+`darwin-arm64`, `win32-x64-msvc`) rather than Rust triples. The options type
+(`TrioxideOptions`) is generated from the JSON schema, so it cannot drift from `Options`.
 
-**Vite plugin hooks:** `configResolved` (merge options, decide app/library), `buildStart`
-(create the Project and run whole-program analysis from Rollup inputs), `resolveId`/`load`
-for `\0trioxide:island/<id>` glue modules, `transform` (serve `ModuleOutput`), `generateBundle`
-(emit `.wasm` assets with hashed names), `handleHotUpdate` (`Project::update`, invalidate
-dependants). In dev, WASM is off unless `dev.wasm: true`.
+**Vite plugin hooks:** `config` (exclude `.ts/.tsx/.mts/.cts` from Vite's oxc transform, so
+trioxide's JS is not re-parsed as TypeScript), `configResolved` (merge `trioxide.json` with
+the plugin options, decide app/library: `library` only for `build.lib`), `buildStart`
+(create the Project and run whole-program analysis from Rollup inputs, taking the module
+scripts of HTML inputs as entries), `resolveId`/`load` for `\0trioxide:island/<id>` glue
+modules, `transform` (serve `ModuleOutput`, `moduleType: 'js'`), `generateBundle` (emit
+`.wasm` assets with hashed names and point the glue at them), `hotUpdate` (Vite 6+'s
+replacement for `handleHotUpdate`: `Project::update`, then invalidate the dependants whose
+output actually changed, so ordinary edits keep Vite's normal HMR propagation). In dev, WASM
+is off unless `dev.wasm: true`; dev glue gets its `.wasm` inlined as a `data:` URL, which
+Vite's `new URL(…, import.meta.url)` handling leaves alone.
+
+**Glue ↔ emitter contract:** glue refers to its `.wasm` as
+`new URL(WASM_URL_PLACEHOLDER, import.meta.url)` (`"__TRIOXIDE_WASM_URL__"`,
+`trioxide_wasm::WASM_URL_PLACEHOLDER`); whoever emits the glue replaces the placeholder with the
+`.wasm`'s URL relative to the glue.
 
 ---
 

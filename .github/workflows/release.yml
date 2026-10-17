@@ -1,0 +1,213 @@
+name: Release
+
+# Cross-builds the `trioxide` binary and the napi binding for every supported platform, then
+# (on a `v*` tag) attaches the binaries and checksums to a GitHub release and publishes the npm
+# packages. Everything else (pull requests touching the release path, manual runs) is a dry
+# run: same builds, `npm publish --dry-run`, no release. Publishing also needs the NPM_TOKEN
+# secret; without it a tag run stays a dry run.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - crates/trioxide_cli/**
+      - crates/trioxide_napi/**
+      - packages/trioxide/**
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dry-run.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, platform: linux-x64-gnu, os: ubuntu-latest, zig: true, smoke: true }
+          - { target: aarch64-unknown-linux-gnu, platform: linux-arm64-gnu, os: ubuntu-latest, zig: true }
+          - { target: x86_64-unknown-linux-musl, platform: linux-x64-musl, os: ubuntu-latest, zig: true }
+          - { target: aarch64-unknown-linux-musl, platform: linux-arm64-musl, os: ubuntu-latest, zig: true }
+          - { target: x86_64-apple-darwin, platform: darwin-x64, os: macos-latest }
+          - { target: aarch64-apple-darwin, platform: darwin-arm64, os: macos-latest, smoke: true }
+          - { target: x86_64-pc-windows-msvc, platform: win32-x64-msvc, os: windows-latest, smoke: true }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set the crate version
+        # The first `version` in the root manifest is `[workspace.package]`'s. Cargo.lock follows.
+        run: perl -pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/ && $n++ unless $n' Cargo.toml && grep -m1 '^version' Cargo.toml
+      - name: Install the pinned Rust toolchain and the target
+        run: rustup toolchain install && rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+      - name: Install zig and cargo-zigbuild
+        if: matrix.zig
+        run: pip3 install --user cargo-zigbuild && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the CLI
+        run: |
+          if [[ "${{ matrix.zig }}" == "true" ]]; then
+            cargo zigbuild --release -p trioxide_cli --target ${{ matrix.target }}
+          else
+            cargo build --release -p trioxide_cli --target ${{ matrix.target }}
+          fi
+      - name: Build the napi binding
+        working-directory: packages/trioxide
+        env:
+          # A Node addon must link libc dynamically, also on musl.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -C target-feature=-crt-static
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -C target-feature=-crt-static
+        run: >
+          pnpm exec napi build --platform --release --target ${{ matrix.target }}
+          --manifest-path ../../crates/trioxide_napi/Cargo.toml --output-dir binding
+          --no-js --no-dts ${{ matrix.zig && '--cross-compile' || '' }}
+
+      - name: Package the CLI
+        run: |
+          mkdir -p out
+          exe=trioxide; [[ "${{ matrix.target }}" == *windows* ]] && exe=trioxide.exe
+          cp "target/${{ matrix.target }}/release/$exe" out/
+          cp LICENSE README.md out/
+          name="trioxide-$VERSION-${{ matrix.target }}"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            (cd out && 7z a -tzip "../$name.zip" . > /dev/null)
+          else
+            tar -C out -czf "$name.tar.gz" .
+          fi
+      - name: Smoke-test the CLI and binding
+        if: matrix.smoke
+        run: |
+          out/trioxide* --version
+          printf 'const x: number = 1;\nexport { x };\n' > smoke.ts
+          out/trioxide* transform smoke.ts | tee smoke.js
+          grep -q 'const x = 1;' smoke.js
+          node -e "const b = require('./packages/trioxide/binding/trioxide.${{ matrix.platform }}.node'); if (b.transform('let y: number = 2', 'a.ts').code !== 'let y = 2;\n') process.exit(1)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: trioxide-*.*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binding-${{ matrix.platform }}
+          path: packages/trioxide/binding/trioxide.${{ matrix.platform }}.node
+          if-no-files-found: error
+
+  publish:
+    name: Publish npm packages${{ needs.version.outputs.release != 'true' && ' (dry run)' || '' }}
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binding-*
+          path: artifacts
+      - name: Stage the packages
+        working-directory: packages/trioxide
+        run: node scripts/publish.js --version "$VERSION" --artifacts ../../artifacts --out ../../staged --no-npm
+      - name: Install the staged packages into a fresh project
+        run: |
+          for dir in staged/trioxide staged/npm/linux-x64-gnu; do (cd "$dir" && npm pack --pack-destination "$GITHUB_WORKSPACE"); done
+          mkdir fresh && cd fresh && npm init -y > /dev/null
+          npm install --omit=optional --no-audit --no-fund ../trioxide-"$VERSION".tgz ../trioxide-binding-linux-x64-gnu-"$VERSION".tgz
+          printf 'const x: number = 1;\n' > a.ts
+          npx trioxide --version | grep -F "$VERSION"
+          npx trioxide transform a.ts | grep -F 'const x = 1;'
+          node --input-type=module -e "import t from 'trioxide/vite'; if (t().name !== 'trioxide') process.exit(1)"
+      - name: Publish
+        working-directory: packages/trioxide
+        run: |
+          flags=(--provenance)
+          if [[ "${{ needs.version.outputs.release }}" != "true" || -z "$NODE_AUTH_TOKEN" ]]; then
+            echo "::notice::Dry run: not a release tag, or no NPM_TOKEN secret"
+            flags=(--dry-run)
+          fi
+          [[ "$VERSION" == *-* ]] && flags+=(--tag next)
+          node scripts/publish.js --version "$VERSION" --artifacts ../../artifacts --out ../../staged "${flags[@]}"
+
+  release:
+    name: GitHub release${{ needs.version.outputs.release != 'true' && ' (dry run)' || '' }}
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum trioxide-* | tee SHA256SUMS
+      - name: Create the release
+        if: needs.version.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/trioxide-*
+            dist/SHA256SUMS
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.version.outputs.version, '-') }}
+      - name: Dry run
+        if: needs.version.outputs.release != 'true'
+        run: |
+          ls -l dist
+          echo "::notice::Dry run: would release $(ls dist | wc -l) files"
