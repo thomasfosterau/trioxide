@@ -1,0 +1,40 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/enums-namespaces
+input_file: tests/fixtures/analysis/enums-namespaces/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  km (15:10) open: throws calls-unknown (declared: pure)
+  main (20:8): reads writes allocates throws calls-unknown
+nodes:
+  3:6 bind `Direction`: unknown
+  8:12 bind `Flags`: unknown
+  13:11 bind `Units`: unknown
+  14:16 bind `meter`: 1@proven
+  15:19 bind `km`: function@proven
+  15:22 bind `value`: number@declared
+  16:12 binary `value * 1000`: number@proven
+  16:12 ref `value`: number@declared
+  20:17 bind `main`: function@proven
+  21:3 call `console.log(Direction.Down /*@declare...`: unknown
+  21:3 member `console.log`: unknown
+  21:3 ref `console`: unknown
+  21:15 member `Direction.Down`: 2@declared
+  21:15 ref `Direction`: unknown
+  21:52 member `Direction[1]`: string@declared
+  21:52 ref `Direction`: unknown
+  22:3 call `console.log(Flags.B /*@declared numbe...`: unknown
+  22:3 member `console.log`: unknown
+  22:3 ref `console`: unknown
+  22:15 member `Flags.B`: 2@declared
+  22:15 ref `Flags`: unknown
+  23:3 call `console.log(Units.km(2) /*@declared n...`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 call `Units.km(2)`: number@declared
+  23:15 member `Units.km`: unknown
+  23:15 ref `Units`: unknown
+  23:49 member `Units.meter`: 1@declared
+  23:49 ref `Units`: unknown

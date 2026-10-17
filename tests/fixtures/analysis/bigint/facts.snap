@@ -1,0 +1,42 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/bigint
+input_file: tests/fixtures/analysis/bigint/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  mix (3:1): pure
+  main (11:8): reads writes allocates throws calls-unknown
+    calls 14:15 -> mix
+nodes:
+  3:10 bind `mix`: function@proven
+  3:14 bind `a`: bigint@proven
+  3:25 bind `b`: 1@proven
+  5:12 binary `(a as unknown as number) + b`: unknown
+  5:13 cast `a as unknown as number`: bigint@proven
+  5:13 cast `a as unknown`: bigint@proven
+  5:13 ref `a`: bigint@proven
+  5:39 ref `b`: 1@proven
+  11:17 bind `main`: function@proven
+  12:9 bind `big`: bigint@proven
+  12:15 binary `2n ** 64n`: bigint@proven
+  13:3 call `console.log(big /*@proven bigint*/, (...`: unknown
+  13:3 member `console.log`: unknown
+  13:3 ref `console`: unknown
+  13:15 ref `big`: bigint@proven
+  13:40 binary `big + 1n`: bigint@proven
+  13:40 ref `big`: bigint@proven
+  13:70 unary `typeof big`: string@proven
+  13:77 ref `big`: bigint@proven
+  14:3 call `console.log(mix(1n, 1) /*@unknown*/)`: unknown
+  14:3 member `console.log`: unknown
+  14:3 ref `console`: unknown
+  14:15 call `mix(1n, 1)`: unknown
+  14:15 ref `mix`: function@proven
+  15:9 bind `shifted`: 8@proven
+  15:19 binary `1 << 3`: 8@proven
+  16:3 call `console.log(shifted /*@proven number ...`: unknown
+  16:3 member `console.log`: unknown
+  16:3 ref `console`: unknown
+  16:15 ref `shifted`: 8@proven

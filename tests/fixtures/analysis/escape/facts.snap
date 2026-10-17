@@ -58,5 +58,5 @@ nodes:
   23:15 binary `a + b`: number@proven
   23:15 ref `a`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
   23:19 ref `b`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
-  23:22 member `global?.v`: unknown
+  23:22 member `global?.v`: undefined | 3@proven
   23:22 ref `global`: undefined | {| v: 3 |}@proven

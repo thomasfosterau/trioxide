@@ -229,6 +229,15 @@ impl<'a> Module<'a> {
         })
     }
 
+    /// Whether code the compiler generates (rather than the program's own source) imports
+    /// this module: the automatic JSX runtime.
+    pub fn called_from_generated_code(&self) -> bool {
+        self.path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| matches!(stem, "jsx-runtime" | "jsx-dev-runtime"))
+    }
+
     /// The symbol a module-scope binding called `name` refers to.
     pub fn root_binding(&self, name: &str) -> Option<SymbolId> {
         self.semantic.scoping().get_root_binding(name.into())

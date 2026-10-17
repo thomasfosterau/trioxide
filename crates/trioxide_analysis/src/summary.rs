@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Builds the fact tables.
-pub fn facts(world: &World<'_>, links: &Links, results: &Results, options: AnalysisOptions) -> Facts {
+pub fn facts(world: &World<'_>, links: &Links, results: &Results, options: &AnalysisOptions) -> Facts {
     let mut facts = Facts::new(options.trust_types);
     for (import, target) in links.imports() {
         if let Target::Symbol(target) = target {
@@ -64,7 +64,7 @@ pub fn facts(world: &World<'_>, links: &Links, results: &Results, options: Analy
             }
             ObjKind::Function(_) => AllocKind::Function,
             ObjKind::Class(_) => AllocKind::Class,
-            ObjKind::Prototype(_) => continue,
+            ObjKind::Prototype(_) | ObjKind::Namespace(_) => continue,
             ObjKind::Opaque => AllocKind::Other,
         };
         let escape = match obj.escape {

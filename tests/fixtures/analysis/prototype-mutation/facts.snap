@@ -1,0 +1,34 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/prototype-mutation
+input_file: tests/fixtures/analysis/prototype-mutation/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): reads writes allocates throws
+  Greeter.<fields> (3:15): pure
+  Greeter.greet (4:8): pure
+  <anonymous> (9:57): pure
+  main (11:8): reads writes allocates throws calls-unknown
+    calls 12:19 -> Greeter.<fields>
+    calls 14:15 -> Greeter.greet
+    calls 14:15 -> <anonymous>
+classes:
+  Greeter (3:1): fields [] stable
+nodes:
+  3:7 bind `Greeter`: function@proven
+  9:1 assign `(Greeter.prototype as { greet: () => ...`: function@proven
+  9:1 member `(Greeter.prototype as { greet: () => ...`: unknown
+  9:2 cast `Greeter.prototype as { greet: () => u...`: unknown
+  9:2 member `Greeter.prototype`: unknown
+  9:2 ref `Greeter`: function@proven
+  11:17 bind `main`: function@proven
+  12:9 bind `greeter`: Greeter@proven
+  12:19 new `new Greeter()`: Greeter@proven escape=known
+  12:23 ref `Greeter`: function@proven
+  14:3 call `console.log(greeter.greet() /*@proven...`: unknown
+  14:3 member `console.log`: unknown
+  14:3 ref `console`: unknown
+  14:15 call `greeter.greet()`: 42 | string@proven
+  14:15 member `greeter.greet`: function | function@proven
+  14:15 ref `greeter`: Greeter@proven

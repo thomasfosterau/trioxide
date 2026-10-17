@@ -232,6 +232,16 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     self.hoist(&block.body);
                     self.statements(&block.body);
                 }
+                // Its members become properties of the namespace object, which trioxide doesn't
+                // model: they escape.
+                if let Some(scope) = namespace.scope_id.get() {
+                    let scoping = self.module.semantic.scoping();
+                    let members: Vec<_> = scoping.iter_bindings_in(scope).collect();
+                    for symbol in members {
+                        let value = self.read_symbol(symbol);
+                        self.escape_value(&value, Escape::Unknown);
+                    }
+                }
                 if let Some(symbol) = namespace.id.symbol_id.get() {
                     self.write_symbol(symbol, Val::unknown(), Some(namespace.id.node_id.get()));
                 }

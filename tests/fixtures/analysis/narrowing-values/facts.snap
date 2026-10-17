@@ -54,7 +54,7 @@ nodes:
   23:23 ref `count`: number[2, 3] int nonNaN nonNegZero@proven
   25:9 bind `level`: number@declared
   25:17 binary `config?.level ?? 0`: number@declared
-  25:17 member `config?.level`: unknown
+  25:17 member `config?.level`: undefined | number@declared
   25:17 ref `config`: undefined | { level: undefined | number }@declared
   26:3 call `console.log(level /*@declared number*/)`: unknown
   26:3 member `console.log`: unknown

@@ -1,0 +1,45 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/try-finally
+input_file: tests/fixtures/analysis/try-finally/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  risky (3:1): allocates throws calls-unknown
+  main (8:8): reads writes allocates throws calls-unknown
+    calls 12:5 -> risky
+    calls 21:5 -> risky
+nodes:
+  3:10 bind `risky`: function@proven
+  3:16 bind `n`: number[0, 2] int nonNaN nonNegZero@proven
+  4:7 binary `n > 1`: boolean@proven
+  4:7 ref `n`: number[0, 2] int nonNaN nonNegZero@proven
+  4:20 new `new Error("too big")`: unknown escape=unknown
+  4:24 ref `Error`: unknown
+  5:10 ref `n`: number[0, 1] int nonNaN nonNegZero@proven
+  8:17 bind `main`: function@proven
+  9:7 bind `stage`: 0@proven
+  11:5 assign `stage = "started"`: string@proven
+  11:5 ref `stage`: string@proven
+  12:5 call `risky(2)`: number[0, 1] int nonNaN nonNegZero@proven
+  12:5 ref `risky`: function@proven
+  13:5 assign `stage = 2`: 2@proven
+  13:5 ref `stage`: 2@proven
+  15:5 call `console.log(stage /*@proven union*/)`: unknown
+  15:5 member `console.log`: unknown
+  15:5 ref `console`: unknown
+  15:17 ref `stage`: (number[0, 2] int nonNaN nonNegZero) | string@proven
+  17:5 call `console.log(stage /*@proven union*/)`: unknown
+  17:5 member `console.log`: unknown
+  17:5 ref `console`: unknown
+  17:17 ref `stage`: (number[0, 2] int nonNaN nonNegZero) | string@proven
+  19:7 bind `cleanup`: boolean@proven
+  21:5 call `risky(0)`: number[0, 1] int nonNaN nonNegZero@proven
+  21:5 ref `risky`: function@proven
+  23:5 assign `cleanup = true`: boolean@proven
+  23:5 ref `cleanup`: boolean@proven
+  25:3 call `console.log(cleanup /*@proven boolean*/)`: unknown
+  25:3 member `console.log`: unknown
+  25:3 ref `console`: unknown
+  25:15 ref `cleanup`: boolean@proven

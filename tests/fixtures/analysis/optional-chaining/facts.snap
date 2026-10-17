@@ -1,0 +1,58 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/optional-chaining
+input_file: tests/fixtures/analysis/optional-chaining/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  second (5:1): reads
+  main (9:8): reads writes allocates throws calls-unknown
+    calls 11:17 -> second
+    calls 12:40 -> second
+nodes:
+  3:6 bind `Node`: unknown
+  3:37 ref `Node`: unknown
+  5:10 bind `second`: function@proven
+  5:17 bind `node`: undefined | {| value: 1, next: {| value: 2 |} |}@proven
+  5:23 ref `Node`: unknown
+  6:10 member `node?.next?.value`: undefined | 2@proven
+  6:10 member `node?.next`: undefined | {| value: 2 |}@proven
+  6:10 ref `node`: undefined | {| value: 1, next: {| value: 2 |} |}@proven
+  9:17 bind `main`: function@proven
+  10:9 bind `list`: {| value: 1, next: {| value: 2 |} |}@proven
+  10:15 ref `Node`: unknown
+  10:22 object `{ value: 1, next: { value: 2 } }`: {| value: 1, next: {| value: 2 |} |}@proven escape=known stable-shape
+  10:40 object `{ value: 2 }`: {| value: 2 |}@proven escape=known stable-shape
+  11:9 bind `value`: undefined | 2@proven
+  11:17 call `second(list)`: undefined | 2@proven
+  11:17 ref `second`: function@proven
+  11:24 ref `list`: {| value: 1, next: {| value: 2 |} |}@proven
+  12:3 call `console.log(value /*@proven union*/, ...`: unknown
+  12:3 member `console.log`: unknown
+  12:3 ref `console`: unknown
+  12:15 ref `value`: undefined | 2@proven
+  12:40 call `second(undefined)`: undefined | 2@proven
+  12:40 ref `second`: function@proven
+  12:47 ref `undefined`: undefined@proven
+  13:9 bind `fallback`: number[-1, 2] int nonNaN nonNegZero@proven
+  13:20 binary `value ?? -1`: number[-1, 2] int nonNaN nonNegZero@proven
+  13:20 ref `value`: undefined | 2@proven
+  13:29 unary `-1`: -1@proven
+  14:3 call `console.log(fallback /*@proven number...`: unknown
+  14:3 member `console.log`: unknown
+  14:3 ref `console`: unknown
+  14:15 ref `fallback`: number[-1, 2] int nonNaN nonNegZero@proven
+  15:9 bind `maybe`: undefined | {| value: 1, next: {| value: 2 |} |}@proven
+  15:17 cond `Math.random() > 2 ? list : undefined`: undefined | {| value: 1, next: {| value: 2 |} |}@proven
+  15:17 binary `Math.random() > 2`: boolean@proven
+  15:17 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
+  15:17 member `Math.random`: unknown
+  15:17 ref `Math`: unknown
+  15:37 ref `list`: {| value: 1, next: {| value: 2 |} |}@proven
+  15:44 ref `undefined`: undefined@proven
+  16:3 call `console.log(maybe?.value /*@proven un...`: unknown
+  16:3 member `console.log`: unknown
+  16:3 ref `console`: unknown
+  16:15 member `maybe?.value`: undefined | 1@proven
+  16:15 ref `maybe`: undefined | {| value: 1, next: {| value: 2 |} |}@proven

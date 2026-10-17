@@ -21,6 +21,27 @@ pub fn fixtures() -> Vec<PathBuf> {
     entries
 }
 
+/// Every fixture entry in the repository (`tests/fixtures/**/input.ts{,x}`), sorted.
+pub fn all_fixtures() -> Vec<PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for name in ["input.ts", "input.tsx"] {
+            if dir.join(name).is_file() {
+                out.push(dir.join(name));
+            }
+        }
+        let mut children: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path()).collect();
+        children.sort();
+        for child in children {
+            if child.is_dir() && child.file_name().is_some_and(|name| name != "node_modules") {
+                walk(&child, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures").canonicalize().unwrap(), &mut out);
+    out
+}
+
 /// A loaded and analysed fixture.
 pub struct Loaded {
     pub graph: ModuleGraph,
@@ -67,6 +88,13 @@ pub fn load(entry: &Path) -> Loaded {
     let source = std::fs::read_to_string(entry).unwrap();
     let closed_world = !source.starts_with("// world: library");
     let tsconfig = find_tsconfig(dir);
+    let settings = tsconfig.as_deref().map(|path| trioxide_project::CompilerSettings::load(path).unwrap());
+    let jsx = settings.filter(|settings| settings.jsx == trioxide_project::JsxMode::Classic).map(|settings| {
+        (
+            settings.jsx_factory.unwrap_or_else(|| "React.createElement".into()),
+            settings.jsx_fragment_factory.unwrap_or_else(|| "React.Fragment".into()),
+        )
+    });
     let mut graph = ModuleGraph::new(GraphOptions {
         root: dir.to_path_buf(),
         tsconfig: tsconfig.clone(),
@@ -94,6 +122,8 @@ pub fn load(entry: &Path) -> Loaded {
         AnalysisOptions {
             closed_world,
             trust_types: false,
+            jsx_factory: jsx.as_ref().map(|(factory, _)| factory.clone()),
+            jsx_fragment_factory: jsx.map(|(_, fragment)| fragment),
         },
     );
     let sources = graph
@@ -107,4 +137,9 @@ pub fn load(entry: &Path) -> Loaded {
         sources,
         closed_world,
     }
+}
+
+/// The fixture's `trioxide.json`, if any.
+pub fn options_for(dir: &Path) -> trioxide::Options {
+    trioxide::Options::find_config(dir).map_or_else(trioxide::Options::default, |path| trioxide::Options::from_file(&path).unwrap())
 }

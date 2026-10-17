@@ -51,13 +51,18 @@ pub struct ModuleInput<'s> {
 }
 
 /// Analysis settings derived from the user's options.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AnalysisOptions {
     /// Closed world (`app`): every caller of every function is visible (PLAN D2).
     pub closed_world: bool,
     /// Let `Declared` facts count as proof (`trustTypes`, PLAN D1). Passes consult
     /// [`Facts::is_usable`] rather than reading this directly.
     pub trust_types: bool,
+    /// The classic JSX factory (`jsxFactory`, e.g. `"h"` or `"React.createElement"`), which
+    /// compiled JSX calls. `None` for the automatic runtime.
+    pub jsx_factory: Option<String>,
+    /// The classic JSX fragment factory (`jsxFragmentFactory`).
+    pub jsx_fragment_factory: Option<String>,
 }
 
 /// The result of analysing a project.
@@ -91,7 +96,7 @@ pub fn analyze(modules: &[ModuleInput<'_>], oracle: &mut dyn TypeOracle, options
     let world = World::build(&allocators, modules);
     register_declarations(&world, oracle);
     let links = Links::build(&world);
-    let results = interp::run(&world, &links, oracle, options);
+    let results = interp::run(&world, &links, oracle, options.clone());
     let mut diagnostics = Vec::new();
     if !results.converged {
         diagnostics.push(
@@ -99,7 +104,7 @@ pub fn analyze(modules: &[ModuleInput<'_>], oracle: &mut dyn TypeOracle, options
                 .with_code("trioxide(analysis)"),
         );
     }
-    let facts = summary::facts(&world, &links, &results, options);
+    let facts = summary::facts(&world, &links, &results, &options);
     Analysis { facts, diagnostics }
 }
 

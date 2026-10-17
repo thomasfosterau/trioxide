@@ -1,0 +1,45 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/default-params
+input_file: tests/fixtures/analysis/default-params/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  greet (3:1): throws
+  optional (7:1): pure
+  main (11:8): reads writes allocates throws calls-unknown
+    calls 12:15 -> greet
+    calls 12:24 -> greet
+    calls 12:38 -> greet
+    calls 13:15 -> optional
+    calls 13:50 -> optional
+nodes:
+  3:10 bind `greet`: function@proven
+  3:16 bind `name`: string@proven
+  3:32 bind `times`: number[1, 2] int nonNaN nonNegZero@proven
+  4:10 call `(name /*@proven string*/).repeat(time...`: string@proven
+  4:10 member `(name /*@proven string*/).repeat`: unknown
+  4:11 ref `name`: string@proven
+  4:43 ref `times`: number[1, 2] int nonNaN nonNegZero@proven
+  7:10 bind `optional`: function@proven
+  7:19 bind `value`: undefined | 3@proven
+  8:10 binary `value ?? 0`: number[0, 3] int nonNaN nonNegZero@proven
+  8:10 ref `value`: undefined | 3@proven
+  11:17 bind `main`: function@proven
+  12:3 call `console.log(greet(), greet("you"), gr...`: unknown
+  12:3 member `console.log`: unknown
+  12:3 ref `console`: unknown
+  12:15 call `greet()`: string@proven
+  12:15 ref `greet`: function@proven
+  12:24 call `greet("you")`: string@proven
+  12:24 ref `greet`: function@proven
+  12:38 call `greet("twice", 2)`: string@proven
+  12:38 ref `greet`: function@proven
+  13:3 call `console.log(optional() /*@proven numb...`: unknown
+  13:3 member `console.log`: unknown
+  13:3 ref `console`: unknown
+  13:15 call `optional()`: number[0, 3] int nonNaN nonNegZero@proven
+  13:15 ref `optional`: function@proven
+  13:50 call `optional(3)`: number[0, 3] int nonNaN nonNegZero@proven
+  13:50 ref `optional`: function@proven

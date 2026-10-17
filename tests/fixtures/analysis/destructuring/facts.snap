@@ -1,0 +1,63 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/destructuring
+input_file: tests/fixtures/analysis/destructuring/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  options (3:1): reads
+  main (7:8): reads writes allocates throws calls-unknown
+    calls 12:15 -> options
+    calls 12:39 -> options
+nodes:
+  3:10 bind `options`: function@proven
+  3:20 bind `size`: number[1, 2] int nonNaN nonNegZero@proven
+  3:30 bind `name`: string@proven
+  4:10 binary `(name /*@proven string*/) + (size /*@...`: string@proven
+  4:11 ref `name`: string@proven
+  4:39 ref `size`: number[1, 2] int nonNaN nonNegZero@proven
+  7:17 bind `main`: function@proven
+  8:10 bind `first`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  8:17 bind `second`: number[1, 10] int nonNaN nonNegZero@proven
+  8:33 bind `rest`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  8:41 array `[1, 2, 3, 4]`: (number[1, 4] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  9:3 call `console.log(first /*@proven union*/, ...`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 ref `first`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  9:40 ref `second`: number[1, 10] int nonNaN nonNegZero@proven
+  9:71 member `(rest /*@proven array*/).length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  9:72 ref `rest`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  10:11 bind `x`: 1@proven
+  10:17 bind `why`: string@proven
+  10:25 bind `others`: object@proven
+  10:36 object `{ x: 1, y: "two", z: true }`: {| x: 1, y: string, z: boolean |}@proven escape=known stable-shape
+  11:3 call `console.log(x /*@proven number int*/,...`: unknown
+  11:3 member `console.log`: unknown
+  11:3 ref `console`: unknown
+  11:15 ref `x`: 1@proven
+  11:41 ref `why`: string@proven
+  11:65 ref `others`: object@proven
+  12:3 call `console.log(options({ name: "a" }), o...`: unknown
+  12:3 member `console.log`: unknown
+  12:3 ref `console`: unknown
+  12:15 call `options({ name: "a" })`: string@proven
+  12:15 ref `options`: function@proven
+  12:23 object `{ name: "a" }`: {| name: string |}@proven escape=known stable-shape
+  12:39 call `options({ name: "b", size: 2 })`: string@proven
+  12:39 ref `options`: function@proven
+  12:47 object `{ name: "b", size: 2 }`: {| name: string, size: 2 |}@proven escape=known stable-shape
+  13:7 bind `a`: 1@proven
+  14:7 bind `b`: 2@proven
+  15:3 assign `[a, b] = [b, a]`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  15:4 ref `a`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  15:7 ref `b`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  15:12 array `[b, a]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  15:13 ref `b`: 2@proven
+  15:16 ref `a`: 1@proven
+  16:3 call `console.log(a /*@proven union*/, b /*...`: unknown
+  16:3 member `console.log`: unknown
+  16:3 ref `console`: unknown
+  16:15 ref `a`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  16:36 ref `b`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven

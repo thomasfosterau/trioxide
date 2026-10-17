@@ -1,0 +1,76 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/module-linking
+input_file: tests/fixtures/analysis/module-linking/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): pure
+  main (7:8): reads writes allocates throws calls-unknown
+    calls 8:38 -> double (m3)
+    calls 9:15 -> area (m2)
+    calls 10:15 -> perimeter (m2)
+nodes:
+  3:8 bind `area`: unknown
+  3:26 bind `pi`: unknown
+  3:30 bind `double`: unknown
+  4:13 bind `geometry`: unknown
+  5:10 bind `counter`: unknown
+  7:17 bind `main`: function@proven
+  8:3 call `console.log(pi /*@proven number*/, do...`: unknown
+  8:3 member `console.log`: unknown
+  8:3 ref `console`: unknown
+  8:15 ref `pi`: 3.14@proven
+  8:38 call `double(21)`: 42@proven
+  8:38 ref `double`: function@proven
+  9:3 call `console.log(area(2) /*@proven number*/)`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 call `area(2)`: 12.56@proven
+  9:15 ref `area`: function@proven
+  10:3 call `console.log(geometry.perimeter(3) /*@...`: unknown
+  10:3 member `console.log`: unknown
+  10:3 ref `console`: unknown
+  10:15 call `geometry.perimeter(3)`: 12@proven
+  10:15 member `geometry.perimeter`: function@proven
+  10:15 ref `geometry`: object@proven
+  11:3 call `console.log(counter.count /*@proven n...`: unknown
+  11:3 member `console.log`: unknown
+  11:3 ref `console`: unknown
+  11:15 member `counter.count`: 0@proven
+  11:15 ref `counter`: {| count: 0 |}@proven
+
+//- reexports.ts
+functions:
+  <module> (1:1): pure
+
+//- geometry.ts
+functions:
+  <module> (1:1): allocates
+  perimeter (3:8): pure
+  area (7:16): pure
+nodes:
+  1:14 bind `PI_ISH`: 3.14@proven
+  3:17 bind `perimeter`: function@proven
+  3:27 bind `side`: 3@proven
+  4:10 binary `side * 4`: 12@proven
+  4:10 ref `side`: 3@proven
+  7:25 bind `area`: function@proven
+  7:30 bind `side`: 2@proven
+  8:10 binary `side * side * PI_ISH`: 12.56@proven
+  8:10 binary `side * side`: 4@proven
+  8:10 ref `side`: 2@proven
+  8:17 ref `side`: 2@proven
+  8:24 ref `PI_ISH`: 3.14@proven
+  11:14 bind `counter`: {| count: 0 |}@proven
+  11:24 object `{ count: 0 }`: {| count: 0 |}@proven escape=known stable-shape
+
+//- math.ts
+functions:
+  <module> (1:1): pure
+  double (1:8): pure
+nodes:
+  1:17 bind `double`: function@proven
+  1:24 bind `value`: 21@proven
+  2:10 binary `value * 2`: 42@proven
+  2:10 ref `value`: 21@proven

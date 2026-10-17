@@ -126,6 +126,9 @@ fn must_not_wrap(nodes: &AstNodes<'_>, id: NodeId) -> bool {
             | AstKind::ExportSpecifier(_)
             | AstKind::JSXElement(_)
             | AstKind::JSXFragment(_)
+            | AstKind::JSXOpeningElement(_)
+            | AstKind::JSXClosingElement(_)
+            | AstKind::JSXMemberExpression(_)
             | AstKind::AssignmentTargetPropertyIdentifier(_)
             | AstKind::ArrayAssignmentTarget(_)
             | AstKind::ObjectAssignmentTarget(_)
@@ -239,7 +242,7 @@ fn proven_facts_hold_at_run_time() {
     let mut failures = Vec::new();
     let mut total = 0;
     let out_root = tempfile::tempdir().unwrap();
-    for entry in common::fixtures() {
+    for entry in common::all_fixtures() {
         let source = std::fs::read_to_string(&entry).unwrap();
         if !source.contains("export function main") && !source.contains("export async function main") {
             continue;
@@ -247,10 +250,10 @@ fn proven_facts_hold_at_run_time() {
         let dir = entry.parent().unwrap();
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
         let loaded = common::load(&entry);
+        let options = common::options_for(dir);
         let out = out_root.path().join(&name);
         std::fs::create_dir_all(&out).unwrap();
         std::fs::write(out.join("package.json"), "{ \"type\": \"module\" }\n").unwrap();
-        let options = trioxide::Options::default();
         for module in loaded.graph.modules() {
             let (instrumented, count) = instrument(&loaded.analysis.facts, module.id, &module.source, module.source_type);
             total += count;
@@ -269,6 +272,13 @@ fn proven_facts_hold_at_run_time() {
         let runner = out.join("__runner.mjs");
         std::fs::write(&runner, RUNNER).unwrap();
         let entry_js = out.join(entry.strip_prefix(dir).unwrap()).with_extension("js");
+        // The fixture's own helpers (e.g. the JSX runtime) resolve from the differential
+        // package's node_modules.
+        let modules = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/differential/node_modules");
+        if modules.is_dir() && !out.join("node_modules").exists() {
+            #[cfg(unix)]
+            let _ = std::os::unix::fs::symlink(&modules, out.join("node_modules"));
+        }
         let result = Command::new("node").arg(&runner).arg(&entry_js).output().unwrap();
         let stdout = String::from_utf8_lossy(&result.stdout);
         let Some(report) = stdout.lines().find_map(|line| line.strip_prefix("__CHECKS__")) else {

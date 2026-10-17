@@ -1,0 +1,85 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/recursion
+input_file: tests/fixtures/analysis/recursion/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  fib (3:1): pure
+    calls 4:22 -> fib
+    calls 4:35 -> fib
+  isEven (7:1): pure
+    calls 8:27 -> isOdd
+  isOdd (11:1): pure
+    calls 12:28 -> isEven
+  sum (17:1): reads
+    calls 18:43 -> sum
+  main (21:8): reads writes allocates throws calls-unknown
+    calls 23:15 -> fib
+    calls 23:43 -> isEven
+    calls 23:74 -> sum
+nodes:
+  3:10 bind `fib`: function@proven
+  3:14 bind `n`: number[-inf, 10] int nonNaN nonNegZero@proven
+  4:10 cond `n < 2 ? n : fib(n - 1) + fib(n - 2)`: number int nonNegZero@proven
+  4:10 binary `n < 2`: boolean@proven
+  4:10 ref `n`: number[-inf, 10] int nonNaN nonNegZero@proven
+  4:18 ref `n`: number[-inf, 1] int nonNaN nonNegZero@proven
+  4:22 binary `fib(n - 1) + fib(n - 2)`: number int nonNegZero@proven
+  4:22 call `fib(n - 1)`: number int nonNegZero@proven
+  4:22 ref `fib`: function@proven
+  4:26 binary `n - 1`: number[1, 9] int nonNaN nonNegZero@proven
+  4:26 ref `n`: number[2, 10] int nonNaN nonNegZero@proven
+  4:35 call `fib(n - 2)`: number int nonNegZero@proven
+  4:35 ref `fib`: function@proven
+  4:39 binary `n - 2`: number[0, 8] int nonNaN nonNegZero@proven
+  4:39 ref `n`: number[2, 10] int nonNaN nonNegZero@proven
+  7:10 bind `isEven`: function@proven
+  7:17 bind `n`: number[-inf, 4] int nonNaN nonNegZero@proven
+  8:10 cond `n === 0 ? true : isOdd(n - 1)`: boolean@proven
+  8:10 binary `n === 0`: boolean@proven
+  8:10 ref `n`: number[-inf, 4] int nonNaN nonNegZero@proven
+  8:27 call `isOdd(n - 1)`: boolean@proven
+  8:27 ref `isOdd`: function@proven
+  8:33 binary `n - 1`: number[-inf, 3] int nonNaN nonNegZero@proven
+  8:33 ref `n`: number[-inf, 4] int nonNaN nonNegZero@proven
+  11:10 bind `isOdd`: function@proven
+  11:16 bind `n`: number[-inf, 3] int nonNaN nonNegZero@proven
+  12:10 cond `n === 0 ? false : isEven(n - 1)`: boolean@proven
+  12:10 binary `n === 0`: boolean@proven
+  12:10 ref `n`: number[-inf, 3] int nonNaN nonNegZero@proven
+  12:28 call `isEven(n - 1)`: boolean@proven
+  12:28 ref `isEven`: function@proven
+  12:35 binary `n - 1`: number[-inf, 2] int nonNaN nonNegZero@proven
+  12:35 ref `n`: number[-inf, 3] int nonNaN nonNegZero@proven
+  15:6 bind `List`: unknown
+  15:36 ref `List`: unknown
+  17:10 bind `sum`: function@proven
+  17:14 bind `list`: null | {| value: number[1, 2] int nonNaN nonNegZero, next: null | {| value: 2, next: null |} |}@proven
+  17:20 ref `List`: unknown
+  18:10 cond `list === null ? 0 : list.value + sum(...`: number[0, inf] int nonNaN nonNegZero@proven
+  18:10 binary `list === null`: boolean@proven
+  18:10 ref `list`: null | {| value: number[1, 2] int nonNaN nonNegZero, next: null | {| value: 2, next: null |} |}@proven
+  18:30 binary `list.value + sum(list.next)`: number[1, inf] int nonNaN nonNegZero@proven
+  18:30 member `list.value`: number[1, 2] int nonNaN nonNegZero@proven
+  18:30 ref `list`: {| value: number[1, 2] int nonNaN nonNegZero, next: null | {| value: 2, next: null |} |}@proven
+  18:43 call `sum(list.next)`: number[0, inf] int nonNaN nonNegZero@proven
+  18:43 ref `sum`: function@proven
+  18:47 member `list.next`: null | {| value: 2, next: null |}@proven
+  18:47 ref `list`: {| value: number[1, 2] int nonNaN nonNegZero, next: null | {| value: 2, next: null |} |}@proven
+  21:17 bind `main`: function@proven
+  22:9 bind `list`: {| value: 1, next: {| value: 2, next: null |} |}@proven
+  22:15 ref `List`: unknown
+  22:22 object `{ value: 1, next: { value: 2, next: n...`: {| value: 1, next: {| value: 2, next: null |} |}@proven escape=known stable-shape
+  22:40 object `{ value: 2, next: null }`: {| value: 2, next: null |}@proven escape=known stable-shape
+  23:3 call `console.log(fib(10) /*@proven number*...`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 call `fib(10)`: number int nonNegZero@proven
+  23:15 ref `fib`: function@proven
+  23:43 call `isEven(4)`: boolean@proven
+  23:43 ref `isEven`: function@proven
+  23:74 call `sum(list)`: number[0, inf] int nonNaN nonNegZero@proven
+  23:74 ref `sum`: function@proven
+  23:78 ref `list`: {| value: 1, next: {| value: 2, next: null |} |}@proven

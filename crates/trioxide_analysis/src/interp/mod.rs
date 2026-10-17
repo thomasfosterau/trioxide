@@ -76,6 +76,8 @@ pub enum ObjKind {
     Class(NodeRef),
     /// A class's prototype object (keyed by the class body).
     Prototype(NodeRef),
+    /// A module namespace object (keyed by the module's program node).
+    Namespace(trioxide_common::ModuleId),
     /// Some other object (`new Map`, a regexp, …).
     Opaque,
 }
@@ -244,40 +246,85 @@ pub fn run(
     }
 }
 
-/// Builtin namespaces (`Math`, …) the program shadows or writes to anywhere.
+/// Builtin namespaces (`Math`, …) whose models can't be trusted: the program shadows them,
+/// writes to them, or lets the namespace object (or `NS.prototype`, or the global object)
+/// flow anywhere other than a plain `NS.name` read or call, where it could be patched.
 fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
-    use oxc_ast::{AstKind, ast::Expression};
+    use oxc_ast::AstKind;
+    const GLOBAL_OBJECTS: [&str; 4] = ["globalThis", "window", "self", "global"];
     let mut patched = FxHashSet::default();
+    let all = || crate::builtins::NAMESPACES.iter().map(|name| (*name).to_string());
     for module in &world.modules {
         let scoping = module.semantic.scoping();
+        let nodes = module.semantic.nodes();
         for name in crate::builtins::NAMESPACES {
-            // A binding of the same name anywhere in the module shadows it somewhere.
+            // A binding of the same name anywhere shadows it somewhere.
             if scoping.symbol_ids().any(|symbol| scoping.symbol_name(symbol) == name) {
                 patched.insert(name.to_string());
             }
         }
-        for node in module.semantic.nodes().iter() {
-            let target = match node.kind() {
-                AstKind::AssignmentExpression(assign) => assign.left.as_member_expression().map(|m| m.object()),
-                AstKind::UpdateExpression(update) => update.argument.as_member_expression().map(|m| m.object()),
-                AstKind::UnaryExpression(unary) if unary.operator.is_delete() => {
-                    unary.argument.as_member_expression().map(|m| m.object())
-                }
-                _ => None,
-            };
-            let Some(mut object) = target else { continue };
-            // `Math.x = …`, `Array.prototype.x = …`, `Math.x.y = …`.
-            while let Some(member) = object.as_member_expression() {
-                object = member.object();
+        for reference in scoping.root_unresolved_references_ids().flatten() {
+            let node = scoping.get_reference(reference).node_id();
+            let AstKind::IdentifierReference(ident) = nodes.kind(node) else { continue };
+            let name = ident.name.as_str();
+            let namespace = crate::builtins::NAMESPACES.contains(&name);
+            let global_object = GLOBAL_OBJECTS.contains(&name);
+            if !namespace && !global_object {
+                continue;
             }
-            if let Expression::Identifier(ident) = object.without_parentheses()
-                && crate::builtins::NAMESPACES.contains(&ident.name.as_str())
-            {
-                patched.insert(ident.name.to_string());
+            let safe = safe_namespace_use(nodes, node, name, global_object);
+            if !safe {
+                if global_object {
+                    patched.extend(all());
+                } else {
+                    patched.insert(name.to_string());
+                }
             }
         }
     }
     patched
+}
+
+/// Whether the reference `node` to a namespace (or the global object) only reads a member
+/// without handing anything out: `Math.floor(x)`, `Math.PI`, `globalThis.foo`.
+fn safe_namespace_use(nodes: &oxc_semantic::AstNodes<'_>, node: NodeId, name: &str, global_object: bool) -> bool {
+    use oxc_ast::AstKind;
+    let parent = nodes.parent_id(node);
+    let AstKind::StaticMemberExpression(member) = nodes.kind(parent) else {
+        return false;
+    };
+    if member.object.span() != nodes.kind(node).span() {
+        return false;
+    }
+    let property = member.property.name.as_str();
+    if global_object && crate::builtins::NAMESPACES.contains(&property) {
+        // `globalThis.Math` hands out the namespace.
+        return false;
+    }
+    let grandparent = nodes.parent_id(parent);
+    match nodes.kind(grandparent) {
+        // A call of the member: `Math.floor(x)` (its arguments are not the namespace).
+        AstKind::CallExpression(call) if call.callee.span() == member.span => true,
+        // Any further member access (`Array.prototype.x`, `Math.floor.call`) or a write.
+        AstKind::StaticMemberExpression(_)
+        | AstKind::ComputedMemberExpression(_)
+        | AstKind::PrivateFieldExpression(_)
+        | AstKind::AssignmentExpression(_)
+        | AstKind::UpdateExpression(_)
+        | AstKind::ArrayAssignmentTarget(_)
+        | AstKind::ObjectAssignmentTarget(_)
+        | AstKind::AssignmentTargetWithDefault(_)
+        | AstKind::AssignmentTargetPropertyProperty(_)
+        | AstKind::ForInStatement(_)
+        | AstKind::ForOfStatement(_) => false,
+        AstKind::UnaryExpression(unary) => !unary.operator.is_delete(),
+        // A plain read: fine for values the models know (`Math.PI`); a builtin function or
+        // `NS.prototype` read as a value could be patched by whoever receives it.
+        _ => {
+            let path = format!("{name}.{property}");
+            global_object || crate::builtins::global(&path).is_some_and(|builtin| !builtin.callable)
+        }
+    }
 }
 
 pub(crate) struct Analyzer<'w, 'a> {
@@ -592,6 +639,13 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                     pending.extend_from_slice(inner);
                 }
             }
+            // A namespace object reaches every export.
+            if let ObjKind::Namespace(module) = obj.kind {
+                let mut exported = Vec::new();
+                self.exported_values(module, &mut exported, &mut FxHashSet::default());
+                pending.extend(exported);
+                continue;
+            }
             // A class's prototype, constructor and methods go with it, and so do an
             // instance's (`instance.constructor` reaches the class).
             if let ObjKind::Class(class) | ObjKind::Instance(class) | ObjKind::Prototype(class) = obj.kind
@@ -603,6 +657,53 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 pending.extend(info.constructor);
             }
         }
+    }
+
+    /// The allocation sites every export of `module` (and of what it re-exports) may hold.
+    fn exported_values(&self, module: trioxide_common::ModuleId, out: &mut Vec<AllocId>, seen: &mut FxHashSet<trioxide_common::ModuleId>) {
+        if !seen.insert(module) {
+            return;
+        }
+        let info = self.world.module(module);
+        for (index, symbol) in info.symbols.iter().enumerate() {
+            if symbol.exported
+                && let Some(value) = self.state.symbols.get(&info.symbol(SymbolId::from_usize(index)))
+                && let Some(sites) = value.pts.sites()
+            {
+                out.extend_from_slice(sites);
+            }
+        }
+        for entry in info.record.star_export_entries.iter().chain(&info.record.indirect_export_entries) {
+            if let Some(target) = entry
+                .module_request
+                .as_ref()
+                .and_then(|request| info.imports.get(request.name.as_str()).copied().flatten())
+            {
+                self.exported_values(target, out, seen);
+            }
+        }
+        // `export default <expression>` values and re-exported imports.
+        for (import, target) in self.links.imports() {
+            if import.module == module && info.info(import.symbol).exported
+                && let crate::link::Target::Symbol(target) = target
+                && let Some(sites) = self.state.symbols.get(&target).and_then(|value| value.pts.sites())
+            {
+                out.extend_from_slice(sites);
+            }
+        }
+        if let crate::link::Target::Expression(node) = crate::link::resolve_export(self.world, info, "default", &mut FxHashSet::default())
+            && let Some(sites) = self.output.nodes.get(&node).and_then(|value| value.pts.sites())
+        {
+            out.extend_from_slice(sites);
+        }
+    }
+
+    /// The namespace object of `module`.
+    pub fn namespace(&mut self, module: trioxide_common::ModuleId, unit: NodeRef) -> Val {
+        let program = self.world.module(module).program.node_id.get();
+        let site = NodeRef { module, node: program };
+        self.obj(site, ObjKind::Namespace(module), unit);
+        Val::object(Type::Object(trioxide_types::Shape::default()), site)
     }
 
     /// TypeScript's type at `node`, as a declared value (cached).
@@ -706,6 +807,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return Val::poisoned();
         }
         let flags = self.module.semantic.scoping().symbol_flags(symbol);
+        if flags.intersects(oxc_syntax::symbol::SymbolFlags::EnumMember) {
+            // Enum members are properties of the enum object: TypeScript's types say what.
+            return Val::unknown();
+        }
         if flags.contains(oxc_syntax::symbol::SymbolFlags::Ambient) || self.module.is_ambient(symbol) {
             // `declare`d: defined by code outside the program.
             self.always(EffectKind::Reads);
@@ -763,6 +868,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 .get(&node)
                 .cloned()
                 .unwrap_or_else(Val::unknown),
+            Some(crate::link::Target::Namespace(module)) => {
+                let unit = self.unit.id;
+                self.an.namespace(module, unit)
+            }
             _ => Val::unknown(),
         }
     }
@@ -794,7 +903,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             // Other units can see it.
             self.escape_value(&value, Escape::Known);
         }
-        if info.exported && !self.an.options.closed_world {
+        if info.exported && (!self.an.options.closed_world || self.module.called_from_generated_code()) {
             // Importers outside the program can read it.
             self.escape_value(&value, Escape::Unknown);
         }

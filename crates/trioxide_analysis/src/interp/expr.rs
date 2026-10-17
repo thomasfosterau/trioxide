@@ -148,13 +148,19 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 let value = match &chain.expression {
                     oxc_ast::ast::ChainElement::CallExpression(call) => {
                         let value = self.call(call);
-                        self.or_declared(value, call.node_id.get(), call.span)
+                        let value = self.or_declared(value, call.node_id.get(), call.span);
+                        self.record_node(call.node_id.get(), &value);
+                        value
                     }
                     oxc_ast::ast::ChainElement::TSNonNullExpression(non_null) => {
                         self.expr(&non_null.expression)
                     }
                     element => match element.as_member_expression() {
-                        Some(member) => self.member(member),
+                        Some(member) => {
+                            let value = self.member(member);
+                            self.record_node(member.node_id(), &value);
+                            value
+                        }
                         None => Val::unknown(),
                     },
                 };
@@ -219,6 +225,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             }
             Expression::Super(_) | Expression::ImportMeta(_) | Expression::NewTarget(_) => Val::unknown(),
             Expression::ImportExpression(import) => {
+                // The promise resolves to the module's namespace, which unknown code handles.
+                if let Expression::StringLiteral(specifier) = &import.source
+                    && let Some(Some(module)) = self.module.imports.get(specifier.value.as_str()).copied()
+                {
+                    let unit = self.unit.id;
+                    let namespace = self.an.namespace(module, unit);
+                    self.escape_value(&namespace, Escape::Unknown);
+                }
                 let value = self.expr(&import.source);
                 self.escape_value(&value, Escape::Unknown);
                 if let Some(options) = &import.options {
@@ -241,7 +255,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     pub fn opaque_subtree(&mut self, expression: &'a Expression<'a>) {
         match expression {
             Expression::JSXElement(element) => self.jsx_element(element),
-            Expression::JSXFragment(fragment) => self.jsx_children(&fragment.children),
+            Expression::JSXFragment(fragment) => {
+                self.jsx_factories(fragment.node_id.get(), false);
+                self.jsx_factories(fragment.node_id.get(), true);
+                self.jsx_children(&fragment.children);
+            }
             Expression::V8IntrinsicExpression(intrinsic) => {
                 for argument in &intrinsic.arguments {
                     if let Some(expression) = argument.as_expression() {
@@ -260,8 +278,27 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         self.always(EffectKind::Allocates);
     }
 
+    /// Compiled JSX calls the JSX factory (and passes the fragment factory): their values
+    /// escape, as calls from generated code trioxide doesn't follow.
+    fn jsx_factories(&mut self, node: oxc_syntax::node::NodeId, fragment: bool) {
+        let factory = if fragment {
+            self.an.options.jsx_fragment_factory.clone()
+        } else {
+            self.an.options.jsx_factory.clone()
+        };
+        let Some(factory) = factory else { return };
+        let root = factory.split('.').next().unwrap_or_default().to_string();
+        let scoping = self.module.semantic.scoping();
+        let scope = self.module.semantic.nodes().get_node(node).scope_id();
+        if let Some(symbol) = scoping.find_binding(scope, root.as_str().into()) {
+            let value = self.read_symbol(symbol);
+            self.escape_value(&value, Escape::Unknown);
+        }
+    }
+
     fn jsx_element(&mut self, element: &'a oxc_ast::ast::JSXElement<'a>) {
         use oxc_ast::ast::{JSXAttributeItem, JSXAttributeValue, JSXElementName};
+        self.jsx_factories(element.node_id.get(), false);
         if let JSXElementName::IdentifierReference(ident) = &element.opening_element.name {
             let value = self.identifier(ident);
             self.record_node(ident.node_id.get(), &value);
@@ -289,7 +326,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         for child in children {
             match child {
                 JSXChild::Element(element) => self.jsx_element(element),
-                JSXChild::Fragment(fragment) => self.jsx_children(&fragment.children),
+                JSXChild::Fragment(fragment) => {
+                    self.jsx_factories(fragment.node_id.get(), false);
+                    self.jsx_factories(fragment.node_id.get(), true);
+                    self.jsx_children(&fragment.children);
+                }
                 JSXChild::ExpressionContainer(container) => self.jsx_container(container),
                 JSXChild::Spread(spread) => {
                     let value = self.expr(&spread.expression);
@@ -511,6 +552,39 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             }
         }
         let class_value = Val::object(Type::Function(Box::default(), Some(class_ref)), class_site);
+        // Decorators receive (and may replace or call) the class and its members.
+        let decorated = !class.decorators.is_empty()
+            || class.body.body.iter().any(|element| match element {
+                ClassElement::MethodDefinition(method) => {
+                    !method.decorators.is_empty() || method.value.params.items.iter().any(|param| !param.decorators.is_empty())
+                }
+                ClassElement::PropertyDefinition(property) => !property.decorators.is_empty(),
+                ClassElement::AccessorProperty(property) => !property.decorators.is_empty(),
+                _ => false,
+            });
+        if decorated {
+            let mut decorators: Vec<&'a oxc_ast::ast::Decorator<'a>> = class.decorators.iter().collect();
+            for element in &class.body.body {
+                match element {
+                    ClassElement::MethodDefinition(method) => {
+                        decorators.extend(method.decorators.iter());
+                        for param in &method.value.params.items {
+                            decorators.extend(param.decorators.iter());
+                        }
+                    }
+                    ClassElement::PropertyDefinition(property) => decorators.extend(property.decorators.iter()),
+                    ClassElement::AccessorProperty(property) => decorators.extend(property.decorators.iter()),
+                    _ => {}
+                }
+            }
+            for decorator in decorators {
+                let value = self.expr(&decorator.expression);
+                self.escape_value(&value, Escape::Unknown);
+            }
+            self.an.escape(&Pts::site(class_site), Escape::Unknown);
+            self.always(EffectKind::CallsUnknown);
+            self.always(EffectKind::Throws);
+        }
         if let Some(id) = &class.id
             && let Some(symbol) = id.symbol_id.get()
         {
@@ -604,6 +678,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 };
                 let key = static_key(&property.key, property.computed);
                 let this = self.this.clone();
+                // Without `useDefineForClassFields`, a field initialiser is an assignment and
+                // runs an inherited setter; assume it may.
+                if let Some(name) = &key
+                    && let Some(parent) = crate::shapes::static_superclass(self.an.world, class_ref)
+                    && let Some(setter) = self.class_accessor(parent, name, crate::world::MethodRole::Setter)
+                {
+                    self.call_unit_as_setter(setter, &this, &value, property.node_id.get());
+                }
                 self.write_prop(&this, key.map_or(Key::Unknown, Key::Name), &value, property.node_id.get(), true);
             }
         }
@@ -723,6 +805,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     value.is_primitive(declared)
                         && value.ty.members().iter().all(|member| matches!(member, Type::Number(_) | Type::Boolean | Type::Null | Type::Undefined))
                 };
+                if left.trust >= Trust::Declared && left.ty == Type::BigInt && right.trust >= Trust::Declared && right.ty == Type::BigInt {
+                    return Val::proven(Type::BigInt).at_most(left.trust.min(right.trust));
+                }
                 if numeric(left, true) && numeric(right, true) {
                     let trust = if numeric(left, false) && numeric(right, false) {
                         Trust::Proven
@@ -1022,9 +1107,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             MemberExpression::StaticMemberExpression(member) => Key::Name(member.property.name.to_string()),
             MemberExpression::PrivateFieldExpression(member) => Key::Name(format!("#{}", member.field.name)),
             MemberExpression::ComputedMemberExpression(member) => {
-                if let Expression::StringLiteral(literal) = &member.expression {
-                    self.record_node(member.expression.node_id(), &Val::proven(Type::String));
-                    return Key::Name(literal.value.to_string());
+                if let Some(name) = self.constant_string(&member.expression) {
+                    let value = self.expr(&member.expression);
+                    let _ = value;
+                    return Key::Name(name);
                 }
                 let key = self.expr(&member.expression);
                 if !key.is_primitive(false) {
@@ -1032,6 +1118,33 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 }
                 Key::of_value(&key)
             }
+        }
+    }
+
+    /// The value of a string literal, or of a `const` bound to one.
+    pub fn constant_string(&self, expression: &Expression<'_>) -> Option<String> {
+        match expression.without_parentheses() {
+            Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+            Expression::Identifier(ident) => {
+                let scoping = self.module.semantic.scoping();
+                let symbol = scoping.get_reference(ident.reference_id.get()?).symbol_id()?;
+                if !scoping.symbol_flags(symbol).contains(oxc_syntax::symbol::SymbolFlags::ConstVariable) || self.module.info(symbol).tainted {
+                    return None;
+                }
+                let declaration = scoping.symbol_declaration(symbol);
+                match self.module.kind(declaration) {
+                    oxc_ast::AstKind::VariableDeclarator(declarator) => match &declarator.init {
+                        Some(Expression::StringLiteral(literal))
+                            if matches!(declarator.id, oxc_ast::ast::BindingPattern::BindingIdentifier(_)) =>
+                        {
+                            Some(literal.value.to_string())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+            _ => None,
         }
     }
 
@@ -1266,6 +1379,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 };
             }
             ObjKind::Opaque => return Val::unknown(),
+            ObjKind::Namespace(module) => {
+                let Some(name) = key.name() else {
+                    // Any export may be read.
+                    self.an.escape(&Pts::site(site), Escape::Unknown);
+                    return Val::unknown();
+                };
+                return self.namespace_member(module, name);
+            }
             _ => {}
         }
         let Some(name) = key.name() else {
@@ -1290,6 +1411,28 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return value.join(&self.inherited(site, &obj, key, receiver, node, depth));
         }
         self.inherited(site, &obj, key, receiver, node, depth)
+    }
+
+    /// The export `name` of `module`, read through its namespace object.
+    fn namespace_member(&mut self, module: trioxide_common::ModuleId, name: &str) -> Val {
+        let world = self.an.world;
+        match crate::link::resolve_export(world, world.module(module), name, &mut rustc_hash::FxHashSet::default()) {
+            crate::link::Target::Symbol(target) => {
+                self.always(EffectKind::Reads);
+                if world.module(target.module).info(target.symbol).tainted {
+                    return Val::poisoned();
+                }
+                self.an.state.symbols.get(&target).cloned().unwrap_or_else(Val::never)
+            }
+            crate::link::Target::Namespace(inner) => {
+                let unit = self.unit.id;
+                self.an.namespace(inner, unit)
+            }
+            crate::link::Target::Expression(node) => self.an.output.nodes.get(&node).cloned().unwrap_or_else(Val::unknown),
+            // Namespaces have no other properties (and no prototype).
+            crate::link::Target::Unresolved => Val::proven(Type::Undefined),
+            crate::link::Target::External => Val::unknown(),
+        }
     }
 
     /// Whether the current unit is (in) the code that builds objects of this site, where
@@ -1456,6 +1599,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 ObjKind::Opaque => {
                     self.escape_value(value, Escape::Unknown);
                     self.always(EffectKind::CallsUnknown);
+                }
+                ObjKind::Namespace(_) => {
+                    // Namespace objects are not writable.
+                    self.always(EffectKind::Throws);
                 }
                 _ => {
                     let Some(name) = key.name() else {

@@ -1,0 +1,61 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/closures
+input_file: tests/fixtures/analysis/closures/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  counter (3:8): allocates
+  <anonymous> (5:10): reads writes
+  sharedWrite (11:8): reads writes
+    calls 16:3 -> set
+  set (13:15): writes
+  readOnlyCapture (21:8): pure
+    calls 24:10 -> add
+  add (23:15): pure
+  main (27:8): reads writes allocates throws calls-unknown
+    calls 28:16 -> counter
+    calls 29:3 -> <anonymous>
+    calls 30:15 -> <anonymous>
+    calls 30:23 -> sharedWrite
+    calls 30:38 -> readOnlyCapture
+nodes:
+  3:17 bind `counter`: function@proven
+  4:7 bind `count`: 0@proven
+  6:5 unary `count++`: number[0, inf] int nonNaN nonNegZero@proven
+  6:5 ref `count`: number[0, inf] int nonNaN nonNegZero@proven
+  7:12 ref `count`: number[0, inf] int nonNaN nonNegZero@proven
+  11:17 bind `sharedWrite`: function@proven
+  12:7 bind `value`: 1@proven
+  13:9 bind `set`: function@proven
+  14:5 assign `value = "set by closure"`: string@proven
+  14:5 ref `value`: string@proven
+  16:3 call `set()`: undefined@proven
+  16:3 ref `set`: function@proven
+  18:10 cast `(value /*@proven union*/) as number`: 1 | string@proven
+  18:11 ref `value`: 1 | string@proven
+  21:17 bind `readOnlyCapture`: function@proven
+  22:9 bind `base`: 10@proven
+  23:9 bind `add`: function@proven
+  23:16 bind `x`: 5@proven
+  23:39 binary `x + base`: 15@proven
+  23:39 ref `x`: 5@proven
+  23:43 ref `base`: 10@proven
+  24:10 call `add(5)`: 15@proven
+  24:10 ref `add`: function@proven
+  27:17 bind `main`: function@proven
+  28:9 bind `next`: function@proven
+  28:16 call `counter()`: function@proven
+  28:16 ref `counter`: function@proven
+  29:3 call `next()`: number[0, inf] int nonNaN nonNegZero@proven
+  29:3 ref `next`: function@proven
+  30:3 call `console.log(next(), sharedWrite(), re...`: unknown
+  30:3 member `console.log`: unknown
+  30:3 ref `console`: unknown
+  30:15 call `next()`: number[0, inf] int nonNaN nonNegZero@proven
+  30:15 ref `next`: function@proven
+  30:23 call `sharedWrite()`: 1 | string@proven
+  30:23 ref `sharedWrite`: function@proven
+  30:38 call `readOnlyCapture()`: 15@proven
+  30:38 ref `readOnlyCapture`: function@proven

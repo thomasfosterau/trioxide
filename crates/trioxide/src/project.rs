@@ -5,8 +5,8 @@ use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
 use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
 use trioxide_project::{
-    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, ModuleGraph,
-    find_tsconfig,
+    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, JsxMode,
+    ModuleGraph, find_tsconfig,
 };
 use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
 
@@ -99,8 +99,8 @@ impl Project {
                 .as_bytes(),
         );
         let analysis = Analysis::empty(AnalysisOptions {
-            closed_world: false,
             trust_types: options.trust_types,
+            ..AnalysisOptions::default()
         });
         let graph = ModuleGraph::new(GraphOptions {
             root: root.clone(),
@@ -237,6 +237,18 @@ impl Project {
             AnalysisOptions {
                 closed_world: world == World::App,
                 trust_types: self.options.trust_types,
+                jsx_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
+                    self.settings
+                        .jsx_factory
+                        .clone()
+                        .unwrap_or_else(|| "React.createElement".into())
+                }),
+                jsx_fragment_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
+                    self.settings
+                        .jsx_fragment_factory
+                        .clone()
+                        .unwrap_or_else(|| "React.Fragment".into())
+                }),
             },
         );
         diagnostics.append(&mut self.analysis.diagnostics);

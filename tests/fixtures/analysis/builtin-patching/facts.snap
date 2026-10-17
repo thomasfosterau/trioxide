@@ -1,0 +1,32 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/builtin-patching
+input_file: tests/fixtures/analysis/builtin-patching/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): reads writes allocates throws calls-unknown
+  <anonymous> (3:53) open: pure
+  main (5:8): reads writes allocates throws calls-unknown
+nodes:
+  3:1 assign `(Math as { floor: (x: number) => unkn...`: function@proven
+  3:1 member `(Math as { floor: (x: number) => unkn...`: unknown
+  3:2 cast `Math as { floor: (x: number) => unkno...`: { floor: function }@declared
+  3:2 ref `Math`: unknown
+  3:20 bind `x`: unknown
+  5:17 bind `main`: function@proven
+  6:3 call `console.log(Math.floor(1.5) /*@declar...`: unknown
+  6:3 member `console.log`: unknown
+  6:3 ref `console`: unknown
+  6:15 call `Math.floor(1.5)`: number@declared
+  6:15 member `Math.floor`: unknown
+  6:15 ref `Math`: unknown
+  6:53 call `Math.ceil(1.5)`: number@declared
+  6:53 member `Math.ceil`: unknown
+  6:53 ref `Math`: unknown
+  7:3 call `console.log(Number.isInteger(1) /*@pr...`: unknown
+  7:3 member `console.log`: unknown
+  7:3 ref `console`: unknown
+  7:15 call `Number.isInteger(1)`: boolean@proven
+  7:15 member `Number.isInteger`: unknown
+  7:15 ref `Number`: unknown

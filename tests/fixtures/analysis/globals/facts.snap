@@ -1,0 +1,29 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/globals
+input_file: tests/fixtures/analysis/globals/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): pure
+  main (7:8): reads writes allocates throws calls-unknown
+nodes:
+  4:7 bind `appState`: unknown
+  7:17 bind `main`: function@proven
+  8:3 assign `globalThis.appState = { ready: true }`: object@proven
+  8:3 member `globalThis.appState`: unknown
+  8:3 ref `globalThis`: unknown
+  8:25 object `{ ready: true }`: object@proven escape=unknown
+  9:3 call `console.log(globalThis.appState?.read...`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 member `globalThis.appState?.ready`: boolean@declared
+  9:15 member `globalThis.appState`: { ready: boolean }@declared
+  9:15 ref `globalThis`: unknown
+  10:3 call `console.log(typeof setTimeout /*@prov...`: unknown
+  10:3 member `console.log`: unknown
+  10:3 ref `console`: unknown
+  10:15 unary `typeof setTimeout`: string@proven
+  10:22 ref `setTimeout`: unknown
+  10:53 ref `undefined`: undefined@proven
+  10:86 ref `NaN`: number@proven
