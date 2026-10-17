@@ -170,3 +170,68 @@ fn check_reports_type_errors() {
     let build = project.build(&[root.join("main.ts")]).unwrap();
     assert!(!build.has_errors(), "{:?}", build.report.diagnostics);
 }
+
+/// Re-analysing regenerated sources gives the facts a fresh analysis of them gives: what a
+/// pass manager relies on between pass groups.
+#[test]
+fn reanalysis_matches_a_fresh_analysis() {
+    let files = [
+        (
+            "main.ts",
+            "import { scale } from './lib.js';\nfunction twice(x: number): number { return scale(x, 2); }\nexport function main(): void {\n  let total = 0;\n  for (let i = 0; i < 4; i++) total += twice(i);\n  console.log(total);\n}\n",
+        ),
+        (
+            "lib.ts",
+            "export function scale(value: number, factor: number): number {\n  return (value * factor) | 0;\n}\n",
+        ),
+    ];
+    // The "rewrite": printing each module back out, as a pass manager does between groups.
+    let regenerate = |source: &str| {
+        let allocator = oxc_allocator::Allocator::default();
+        let parsed =
+            oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts()).parse();
+        oxc_codegen::Codegen::new().build(&parsed.program).code
+    };
+    let options = || Options {
+        world: Some(trioxide::World::App),
+        ..Options::default()
+    };
+    let facts_of = |project: &Project| {
+        let mut types: Vec<String> = project
+            .analysis()
+            .node_types()
+            .into_iter()
+            .map(|(node, fact)| format!("{node:?} {fact:?}"))
+            .collect();
+        types.sort();
+        types
+    };
+
+    let original = tempfile::tempdir().unwrap();
+    let original = original.path().canonicalize().unwrap();
+    for (name, source) in files {
+        write(&original, name, source);
+    }
+    let mut project = Project::new(original.clone(), options()).unwrap();
+    project.facts(&original.join("main.ts")).unwrap();
+    let regenerated: Vec<(std::path::PathBuf, String)> = files
+        .iter()
+        .map(|(name, source)| (original.join(name), regenerate(source)))
+        .collect();
+    let reanalysed = {
+        project.reanalyse(&regenerated);
+        facts_of(&project)
+    };
+
+    let fresh = tempfile::tempdir().unwrap();
+    let fresh = fresh.path().canonicalize().unwrap();
+    for (path, source) in &regenerated {
+        write(&fresh, path.file_name().unwrap().to_str().unwrap(), source);
+    }
+    let mut project = Project::new(fresh.clone(), options()).unwrap();
+    project.facts(&fresh.join("main.ts")).unwrap();
+    let fresh_facts = facts_of(&project);
+
+    assert!(!reanalysed.is_empty());
+    assert_eq!(reanalysed, fresh_facts);
+}
