@@ -635,26 +635,35 @@ impl<'a> Cx<'_, '_, 'a> {
 
     fn switch(&mut self, statement: &'a oxc_ast::ast::SwitchStatement<'a>, labels: &[&'a str]) {
         let _ = self.expr(&statement.discriminant);
-        let entry = self.env.clone();
-        let mark = self.breaks.len();
-        let mut fall = Env::unreachable();
-        let mut has_default = false;
+        // The cases share one scope: their function declarations are bound before any runs.
         for case in &statement.cases {
-            self.env = entry.clone();
+            self.hoist(&case.consequent);
+        }
+        // Tests run in order until one matches; the default case is entered only after all
+        // of them failed.
+        let mut entries = Vec::with_capacity(statement.cases.len());
+        for case in &statement.cases {
             match &case.test {
                 Some(test) => {
                     let _ = self.expr(test);
+                    entries.push(Some(self.env.clone()));
                 }
-                None => has_default = true,
+                None => entries.push(None),
             }
-            self.env = self.env.join(&fall);
-            self.hoist(&case.consequent);
+        }
+        let no_match = std::mem::replace(&mut self.env, Env::unreachable());
+        let has_default = entries.iter().any(Option::is_none);
+        let mark = self.breaks.len();
+        let mut fall = Env::unreachable();
+        for (case, entry) in statement.cases.iter().zip(entries) {
+            let entry = entry.as_ref().unwrap_or(&no_match);
+            self.env = fall.join(entry);
             self.statements(&case.consequent);
             fall = std::mem::replace(&mut self.env, Env::unreachable());
         }
         let mut exit = fall;
         if !has_default {
-            exit = exit.join(&entry);
+            exit = exit.join(&no_match);
         }
         let mut kept = Vec::new();
         for (label, env) in self.breaks.split_off(mark) {
@@ -670,22 +679,85 @@ impl<'a> Cx<'_, '_, 'a> {
 
     fn try_statement(&mut self, statement: &'a oxc_ast::ast::TryStatement<'a>) {
         let entry = self.env.clone();
+        // Breaks and continues out of the try block or the handler run the finaliser first.
+        let break_mark = self.breaks.len();
+        let continue_mark = self.continues.len();
         let catches = usize::from(statement.handler.is_some());
-        self.try_writes.push(FxHashSet::default());
         self.catching += catches;
-        self.hoist(&statement.block.body);
-        self.statements(&statement.block.body);
+        let writes = self.guarded(|cx| {
+            cx.hoist(&statement.block.body);
+            cx.statements(&statement.block.body);
+        });
         self.catching -= catches;
+        let after_try = self.env.clone();
+        // An exception may leave the try block anywhere: what it wrote may hold anything it
+        // assigns.
+        let thrown = self.thrown_env(&entry, &after_try, &writes);
+        let mut after = after_try;
+        // Where an exception reaches the finaliser from.
+        let mut unwinding = thrown.clone();
+        if let Some(handler) = &statement.handler {
+            self.env = thrown.clone();
+            let writes = self.guarded(|cx| {
+                if let Some(param) = &handler.param {
+                    cx.bind_pattern(&param.pattern, Val::unknown());
+                }
+                cx.hoist(&handler.body.body);
+                cx.statements(&handler.body.body);
+            });
+            let after_catch = self.env.clone();
+            unwinding = self.thrown_env(&thrown, &after_catch, &writes);
+            after = after.join(&after_catch);
+        }
+        let Some(finalizer) = &statement.finalizer else {
+            self.env = after;
+            return;
+        };
+        let breaks = self.breaks.split_off(break_mark);
+        let continues = self.continues.split_off(continue_mark);
+        for (label, env) in breaks {
+            if let Some(env) = self.finally_from(finalizer, env) {
+                self.breaks.push((label, env));
+            }
+        }
+        for (label, env) in continues {
+            if let Some(env) = self.finally_from(finalizer, env) {
+                self.continues.push((label, env));
+            }
+        }
+        // Normal completion, and returns and exceptions (whose environments `unwinding`
+        // covers: a return leaves from a point the try or handler reached).
+        let completes = after.reachable;
+        self.env = after.join(&unwinding);
+        self.hoist(&finalizer.body);
+        self.statements(&finalizer.body);
+        if !completes {
+            self.env = Env::unreachable();
+        }
+    }
+
+    /// Runs `body` noting which symbols it writes (for what an exception leaving it may see).
+    fn guarded(&mut self, body: impl FnOnce(&mut Self)) -> FxHashSet<oxc_syntax::symbol::SymbolId> {
+        self.try_writes.push(FxHashSet::default());
+        body(self);
         let writes = self.try_writes.pop().unwrap_or_default();
         if let Some(outer) = self.try_writes.last_mut() {
             outer.extend(writes.iter().copied());
         }
-        let after_try = self.env.clone();
-        // An exception may leave the try block anywhere: what it wrote may hold anything it
-        // assigns.
-        let mut thrown = entry.join(&after_try);
+        writes
+    }
+
+    /// The environment an exception thrown anywhere between `entry` and `after` sees: their
+    /// join, with every symbol written in between holding anything it is ever assigned.
+    fn thrown_env(
+        &self,
+        entry: &Env,
+        after: &Env,
+        writes: &FxHashSet<oxc_syntax::symbol::SymbolId>,
+    ) -> Env {
+        let mut thrown = entry.join(after);
         thrown.reachable = entry.reachable;
-        for symbol in &writes {
+        for symbol in writes {
             let all = self
                 .an
                 .symbol_value(self.module.symbol(*symbol))
@@ -698,27 +770,21 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             thrown.forget(*symbol);
         }
-        let mut after = after_try;
-        if let Some(handler) = &statement.handler {
-            self.env = thrown.clone();
-            if let Some(param) = &handler.param {
-                self.bind_pattern(&param.pattern, Val::unknown());
-            }
-            self.hoist(&handler.body.body);
-            self.statements(&handler.body.body);
-            after = after.join(&self.env);
-        }
-        if let Some(finalizer) = &statement.finalizer {
-            let completes = after.reachable;
-            self.env = after.join(&thrown);
-            self.hoist(&finalizer.body);
-            self.statements(&finalizer.body);
-            if !completes {
-                self.env = Env::unreachable();
-            }
-        } else {
-            self.env = after;
-        }
+        thrown
+    }
+
+    /// Runs `finalizer` from `env` (a break or continue leaving through it): the environment
+    /// the jump continues with, unless the finaliser itself never completes.
+    fn finally_from(
+        &mut self,
+        finalizer: &'a oxc_ast::ast::BlockStatement<'a>,
+        env: Env,
+    ) -> Option<Env> {
+        let saved = std::mem::replace(&mut self.env, env);
+        self.hoist(&finalizer.body);
+        self.statements(&finalizer.body);
+        let out = std::mem::replace(&mut self.env, saved);
+        out.reachable.then_some(out)
     }
 
     /// Whether `symbol` is a local this unit follows flow-sensitively.

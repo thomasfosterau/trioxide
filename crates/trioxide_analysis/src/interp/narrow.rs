@@ -121,7 +121,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     if let Expression::UnaryExpression(unary) = one.without_parentheses()
                         && unary.operator == UnaryOperator::Typeof
                         && let Expression::StringLiteral(literal) = other.without_parentheses()
-                        && let Some(symbol) = self.tracked_identifier(&unary.argument)
+                        && let Some(symbol) = self.tracked_in(binary.span, &unary.argument)
                     {
                         let tag = literal.value.as_str().to_string();
                         update(env, symbol, |value| narrow_typeof(value, &tag, equal));
@@ -130,7 +130,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 }
                 // x === literal
                 for (one, other) in [(&binary.left, &binary.right), (&binary.right, &binary.left)] {
-                    let Some(symbol) = self.tracked_identifier(one) else {
+                    let Some(symbol) = self.tracked_in(binary.span, one) else {
                         continue;
                     };
                     let constant = self.recorded(other);
@@ -140,7 +140,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     update(env, symbol, |value| {
                         narrow_equal(value, &constant.ty, equal, loose)
                     });
-                    if let Some(other_symbol) = self.tracked_identifier(other) {
+                    if let Some(other_symbol) = self.tracked_in(binary.span, other) {
                         let _ = other_symbol;
                     }
                     return;
@@ -167,7 +167,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 else {
                     return;
                 };
-                if let Some(symbol) = self.tracked_identifier(&binary.left) {
+                if let Some(symbol) = self.tracked_in(binary.span, &binary.left) {
                     update(env, symbol, |value| {
                         let Some(number) = value.ty.as_number() else {
                             return value.clone();
@@ -193,7 +193,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         }
                     });
                 }
-                if let Some(symbol) = self.tracked_identifier(&binary.right) {
+                if let Some(symbol) = self.tracked_in(binary.span, &binary.right) {
                     update(env, symbol, |value| {
                         let Some(number) = value.ty.as_number() else {
                             return value.clone();
@@ -225,7 +225,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     } else {
                         (&binary.right, &binary.left)
                     };
-                    if let Some(index) = self.tracked_identifier(index)
+                    if let Some(index) = self.tracked_in(binary.span, index)
                         && let Some(array) = self.length_of(bound, env)
                         && !env.bounds.contains(&(index, array))
                     {
@@ -253,6 +253,24 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             _ => None,
         }
+    }
+
+    /// The tracked local `expression` names, unless code within `span` assigns it: a
+    /// comparison's operands run before the narrowing applies, so a fact about the value
+    /// compared says nothing about the one assigned.
+    fn tracked_in(&self, span: oxc_span::Span, expression: &Expression<'_>) -> Option<SymbolId> {
+        let symbol = self.tracked_identifier(expression)?;
+        let semantic = &self.module.semantic;
+        let written = semantic
+            .scoping()
+            .get_resolved_references(symbol)
+            .any(|reference| {
+                reference.is_write()
+                    && span.contains_inclusive(
+                        oxc_span::GetSpan::span(&semantic.nodes().kind(reference.node_id())),
+                    )
+            });
+        (!written).then_some(symbol)
     }
 
     /// The tracked local `expression` names.
