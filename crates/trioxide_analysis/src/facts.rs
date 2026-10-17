@@ -337,9 +337,13 @@ pub struct LoopFacts {
     /// not in bounds through them).
     pub length_changed: Vec<SymbolRef>,
     /// Numeric locals it assigns, with their range at the loop head (loop counters among
-    /// them). A pass can treat an expression as loop-invariant when it [`Facts::is_pure`]
-    /// and reads none of `written`.
+    /// them).
     pub induction: Vec<(SymbolRef, Fact<NumberType>)>,
+    /// The largest expressions inside it whose value is the same on every iteration and that
+    /// can be evaluated once before it: proven pure, allocating nothing, reading none of
+    /// `written`, and reading no outside state when the loop writes any. (Identifiers and
+    /// literals are left out.)
+    pub invariant: Vec<NodeRef>,
 }
 
 impl Facts {

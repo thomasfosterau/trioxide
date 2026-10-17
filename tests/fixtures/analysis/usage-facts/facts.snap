@@ -12,13 +12,16 @@ functions:
   early (18:1): pure
   loop (26:1): reads
   popping (34:1): reads writes allocates throws calls-unknown
-  main (43:8) open: reads writes allocates throws calls-unknown
-    calls 45:16 -> square
-    calls 46:18 -> bump
-    calls 48:47 -> early
-    calls 48:60 -> early
-    calls 49:15 -> loop
-    calls 49:32 -> popping
+  invariant (43:1): reads
+  main (51:8) open: reads writes allocates throws calls-unknown
+    calls 53:16 -> square
+    calls 54:18 -> bump
+    calls 56:47 -> early
+    calls 56:60 -> early
+    calls 57:15 -> loop
+    calls 57:32 -> popping
+    calls 57:52 -> invariant
+    calls 57:74 -> invariant
 nodes:
   3:5 bind `log`: 0@proven
   5:10 bind `bump`: function@proven
@@ -75,38 +78,64 @@ nodes:
   38:5 ref `total`: number[0, inf] int nonNaN nonNegZero@declared
   38:14 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
   40:10 ref `total`: number[0, inf] int nonNaN nonNegZero@declared
-  43:17 bind `main`: function@proven
-  44:9 bind `point`: {| x: 1 |}@proven
-  44:17 object `{ x: 1 }`: {| x: 1 |}@proven escape=none stable-shape
-  45:9 bind `pure`: 9@proven
-  45:16 call `square(3)`: 9@proven
-  45:16 ref `square`: function@proven
-  46:9 bind `effect`: 2@proven
-  46:18 call `bump(2)`: 2@proven
-  46:18 ref `bump`: function@proven
-  47:9 bind `outside`: unknown
-  47:19 call `(globalThis as any).unknown?.(1)`: unknown
-  47:19 member `(globalThis as any).unknown`: unknown
-  47:20 cast `globalThis as any`: unknown
-  47:20 ref `globalThis`: unknown
-  48:3 call `console.log(point.x, pure, effect, ou...`: unknown
-  48:3 member `console.log`: unknown
-  48:3 ref `console`: unknown
-  48:15 member `point.x`: 1@proven
-  48:15 ref `point`: {| x: 1 |}@proven
-  48:24 ref `pure`: 9@proven
-  48:30 ref `effect`: 2@proven
-  48:38 ref `outside`: unknown
-  48:47 call `early(true)`: number[1, 2] int nonNaN nonNegZero@proven
-  48:47 ref `early`: function@proven
-  48:60 call `early(false)`: number[1, 2] int nonNaN nonNegZero@proven
-  48:60 ref `early`: function@proven
-  49:3 call `console.log(loop([1, 2, 3]), popping(...`: unknown
-  49:3 member `console.log`: unknown
-  49:3 ref `console`: unknown
-  49:15 call `loop([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
-  49:15 ref `loop`: function@proven
-  49:20 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
-  49:32 call `popping([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@declared
-  49:32 ref `popping`: function@proven
-  49:40 array `[1, 2, 3]`: unknown[]@proven escape=unknown
+  43:10 bind `invariant`: function@proven
+  43:20 bind `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  43:38 bind `k`: number[4, 5] int nonNaN nonNegZero@proven
+  44:7 bind `total`: 0@proven
+  45:12 bind `i`: 0@proven
+  45:19 binary `i < values.length`: boolean@proven
+  45:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  45:23 member `values.length`: number[0, 2] int nonNaN nonNegZero@proven
+  45:23 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  45:38 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  45:38 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  46:5 assign `total += values[i] + k * 3`: number[13, inf] int nonNaN nonNegZero@proven
+  46:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  46:14 binary `values[i] + k * 3`: number[13, 17] int nonNaN nonNegZero@proven
+  46:14 member `values[i]`: number[1, 2] int nonNaN nonNegZero@proven in-bounds@proven
+  46:14 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  46:21 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  46:26 binary `k * 3`: number[12, 15] int nonNaN nonNegZero@proven
+  46:26 ref `k`: number[4, 5] int nonNaN nonNegZero@proven
+  48:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  51:17 bind `main`: function@proven
+  52:9 bind `point`: {| x: 1 |}@proven
+  52:17 object `{ x: 1 }`: {| x: 1 |}@proven escape=none stable-shape
+  53:9 bind `pure`: 9@proven
+  53:16 call `square(3)`: 9@proven
+  53:16 ref `square`: function@proven
+  54:9 bind `effect`: 2@proven
+  54:18 call `bump(2)`: 2@proven
+  54:18 ref `bump`: function@proven
+  55:9 bind `outside`: unknown
+  55:19 call `(globalThis as any).unknown?.(1)`: unknown
+  55:19 member `(globalThis as any).unknown`: unknown
+  55:20 cast `globalThis as any`: unknown
+  55:20 ref `globalThis`: unknown
+  56:3 call `console.log(point.x, pure, effect, ou...`: unknown
+  56:3 member `console.log`: unknown
+  56:3 ref `console`: unknown
+  56:15 member `point.x`: 1@proven
+  56:15 ref `point`: {| x: 1 |}@proven
+  56:24 ref `pure`: 9@proven
+  56:30 ref `effect`: 2@proven
+  56:38 ref `outside`: unknown
+  56:47 call `early(true)`: number[1, 2] int nonNaN nonNegZero@proven
+  56:47 ref `early`: function@proven
+  56:60 call `early(false)`: number[1, 2] int nonNaN nonNegZero@proven
+  56:60 ref `early`: function@proven
+  57:3 call `console.log(loop([1, 2, 3]), popping(...`: unknown
+  57:3 member `console.log`: unknown
+  57:3 ref `console`: unknown
+  57:15 call `loop([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  57:15 ref `loop`: function@proven
+  57:20 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  57:32 call `popping([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@declared
+  57:32 ref `popping`: function@proven
+  57:40 array `[1, 2, 3]`: unknown[]@proven escape=unknown
+  57:52 call `invariant([1, 2], 4)`: number[0, inf] int nonNaN nonNegZero@proven
+  57:52 ref `invariant`: function@proven
+  57:62 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  57:74 call `invariant([], 5)`: number[0, inf] int nonNaN nonNegZero@proven
+  57:74 ref `invariant`: function@proven
+  57:84 array `[]`: never[]@proven escape=known stable-shape

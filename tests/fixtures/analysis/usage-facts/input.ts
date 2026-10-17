@@ -40,11 +40,19 @@ function popping(values: number[]): number {
   return total;
 }
 
+function invariant(values: number[], k: number): number {
+  let total = 0;
+  for (let i = 0; i < values.length; i++) {
+    total += values[i] + k * 3;
+  }
+  return total;
+}
+
 export function main(): void {
   const point = { x: 1 };
   const pure = square(3);
   const effect = bump(2);
   const outside = (globalThis as any).unknown?.(1);
   console.log(point.x, pure, effect, outside, early(true), early(false));
-  console.log(loop([1, 2, 3]), popping([1, 2, 3]));
+  console.log(loop([1, 2, 3]), popping([1, 2, 3]), invariant([1, 2], 4), invariant([], 5));
 }

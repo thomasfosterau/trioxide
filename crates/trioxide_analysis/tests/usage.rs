@@ -121,6 +121,25 @@ fn usage_queries() {
     let popping = facts.loop_facts(popping).expect("the loop ran");
     assert_eq!(popping.length_changed.len(), 1, "{popping:?}");
 
+    let invariant_loop = fixture.node(
+        "for (let i = 0; i < values.length; i++) {\n    total += values[i] + k * 3;\n  }",
+        |kind| matches!(kind, AstKind::ForStatement(_)),
+    );
+    let invariant_loop = facts.loop_facts(invariant_loop).expect("the loop ran");
+    let k_times_3 = fixture.node("k * 3", |kind| matches!(kind, AstKind::BinaryExpression(_)));
+    assert!(
+        invariant_loop.invariant.contains(&k_times_3),
+        "{invariant_loop:?}"
+    );
+    assert!(
+        !invariant_loop
+            .invariant
+            .contains(&fixture.node("values[i] + k * 3", |kind| {
+                matches!(kind, AstKind::BinaryExpression(_))
+            })),
+        "{invariant_loop:?}"
+    );
+
     // Reachability.
     let never = fixture.node("function never(): number {\n  return 1;\n}", |kind| {
         matches!(kind, AstKind::Function(_))

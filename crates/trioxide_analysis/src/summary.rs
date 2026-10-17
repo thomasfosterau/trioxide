@@ -276,6 +276,7 @@ fn usage_facts(
                 )
             })
     };
+    let mut pending_loops = Vec::new();
     let mut open_sites = FxHashSet::default();
     let mut reached = FxHashSet::default();
     let mut skipped = Vec::new();
@@ -309,18 +310,25 @@ fn usage_facts(
                     ))
                 })
                 .collect();
-            facts.set_loop_facts(
+            let written = symbols(&record.written);
+            pending_loops.push((
                 node,
                 LoopFacts {
                     effects,
-                    written: symbols(&record.written),
+                    written,
                     length_changed: symbols(&record.length_changed),
                     induction,
+                    invariant: Vec::new(),
                 },
-            );
+            ));
         }
         reached.extend(record.reached.iter().copied());
         skipped.extend(record.skipped.iter().copied());
+    }
+    // Effects first: invariance needs them.
+    for (node, mut loop_facts) in pending_loops {
+        loop_facts.invariant = invariant_expressions(facts, world, node, &loop_facts);
+        facts.set_loop_facts(node, loop_facts);
     }
     facts.set_open_sites(open_sites);
     for (&node, value) in &results.output.nodes {
@@ -401,4 +409,82 @@ fn union(a: Effects, b: Effects) -> Effects {
         throws: a.throws || b.throws,
         calls_unknown: a.calls_unknown || b.calls_unknown,
     }
+}
+
+/// The largest loop-invariant expressions of the loop `node` (see [`LoopFacts::invariant`]).
+fn invariant_expressions(
+    facts: &Facts,
+    world: &World<'_>,
+    node: NodeRef,
+    loop_facts: &LoopFacts,
+) -> Vec<NodeRef> {
+    use oxc_ast::AstKind;
+    use oxc_span::GetSpan;
+    let module = world.module(node.module);
+    let nodes = module.semantic.nodes();
+    let scoping = module.semantic.scoping();
+    let loop_span = nodes.kind(node.node).span();
+    let loop_writes = loop_facts.effects.0.writes;
+    // Node ids are preorder: the loop's descendants follow it.
+    let inside: Vec<_> = (node.node.index() + 1..nodes.len())
+        .map(oxc_syntax::node::NodeId::from_usize)
+        .take_while(|&id| {
+            let span = nodes.kind(id).span();
+            loop_span.start <= span.start && span.end <= loop_span.end
+        })
+        .collect();
+    let variant_reads: Vec<Span> = inside
+        .iter()
+        .filter_map(|&id| match nodes.kind(id) {
+            AstKind::IdentifierReference(ident) => {
+                let symbol = scoping
+                    .get_reference(ident.reference_id.get()?)
+                    .symbol_id()?;
+                loop_facts
+                    .written
+                    .contains(&module.symbol(symbol))
+                    .then_some(ident.span)
+            }
+            _ => None,
+        })
+        .collect();
+    let mut found: Vec<(NodeRef, Span)> = Vec::new();
+    for &id in &inside {
+        let kind = nodes.kind(id);
+        if !matches!(
+            kind,
+            AstKind::BinaryExpression(_)
+                | AstKind::UnaryExpression(_)
+                | AstKind::LogicalExpression(_)
+                | AstKind::ConditionalExpression(_)
+                | AstKind::StaticMemberExpression(_)
+                | AstKind::ComputedMemberExpression(_)
+                | AstKind::CallExpression(_)
+                | AstKind::TemplateLiteral(_)
+        ) {
+            continue;
+        }
+        let span = kind.span();
+        if found
+            .iter()
+            .any(|(_, outer)| outer.start <= span.start && span.end <= outer.end)
+        {
+            continue;
+        }
+        let expression = module.node(id);
+        let effects = facts.expr_effects(expression);
+        let pure = facts.is_pure(expression);
+        if effects.trust != Trust::Proven
+            || !pure.value
+            || effects.value.allocates
+            || (effects.value.reads && loop_writes)
+            || variant_reads
+                .iter()
+                .any(|read| span.start <= read.start && read.end <= span.end)
+        {
+            continue;
+        }
+        found.push((expression, span));
+    }
+    found.into_iter().map(|(node, _)| node).collect()
 }

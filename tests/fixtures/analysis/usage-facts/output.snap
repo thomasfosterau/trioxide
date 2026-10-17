@@ -38,6 +38,13 @@ function popping(values) {
 	}
 	return total;
 }
+function invariant(values, k) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		total += values[i] + k * 3;
+	}
+	return total;
+}
 export function main() {
 	const point = { x: 1 };
 	const pure = square(3);
@@ -52,5 +59,5 @@ export function main() {
 		1,
 		2,
 		3
-	]));
+	]), invariant([1, 2], 4), invariant([], 5));
 }

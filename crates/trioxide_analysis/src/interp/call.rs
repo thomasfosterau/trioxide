@@ -765,7 +765,10 @@ impl<'a> Cx<'_, '_, 'a> {
                     });
                 }
                 // An argument with no value yet (not reached this round): nothing to record.
-                values if values.iter().any(|value| value.ty == Type::Never && value.pts.is_none()) => {}
+                values
+                    if values
+                        .iter()
+                        .any(|value| value.ty == Type::Never && value.pts.is_none()) => {}
                 values => {
                     for value in values {
                         self.store_elem(object, value);
