@@ -122,7 +122,7 @@ fn touch(xs: &mut [f64]) {
         if ops::rem(i, 4.0) == 1.0 {
             array::set(xs, i, f64::NAN);
         } else if ops::rem(i, 4.0) == 2.0 {
-            array::set(xs, i, array::get(xs, i) + 0.0);
+            array::set(xs, i, array::store_number(array::get(xs, i) + 0.0));
         } else if ops::rem(i, 4.0) == 3.0 {
             array::set(xs, i, array::store_number(array::get(xs, i)));
         }

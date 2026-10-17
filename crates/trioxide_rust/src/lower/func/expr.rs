@@ -1580,9 +1580,11 @@ impl<'a> FnCx<'_, '_, 'a> {
         let proven_number = match elem {
             Elem::Typed(_) => true,
             Elem::Number => {
+                // TypeScript's `number[]` doesn't rule out holes, so only proof counts; a
+                // `number[]` created in the island has none.
                 let fact = self.facts().ty(self.node(m.node_id()));
-                // A `number[]` created in the island has no holes.
-                (self.facts().is_usable(fact.trust) && matches!(fact.value, Type::Number(_)))
+                (fact.trust == trioxide_analysis::Trust::Proven
+                    && matches!(fact.value, Type::Number(_)))
                     || matches!(
                         array.kind,
                         Kind::Array {
@@ -1593,7 +1595,7 @@ impl<'a> FnCx<'_, '_, 'a> {
                     )
             }
         };
-        let defined = (index.in_bounds || local) && proven_number;
+        let defined = index.in_bounds || local && proven_number;
         let int = index.in_bounds
             && defined
             && matches!(
@@ -1624,8 +1626,10 @@ impl<'a> FnCx<'_, '_, 'a> {
     /// An array index; in bounds if the analysis proves it for the access at `node`.
     pub(super) fn index(&mut self, expression: &'a Expression<'a>, node: NodeId) -> Option<Index> {
         let value = self.number(expression)?;
+        // Unchecked accesses need proof: a declared fact that is wrong would read or write
+        // outside the array. A proven one also rules out holes.
         let fact = self.facts().in_bounds(self.node(node));
-        let in_bounds = fact.value && self.facts().is_usable(fact.trust);
+        let in_bounds = fact.value && fact.trust == trioxide_analysis::Trust::Proven;
         Some(Index {
             value: value.expr,
             ty: value.ty,

@@ -1070,7 +1070,7 @@ impl<'a> FnCx<'_, '_, 'a> {
         match (&value.kind, elem) {
             (Kind::Num { undef: false }, _) | (Kind::Num { undef: true }, Elem::Typed(_)) => {}
             (Kind::Num { undef: true }, Elem::Number) => {
-                self.fail::<()>(span, "may store undefined in a `number[]`");
+                self.fail::<()>(span, "may store undefined in a `number[]` (a value read from a hole or past the end, which the analysis can't rule out)");
                 return;
             }
             (other, _) => {

@@ -210,13 +210,17 @@ pub unsafe fn set_unchecked<T: Element>(xs: &mut [T], index: usize, value: f64) 
 pub const HOLE: u64 = 0x7ff4_7472_696f_7869;
 
 /// A value about to be stored in a `number[]`: [`HOLE`] becomes an ordinary NaN (what
-/// `+undefined` is), so the glue only sees [`HOLE`] where the island didn't write.
+/// `+undefined` is), so the glue only sees [`HOLE`] where the island didn't write. Every
+/// store goes through it: `x * 1` and `x - 0` fold to `x`, and `-x` and `Math.abs` only
+/// change the sign, so arithmetic can carry the pattern too. The selection is on the bits,
+/// which the optimiser can't treat as an interchangeable NaN.
 pub fn store_number(value: f64) -> f64 {
-    if value.to_bits() == HOLE {
-        f64::NAN
+    let bits = value.to_bits();
+    f64::from_bits(if bits == HOLE {
+        f64::NAN.to_bits()
     } else {
-        value
-    }
+        bits
+    })
 }
 
 /// `xs.length` as a number.

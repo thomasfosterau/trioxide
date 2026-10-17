@@ -213,7 +213,11 @@ fn normalize(values: &mut [f64]) {
     let total = sum(values);
     let mut i = 0.0;
     while i < array::len(values) {
-        array::set(values, i, array::get(values, i) / core::hint::black_box(total));
+        array::set(
+            values,
+            i,
+            array::store_number(array::get(values, i) / core::hint::black_box(total)),
+        );
         i += 1.0;
     }
 }
