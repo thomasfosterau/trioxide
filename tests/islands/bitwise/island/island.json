@@ -1,0 +1,124 @@
+{
+  "id": "bitwise",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "fnv1a",
+      "wasmName": "fnv1a",
+      "params": [
+        {
+          "name": "bytes",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    },
+    {
+      "name": "crc32",
+      "wasmName": "crc32",
+      "params": [
+        {
+          "name": "bytes",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    },
+    {
+      "name": "popcount",
+      "wasmName": "popcount",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "xorshift",
+      "wasmName": "xorshift",
+      "params": [
+        {
+          "name": "seed",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "out",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i32"
+          },
+          "mutated": true
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "reverseBits",
+      "wasmName": "reverseBits",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    },
+    {
+      "name": "packRgba",
+      "wasmName": "packRgba",
+      "params": [
+        {
+          "name": "r",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "g",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    }
+  ]
+}

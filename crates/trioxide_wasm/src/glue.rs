@@ -257,7 +257,9 @@ function $alloc(bytes, align) {{
 
 function $trap(error, name) {{
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
-  if ($wasm.__trioxide_trap_code() === 1) return new RangeError(`trioxide: island "{id}" ran out of memory in ${{name}}()`);
+  const code = $wasm.__trioxide_trap_code();
+  if (code === 1) return new RangeError(`trioxide: island "{id}" ran out of memory in ${{name}}()`);
+  if (code === 2) return new RangeError(`Invalid typed array length (in ${{name}}(), island "{id}")`);
   return new Error(`trioxide: island "{id}" trapped in ${{name}}(); this is a trioxide bug`, {{ cause: error }});
 }}
 "#

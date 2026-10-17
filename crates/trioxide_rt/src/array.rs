@@ -3,11 +3,11 @@
 //! Arrays reach Rust as slices into linear memory (see [`abi`](crate::abi)). A typed array of
 //! kind `K` is a slice of `K`'s [`Element`] type; a `number[]` is a `[f64]`.
 //!
-//! - **Reads**: [`get`] / [`get_i32`] return `NaN` for any index that is not an in-bounds
+//! - **Reads**: [`get`] / [`get_i32`] / [`get_usize`] return `NaN` for any index that is not an in-bounds
 //!   integer, which is what `undefined` becomes in arithmetic. Reads the analysis proves in
 //!   bounds use [`get_unchecked`] or plain `xs[i]`. A read whose `undefined` result could be
 //!   observed other than through arithmetic (`=== undefined`, `??`) keeps the function in JS.
-//! - **Typed array writes**: [`set`] / [`set_i32`] convert with the element type's rules and
+//! - **Typed array writes**: [`set`] / [`set_i32`] / [`set_usize`] convert with the element type's rules and
 //!   silently ignore invalid or out-of-bounds indices, as typed arrays do.
 //! - **`number[]` writes** must be proven in bounds (an out-of-bounds write would grow the
 //!   array, which v1 islands cannot express): use `xs[i] = v` or [`set_unchecked`].
@@ -153,6 +153,12 @@ pub fn get_i32<T: Element>(xs: &[T], index: i32) -> f64 {
         .map_or(f64::NAN, |x| x.to_f64())
 }
 
+/// [`get`] with a non-negative integer index, e.g. a loop counter bounded by another
+/// array's length.
+pub fn get_usize<T: Element>(xs: &[T], index: usize) -> f64 {
+    xs.get(index).map_or(f64::NAN, |x| x.to_f64())
+}
+
 /// `xs[index]` where the analysis proved `index` in bounds.
 ///
 /// # Safety
@@ -174,6 +180,13 @@ pub fn set<T: Element>(xs: &mut [T], index: f64, value: f64) {
 /// [`set`] with an int32 index.
 pub fn set_i32<T: Element>(xs: &mut [T], index: i32, value: f64) {
     if let Some(slot) = usize::try_from(index).ok().and_then(|i| xs.get_mut(i)) {
+        *slot = T::from_f64(value);
+    }
+}
+
+/// [`set`] with a non-negative integer index.
+pub fn set_usize<T: Element>(xs: &mut [T], index: usize, value: f64) {
+    if let Some(slot) = xs.get_mut(index) {
         *slot = T::from_f64(value);
     }
 }

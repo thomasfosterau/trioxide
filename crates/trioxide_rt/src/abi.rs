@@ -9,7 +9,8 @@
 //!
 //! **Exports** (wasm32 only): `__trioxide_alloc(size, align) -> ptr` (0 when out of memory),
 //! `__trioxide_reset()`, `__trioxide_abi_version() -> u32`, and `__trioxide_trap_code() -> u32`
-//! (why the last trap happened: [`TRAP_NONE`] or [`TRAP_OUT_OF_MEMORY`]).
+//! (why the last trap happened: [`TRAP_NONE`], [`TRAP_OUT_OF_MEMORY`] or
+//! [`TRAP_INVALID_LENGTH`]).
 //!
 //! **Arguments.** Pointers and lengths arrive as `u32`. [`slice`], [`slice_mut`],
 //! [`struct_ref`] and [`struct_mut`] turn them into references.
@@ -26,6 +27,9 @@ pub const TRAP_NONE: u32 = 0;
 /// The island ran out of linear memory allocating a temporary. The glue throws a
 /// `RangeError`, as JavaScript does when an allocation is too large.
 pub const TRAP_OUT_OF_MEMORY: u32 = 1;
+/// A typed array constructor got an invalid length ([`new_array`]). The glue throws a
+/// `RangeError`, as the constructor would.
+pub const TRAP_INVALID_LENGTH: u32 = 2;
 
 /// How an array return is described to the glue: where its elements are and how many.
 #[repr(C)]
@@ -152,6 +156,29 @@ pub fn alloc_array<T: Element>(len: usize) -> &'static mut [T] {
         ptr.write_bytes(0, len);
         core::slice::from_raw_parts_mut(ptr, len)
     }
+}
+
+/// `new Float64Array(length)` (or any typed array kind) inside an island: `length` goes
+/// through ToIndex (truncated, NaN → 0), and lengths that are negative or beyond 2^53 - 1
+/// trap with [`TRAP_INVALID_LENGTH`]. Zero-filled, from the arena like [`alloc_array`].
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a non-negative integer; lengths beyond usize can't be allocated anyway"
+)]
+pub fn new_array<T: Element>(length: f64) -> &'static mut [T] {
+    let length = if length.is_nan() {
+        0.0
+    } else {
+        crate::math::trunc(length)
+    };
+    if !(0.0..=9_007_199_254_740_991.0).contains(&length) {
+        trap(TRAP_INVALID_LENGTH);
+    }
+    if length > usize::MAX as f64 {
+        trap(TRAP_OUT_OF_MEMORY);
+    }
+    alloc_array(length as usize)
 }
 
 /// The array argument at `ptr`/`len` (an element count).
