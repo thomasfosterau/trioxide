@@ -1970,9 +1970,12 @@ version = "0.0.0"
 dependencies = [
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_parser",
  "oxc_span",
+ "rustc-hash",
  "serde",
+ "tempfile",
  "trioxide_common",
  "tsrs_ast",
  "tsrs_astnav",

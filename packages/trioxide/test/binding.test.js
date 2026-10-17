@@ -7,7 +7,7 @@ import { test } from 'vitest';
 
 import { spawnSync } from 'node:child_process';
 
-import { Project, build, explain, findConfig, loadConfig, transform } from 'trioxide';
+import { Project, build, explain, findConfig, hasTsrs, loadConfig, transform } from 'trioxide';
 
 test('transform strips types and returns a sourcemap', () => {
   const out = transform('const x: number = 1;\nexport { x };\n', '/virtual/a.ts');
@@ -44,7 +44,7 @@ test('Project builds, updates and transforms', () => {
     output.modules.map((module) => path.basename(module.path)),
     ['main.ts', 'two.ts'],
   );
-  assert.equal(output.report.typeOracle, 'noop');
+  assert.equal(output.report.typeOracle, hasTsrs ? 'tsrs' : 'noop');
 
   const invalidation = project.update(path.join(project.root, 'two.ts'), 'export const two: number = 3;\n');
   assert.equal(path.basename(invalidation.changed), 'two.ts');

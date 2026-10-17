@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use trioxide_common::{Diagnostic, ModuleId, Span};
+use trioxide_common::{Diagnostic, ModuleId, NodeId, Span};
 
 use crate::ty::{Signature, Type};
 
@@ -89,6 +89,59 @@ pub trait TypeOracle: Send {
         let _ = module;
         Vec::new()
     }
+
+    /// The declared type of the symbol referenced or declared at `span`: what TypeScript says
+    /// every value of the binding has, without the flow narrowing [`type_at`](Self::type_at)
+    /// applies. Imports resolve to the exported binding.
+    fn symbol_type_at(&mut self, module: ModuleId, span: Span) -> Option<Type> {
+        let _ = (module, span);
+        None
+    }
+
+    /// Facts about TypeScript's type at `span` that the [`Type`] lattice does not keep, such as
+    /// whether it is `any`.
+    fn type_flags_at(&mut self, module: ModuleId, span: Span) -> Option<TsTypeFlags> {
+        let _ = (module, span);
+        None
+    }
+
+    /// TypeScript's rendering of the type at `span`, e.g. `"number[]"`. For debugging and
+    /// reports only: never parse it.
+    fn type_string_at(&mut self, module: ModuleId, span: Span) -> Option<String> {
+        let _ = (module, span);
+        None
+    }
+
+    /// Tells the oracle which oxc nodes declare classes and functions in `module`, so that
+    /// [`Type::Instance`] and [`Type::Function`] answers can name them. Each entry is the span
+    /// of the declaration's name (or of the whole node when it has none) and its node id.
+    /// Replaces earlier registrations for `module`.
+    fn register_declarations(&mut self, module: ModuleId, declarations: &[(Span, NodeId)]) {
+        let _ = (module, declarations);
+    }
+
+    /// Whether `span` matches a checker node in `module` at all. Used to measure how well oxc
+    /// and checker spans line up.
+    fn matches_node(&mut self, module: ModuleId, span: Span) -> bool {
+        let _ = (module, span);
+        false
+    }
+}
+
+/// Facts about a TypeScript type that [`Type`] does not represent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent flags")]
+pub struct TsTypeFlags {
+    /// `any`, or a union containing it. Values of such a type can be anything.
+    pub any: bool,
+    /// `unknown`.
+    pub unknown: bool,
+    /// A literal type (`1`, `"a"`, `true`) or a union of them.
+    pub literal: bool,
+    /// A type parameter or a type built from one (indexed access, conditional).
+    pub generic: bool,
+    /// Includes `null` or `undefined`.
+    pub nullable: bool,
 }
 
 /// An oracle that knows nothing: every type is unknown.

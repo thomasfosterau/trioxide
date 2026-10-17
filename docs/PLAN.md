@@ -124,8 +124,10 @@ escapes the adapter:
 - `Boolean`, `String`, `BigInt`, `Symbol`, `Null`, `Undefined`
 - `Array(elem)`, `TypedArray(kind)`, `Tuple([...])`, identified by comparing against tsrs's
   global types (`Array`, `Float64Array`, …)
-- `Object(Shape)`, a closed shape (known keys, no prototype tricks) from object literal
-  types and classes
+- `Object(Shape)`: known keys with their types. A shape is *exact* (exactly these own data
+  properties, `Object.prototype` as prototype) only when the analysis proves it from the
+  object literal's creation and every use; TS object types are open, so oracle shapes never
+  are
 - `Instance(ClassId)` for classes with known fields and no dynamic mutation
 - `Function(Signature, FunctionId?)` from resolved signatures
 - `Union([...])`, `Unknown` (top), `Never`
@@ -135,6 +137,15 @@ escapes the adapter:
 `Type::flags`. It owns program setup (an in-memory `tsrs_vfs`, `tsconfig.json` parsing,
 bundled `lib.d.ts`) and incremental updates (`update_program`). It is also the only place
 that knows the tsrs API, so tsrs bumps stay local.
+
+The VFS is an overlay: the project's modules come from memory (so unsaved Vite edits are
+seen), everything else (`tsconfig.json`, `node_modules` declarations) from disk. Every module
+in the graph is added to the tsconfig's root files. Without a tsconfig the oracle uses strict,
+`esnext`, `bundler`-resolution defaults. Conversion is conservative: `any`, `unknown`, `void`
+(a `void` function may return anything), intersections, library classes and index-signature
+objects become `Unknown`. `Instance` and `Function` answers name oxc nodes, so the analysis
+registers its class and function declarations with the oracle (`register_declarations`)
+before asking.
 
 **Span correlation.** oxc and tsrs both use UTF-8 byte offsets. For each oxc node of
 interest, the adapter finds the tsrs node with the same start (skipping TS-style leading
@@ -157,11 +168,22 @@ value degrades the affected bindings to `Unknown`. The bottom-up interprocedural
 over the call graph's SCCs propagates trust levels together with effects.
 
 **Embedding constraints.** tsrs checkers take `&mut self` (one per thread, behind a mutex),
-and its arenas are `'static` and leak. A build constructs one program and drops it with the
-process. In Vite dev, the adapter rebuilds the program after a configurable number of
-updates or a memory threshold. If that proves insufficient, the checker moves to a worker
-process. Whether to enable the `plain-ptrs` feature (avoiding tsrs's 32 GiB address
-reservation) is decided by measurement in S2.
+and its arenas are `'static`. The oracle runs every type query on the program's first
+checker and converts each answer before releasing it, so types from different checkers never
+meet and no tsrs handle outlives a query. Programs are built with tsrs's checker and
+file-loader regions, so the oracle can free a replaced program (`free_program`, then the
+shared file data and regions, in the order tsrs's own watcher uses). Updates are applied
+lazily with `update_program`; files it reparses still leak, so the adapter rebuilds from
+scratch after a configurable number of updates (default 100) or above a resident-memory
+threshold (default 4 GiB, Linux). If that proves insufficient, the checker moves to a worker
+process. A tsrs panic during a query is caught, answered as "unknown", and forces a rebuild.
+
+`plain-ptrs` (plain 64-bit handles instead of compressed 32-bit ones, avoiding the 32 GiB
+address reservation) is **not** enabled by default. Measured with
+`examples/oracle_memory.rs` (40k and 204k lines, release build): compressed handles use 16–20%
+less resident memory (68 vs 81 MiB, 237 vs 295 MiB) at the same speed; plain handles only
+save virtual address space (1.7 vs 34 GiB reserved). It is available as the `plain-ptrs`
+feature of `trioxide_types` for environments that cap virtual memory.
 
 ---
 
