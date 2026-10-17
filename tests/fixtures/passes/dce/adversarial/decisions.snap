@@ -9,7 +9,6 @@ input_file: tests/fixtures/passes/dce/adversarial/input.ts
 31:10 fold applied
 59:22 fold applied
 22:11 dce skipped: unused, but its initialiser has effects
-33:3 dce skipped: unreachable, but declares a `var` or function, which are visible before it
 33:3 dce applied
 41:3 dce skipped: unreachable, but declares a `var` or function, which are visible before it
 41:7 dce applied

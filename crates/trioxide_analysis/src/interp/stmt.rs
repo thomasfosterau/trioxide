@@ -24,8 +24,13 @@ impl<'a> Cx<'_, '_, 'a> {
         for (index, statement) in statements.iter().enumerate() {
             if !self.env.reachable {
                 // Dead code still gets facts (it can't run, so anything holds), but
-                // declarations hoisted into it are already bound.
+                // declarations hoisted into it are already bound. A function declaration is
+                // hoisted with its body: whether that runs depends on its callers, not on where
+                // it is written.
                 for statement in &statements[index..] {
+                    if matches!(statement, Statement::FunctionDeclaration(_)) {
+                        continue;
+                    }
                     let node = self.node(statement.node_id());
                     self.record.skipped.insert(node);
                 }
