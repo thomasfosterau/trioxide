@@ -67,6 +67,9 @@ pub struct GeneratedIsland {
     pub module: ModuleId,
     /// The exported functions with their JS names, in spec order.
     pub exports: Vec<(FunctionId, String)>,
+    /// How JS code may reach the exports: only exports whose binding is never reassigned
+    /// are listed, so calls to the others always stay JS.
+    pub bindings: Vec<ExportBinding>,
     /// Every function compiled into it (exports and the functions they call).
     pub members: Vec<FunctionId>,
     /// Some export takes two arrays or structs and writes to one, so the glue needs the JS
@@ -74,6 +77,16 @@ pub struct GeneratedIsland {
     pub needs_fallback: bool,
     /// The lowered island.
     pub rir: rir::Island,
+}
+
+/// An island export whose binding its module never reassigns, so a direct call of it can call
+/// the island instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportBinding {
+    /// The island export's name (also the function's name in its module).
+    pub name: String,
+    /// The names its module exports it under (`default` included).
+    pub exported_as: Vec<String>,
 }
 
 /// The result of compiling the directive-forced islands of a program.
@@ -245,6 +258,19 @@ pub fn forced_islands(
             .iter()
             .map(|export| (lowered.members[export.func.0], export.name.clone()))
             .collect();
+        let bindings = exports
+            .iter()
+            .filter_map(|(function, name)| {
+                let info = world.functions.get(function)?;
+                let symbol = info.func.id.as_ref()?.symbol_id.get()?;
+                let (exported_as, reassigned) =
+                    world.module(function.module)?.exported_names(symbol);
+                (!reassigned).then(|| ExportBinding {
+                    name: name.clone(),
+                    exported_as,
+                })
+            })
+            .collect();
         let needs_fallback = island.exports.iter().any(|export| {
             let aggregates = export
                 .params
@@ -279,6 +305,7 @@ pub fn forced_islands(
             source,
             module: module.id,
             exports,
+            bindings,
             members: lowered.members,
             needs_fallback,
             rir: island,

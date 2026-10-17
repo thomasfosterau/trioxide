@@ -261,7 +261,7 @@ impl Project {
                 Some(islands::IslandLink {
                     id: plan.id.clone(),
                     module: plan.module?,
-                    exports: plan.exports.clone(),
+                    bindings: plan.bindings.clone(),
                     members: plan.functions.clone(),
                     needs_fallback: plan.needs_fallback,
                 })
@@ -385,15 +385,32 @@ impl Project {
             },
             wasm: self.options.wasm.enabled,
         });
+        let imports: Vec<Vec<ModuleId>> = self
+            .graph
+            .modules()
+            .iter()
+            .map(|module| {
+                module
+                    .imports
+                    .iter()
+                    .filter_map(|import| match import.target {
+                        ImportTarget::Module(id) => Some(id),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .collect();
         let sources: Vec<SourceModule<'_>> = self
             .graph
             .modules()
             .iter()
-            .map(|module| SourceModule {
+            .zip(&imports)
+            .map(|(module, imports)| SourceModule {
                 id: module.id,
                 path: &module.path,
                 source: &module.source,
                 source_type: module.source_type,
+                imports,
             })
             .collect();
         self.partition = partitioner.partition_sources(&self.analysis.facts, &sources);

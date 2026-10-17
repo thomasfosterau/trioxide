@@ -6,13 +6,16 @@ use std::path::Path;
 use oxc_allocator::Allocator;
 use oxc_ast::{
     AstKind,
-    ast::{Class, ExportDefaultDeclarationKind, Function, FunctionType, Program, Statement},
+    ast::{
+        Class, ClassElement, Declaration, ExportDefaultDeclarationKind, Expression, Function,
+        FunctionType, Program, Statement,
+    },
 };
 use oxc_parser::Parser;
 use oxc_semantic::{Semantic, SemanticBuilder};
 use oxc_span::{GetSpan, SourceType, Span};
-use oxc_syntax::{node::NodeId, reference::ReferenceId, symbol::SymbolId};
-use rustc_hash::FxHashMap;
+use oxc_syntax::{node::NodeId, operator::UnaryOperator, reference::ReferenceId, symbol::SymbolId};
+use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_common::{ModuleId, NodeRef, SymbolRef};
 use trioxide_types::{ClassId, FunctionId};
 
@@ -27,6 +30,8 @@ pub struct SourceModule<'s> {
     pub source: &'s str,
     /// How to parse it.
     pub source_type: SourceType,
+    /// The graph modules it imports (statically, re-exports included).
+    pub imports: &'s [ModuleId],
 }
 
 /// A source directive about where a function goes (PLAN D11).
@@ -61,6 +66,54 @@ pub(crate) struct Module<'a> {
 }
 
 impl<'a> Module<'a> {
+    /// The names the module exports the binding `symbol` under (`export function f`,
+    /// `export { f as g }`, `export default f`), and whether anything assigns it.
+    pub fn exported_names(&self, symbol: SymbolId) -> (Vec<String>, bool) {
+        let scoping = self.semantic.scoping();
+        let reassigned = scoping
+            .get_resolved_references(symbol)
+            .any(oxc_semantic::Reference::is_write);
+        let mut names = Vec::new();
+        for statement in &self.program.body {
+            match statement {
+                Statement::ExportDeclaration(export) => {
+                    if let Declaration::FunctionDeclaration(f) = &export.declaration
+                        && f.id.as_ref().and_then(|id| id.symbol_id.get()) == Some(symbol)
+                        && let Some(id) = &f.id
+                    {
+                        names.push(id.name.to_string());
+                    }
+                }
+                Statement::ExportNamedDeclaration(export) => {
+                    for specifier in &export.specifiers {
+                        if let oxc_ast::ast::ModuleExportName::IdentifierReference(local) =
+                            &specifier.local
+                            && self.reference_symbol(local.reference_id.get()) == Some(symbol)
+                        {
+                            names.push(specifier.exported.name().to_string());
+                        }
+                    }
+                }
+                Statement::ExportDefaultDeclaration(export) => {
+                    let local = match &export.declaration {
+                        ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
+                            f.id.as_ref().and_then(|id| id.symbol_id.get())
+                        }
+                        ExportDefaultDeclarationKind::Identifier(id) => {
+                            self.reference_symbol(id.reference_id.get())
+                        }
+                        _ => None,
+                    };
+                    if local == Some(symbol) {
+                        names.push("default".into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        (names, reassigned)
+    }
+
     /// The symbol an identifier reference resolves to in this module.
     pub fn reference_symbol(&self, reference: Option<ReferenceId>) -> Option<SymbolId> {
         self.semantic
@@ -118,6 +171,84 @@ pub(crate) struct ClassInfo<'a> {
     pub name: Option<String>,
 }
 
+/// Whether evaluating a top-level statement runs no code: it only declares.
+fn declares_only(statement: &Statement<'_>) -> bool {
+    fn literal(expression: &Expression<'_>) -> bool {
+        match expression.get_inner_expression() {
+            Expression::NumericLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::NullLiteral(_) => true,
+            Expression::UnaryExpression(u) => {
+                matches!(
+                    u.operator,
+                    UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus
+                ) && literal(&u.argument)
+            }
+            _ => false,
+        }
+    }
+    fn plain_class(class: &Class<'_>) -> bool {
+        class.heritage.is_none()
+            && class.decorators.is_empty()
+            && class.body.body.iter().all(|element| match element {
+                ClassElement::MethodDefinition(m) => !m.r#static && !m.computed,
+                ClassElement::PropertyDefinition(p) => !p.r#static && !p.computed,
+                ClassElement::TSIndexSignature(_) => true,
+                _ => false,
+            })
+    }
+    fn declaration(declaration: &Declaration<'_>) -> bool {
+        match declaration {
+            Declaration::FunctionDeclaration(_)
+            | Declaration::TSTypeAliasDeclaration(_)
+            | Declaration::TSInterfaceDeclaration(_)
+            | Declaration::TSExternalModuleDeclaration(_)
+            | Declaration::TSGlobalDeclaration(_) => true,
+            Declaration::ClassDeclaration(class) => plain_class(class),
+            Declaration::VariableDeclaration(variables) => variables.declarations.iter().all(|d| {
+                d.id.get_binding_identifier().is_some() && d.init.as_ref().is_none_or(literal)
+            }),
+            Declaration::TSEnumDeclaration(e) => e.declare,
+            _ => false,
+        }
+    }
+    match statement {
+        Statement::EmptyStatement(_)
+        | Statement::ImportDeclaration(_)
+        | Statement::ExportNamedDeclaration(_)
+        | Statement::ExportFromDeclaration(_) => true,
+        Statement::ExportDeclaration(export) => declaration(&export.declaration),
+        Statement::ExportDefaultDeclaration(export) => matches!(
+            &export.declaration,
+            ExportDefaultDeclarationKind::FunctionDeclaration(_)
+                | ExportDefaultDeclarationKind::TSInterfaceDeclaration(_)
+        ),
+        statement => statement.as_declaration().is_some_and(declaration),
+    }
+}
+
+/// The modules that can reach themselves through imports.
+fn cyclic_modules(modules: &[SourceModule<'_>]) -> FxHashSet<ModuleId> {
+    let imports: FxHashMap<ModuleId, &[ModuleId]> =
+        modules.iter().map(|m| (m.id, m.imports)).collect();
+    let mut cyclic = FxHashSet::default();
+    for module in modules {
+        let mut seen = FxHashSet::default();
+        let mut stack: Vec<ModuleId> = module.imports.to_vec();
+        while let Some(next) = stack.pop() {
+            if next == module.id {
+                cyclic.insert(module.id);
+                break;
+            }
+            if seen.insert(next) {
+                stack.extend(imports.get(&next).copied().unwrap_or_default());
+            }
+        }
+    }
+    cyclic
+}
+
 /// Every module, parsed and indexed.
 pub(crate) struct World<'a> {
     pub modules: Vec<Module<'a>>,
@@ -125,6 +256,8 @@ pub(crate) struct World<'a> {
     pub misplaced: Vec<(ModuleId, Directive)>,
     pub functions: FxHashMap<FunctionId, FnInfo<'a>>,
     pub classes: FxHashMap<ClassId, ClassInfo<'a>>,
+    /// Modules in an import cycle: one of their importers may run before their body does.
+    pub cyclic: FxHashSet<ModuleId>,
 }
 
 impl<'a> World<'a> {
@@ -135,6 +268,7 @@ impl<'a> World<'a> {
             misplaced: Vec::new(),
             functions: FxHashMap::default(),
             classes: FxHashMap::default(),
+            cyclic: cyclic_modules(modules),
         };
         for (allocator, input) in allocators.iter().zip(modules) {
             let parsed = Parser::new(allocator, input.source, input.source_type).parse();
@@ -163,6 +297,24 @@ impl<'a> World<'a> {
             world.modules.push(module);
         }
         world
+    }
+
+    /// Whether no code of its module can run before the class declaration `class` (a
+    /// top-level statement): everything before it only declares (imports, functions, types,
+    /// literal constants, plain classes).
+    pub fn declared_first(&self, class: ClassId) -> bool {
+        let Some(module) = self.module(class.module) else {
+            return false;
+        };
+        for statement in &module.program.body {
+            if statement.span().start >= module.semantic.nodes().get_node(class.node).span().start {
+                return true;
+            }
+            if !declares_only(statement) {
+                return false;
+            }
+        }
+        false
     }
 
     pub fn module(&self, id: ModuleId) -> Option<&Module<'a>> {

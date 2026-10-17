@@ -260,6 +260,7 @@ fn eligibility_and_clusters() {
             path: &m.path,
             source: &m.source,
             source_type: m.source_type,
+            imports: &[],
         })
         .collect();
     let facts = project.analysis();

@@ -188,6 +188,8 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         let symbol = self.module.symbol(symbol);
         if let Some(value) = self.constant(symbol) {
+            let declared_in = self.resolve(symbol).module;
+            self.initialised(declared_in, id.node_id(), &id.name, id.span)?;
             return Some(value);
         }
         if self.resolve_function(symbol).is_some() {
@@ -204,6 +206,40 @@ impl<'a> FnCx<'_, '_, 'a> {
                 id.name
             ),
         )
+    }
+
+    /// Checks that reading the module-level `let`/`const`/`class` binding `name` (declared in
+    /// `module`) at `node` can't throw: the island has its value from the start, while JS
+    /// throws if the read runs before the declaration (the temporal dead zone). Without an
+    /// import cycle a module's body runs before its importers', so only the declaring
+    /// module's own evaluation can read it early, which the analysis follows.
+    fn initialised(
+        &mut self,
+        module: trioxide_common::ModuleId,
+        node: NodeId,
+        name: &str,
+        span: Span,
+    ) -> Option<()> {
+        if self.lw.world.cyclic.contains(&module) {
+            return self.fail(
+                span,
+                format!(
+                    "reads `{name}`, declared in a module in an import cycle, where code may \
+                     run before the declaration (and JS would throw)"
+                ),
+            );
+        }
+        let effects = self.facts().expr_effects(self.node(node));
+        if !self.facts().is_usable(effects.trust) || effects.value.throws {
+            return self.fail(
+                span,
+                format!(
+                    "reads `{name}`, which the analysis can't prove is initialised whenever \
+                     this runs (a read before its declaration throws)"
+                ),
+            );
+        }
+        Some(())
     }
 
     /// Follows an import to the binding it names.
@@ -1168,18 +1204,19 @@ impl<'a> FnCx<'_, '_, 'a> {
             });
             return self.fail(span, format!("`{name}` {message}"));
         }
+        if self.lw.world.cyclic.contains(&class.module) || !self.lw.world.declared_first(class) {
+            return self.fail(
+                n.span,
+                format!(
+                    "constructs `{}`, which may run before the class declaration (JS would \
+                     throw): code runs before it in its module, or the module is in an import \
+                     cycle",
+                    id.name
+                ),
+            );
+        }
         let ctor = self.lw.classes[&class].ctor;
-        let args_kinds_start = self.reasons.len();
         let value = self.function_call(ctor, None, n.arguments.as_slice(), n.span)?;
-        let _ = args_kinds_start;
-        // The kinds of this instance's fields, from this call's arguments.
-        let arg_kinds: Vec<Kind> = (0..n.arguments.len())
-            .map(|i| match &value.expr {
-                Expr::Call(_, args) => kind_from_arg(args.get(i)),
-                _ => Kind::Bottom,
-            })
-            .collect();
-        let _ = arg_kinds;
         let fields = self.ctor_field_kinds(class, n);
         let ty = Ty::Struct(self.struct_ref(StructSlot::Key(StructKey::Class(class))));
         Some(V::new(
@@ -1778,10 +1815,6 @@ fn zero_of(ty: Ty) -> Expr {
         Ty::Index => convert(Conv::Exact, Ty::I32, Ty::Index, Expr::Lit(Lit::I32(0))),
         _ => Expr::Lit(Lit::I32(0)),
     }
-}
-
-fn kind_from_arg(_arg: Option<&Expr>) -> Kind {
-    Kind::Bottom
 }
 
 /// The value of a constant property of `Math` or `Number` (non-writable in every engine).

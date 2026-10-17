@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use trioxide_analysis::Facts;
 use trioxide_common::{Diagnostic, ModuleId, log::FunctionDecision};
-pub use trioxide_rust::SourceModule;
+pub use trioxide_rust::{ExportBinding, SourceModule};
 use trioxide_wasm::{IslandId, IslandSource};
 
 /// How aggressively to move code to WASM (`Options::mode`).
@@ -48,6 +48,8 @@ pub struct IslandPlan {
     pub module: Option<ModuleId>,
     /// The functions it exports to JS, with their names.
     pub exports: Vec<(trioxide_types::FunctionId, String)>,
+    /// The exports JS calls may be pointed at (their bindings are never reassigned).
+    pub bindings: Vec<ExportBinding>,
     /// The generated crate, once the Rust backend has lowered it.
     pub source: Option<IslandSource>,
     /// Some export may be called with overlapping arguments it writes to, so the glue needs
@@ -128,6 +130,7 @@ impl Partitioner {
                     importers,
                     module: Some(island.module),
                     exports: island.exports,
+                    bindings: island.bindings,
                     source: Some(island.source),
                     needs_fallback: island.needs_fallback,
                 }

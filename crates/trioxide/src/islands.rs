@@ -114,8 +114,8 @@ pub(crate) struct IslandLink {
     pub id: trioxide_wasm::IslandId,
     /// The module defining its exports.
     pub module: trioxide_common::ModuleId,
-    /// Exported functions and their names.
-    pub exports: Vec<(trioxide_types::FunctionId, String)>,
+    /// The exports calls may be pointed at, with the names their module exports them under.
+    pub bindings: Vec<trioxide_partition::ExportBinding>,
     /// Every function compiled into it.
     pub members: Vec<trioxide_types::FunctionId>,
     /// The glue imports the defining module as its fallback, so that module can't import
@@ -236,22 +236,30 @@ pub(crate) fn rewrite_calls<'a>(
         };
         let mut moved = oxc_allocator::Vec::new_in(&allocator);
         let mut kept = oxc_allocator::Vec::new_in(&allocator);
-        for specifier in specifiers.drain(..) {
-            let movable = match &specifier {
-                ImportDeclarationSpecifier::ImportSpecifier(named) => {
-                    named.import_kind == ImportOrExportKind::Value
-                        && link
-                            .exports
-                            .iter()
-                            .any(|(_, name)| *name == named.imported.name().as_str())
-                        && named.local.symbol_id.get().is_some_and(only_called)
+        for mut specifier in specifiers.drain(..) {
+            // The island export the imported name refers to (exported names can swap).
+            let binding = match &specifier {
+                ImportDeclarationSpecifier::ImportSpecifier(named)
+                    if named.import_kind == ImportOrExportKind::Value
+                        && named.local.symbol_id.get().is_some_and(only_called) =>
+                {
+                    let imported = named.imported.name();
+                    link.bindings
+                        .iter()
+                        .find(|b| b.exported_as.iter().any(|n| *n == imported.as_str()))
                 }
-                _ => false,
+                _ => None,
             };
-            if movable {
-                moved.push(specifier);
-            } else {
-                kept.push(specifier);
+            match (binding, &mut specifier) {
+                (Some(binding), ImportDeclarationSpecifier::ImportSpecifier(named)) => {
+                    named.imported = ModuleExportName::IdentifierName(IdentifierName::new(
+                        SPAN,
+                        allocator.alloc_str(&binding.name),
+                        &builder,
+                    ));
+                    moved.push(specifier);
+                }
+                _ => kept.push(specifier),
             }
         }
         if moved.is_empty() {
@@ -275,7 +283,7 @@ pub(crate) fn rewrite_calls<'a>(
     {
         let mut specifiers = oxc_allocator::Vec::new_in(&allocator);
         let taken: FxHashSet<String> = scoping.symbol_names().map(str::to_string).collect();
-        for (_, name) in &link.exports {
+        for name in link.bindings.iter().map(|b| &b.name) {
             let Some(symbol) = scoping.get_root_binding(name.as_str().into()) else {
                 continue;
             };
