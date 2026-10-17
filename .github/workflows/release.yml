@@ -126,7 +126,7 @@ jobs:
           printf 'const x: number = 1;\nexport { x };\n' > smoke.ts
           out/trioxide* transform smoke.ts | tee smoke.js
           grep -q 'const x = 1;' smoke.js
-          node -e "const b = require('./packages/trioxide/binding/trioxide.${{ matrix.platform }}.node'); if (b.transform('let y: number = 2', 'a.ts').code !== 'let y = 2;\n') process.exit(1)"
+          node -e "const b = require('./packages/trioxide/binding/trioxide.${{ matrix.platform }}.node'); if (b.transform('export let y: number = 2', 'a.ts').code !== 'export let y = 2;\n') process.exit(1)"
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
