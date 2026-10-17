@@ -137,7 +137,11 @@ impl Val {
 
     /// A value TypeScript declares to have `ty`. Its objects are untracked.
     pub fn declared(ty: Type) -> Self {
-        let pts = if is_primitive(&ty) { Pts::NONE } else { Pts::Any };
+        let pts = if is_primitive(&ty) {
+            Pts::NONE
+        } else {
+            Pts::Any
+        };
         Self {
             trust: if ty == Type::Unknown {
                 Trust::Unknown
@@ -209,12 +213,6 @@ impl Val {
                 self.trust
             },
         }
-    }
-
-    /// The number this value is, if it is proven (or, with `declared`, declared) to be one.
-    pub fn as_number(&self, declared: bool) -> Option<NumberType> {
-        let usable = self.trust == Trust::Proven || (declared && self.trust == Trust::Declared);
-        usable.then(|| self.ty.as_number()).flatten()
     }
 
     /// Whether the value is proven to be a primitive (so it can't run user code when coerced or

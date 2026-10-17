@@ -1,11 +1,14 @@
 //! Calls: to units of the program, to modelled builtins, and to unknown code.
 
 use oxc_ast::ast::{Argument, CallExpression, Expression, MemberExpression, NewExpression};
-use oxc_syntax::node::{GetNodeId, NodeId};
+use oxc_syntax::node::NodeId;
 use trioxide_common::NodeRef;
 use trioxide_types::{NumberType, Type, TypedArrayKind};
 
-use super::{Cx, EffectKind, Edge, Escape, ObjKind, expr::{Key, to_number}};
+use super::{
+    Cx, Edge, EffectKind, Escape, ObjKind,
+    expr::{Key, to_number},
+};
 use crate::{
     builtins::{self, Builtin, CallbackParam, MathOp, NumberModel, Receiver, Ret},
     facts::Trust,
@@ -22,7 +25,7 @@ pub struct Args {
     pub spread: bool,
 }
 
-impl<'w, 'a> Cx<'_, 'w, 'a> {
+impl<'a> Cx<'_, '_, 'a> {
     fn arguments(&mut self, arguments: &'a [Argument<'a>]) -> Args {
         let mut values = Vec::with_capacity(arguments.len());
         let mut spread = false;
@@ -59,8 +62,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 && let Expression::Identifier(object) = &static_member.object
                 && !self.an.patched.contains(object.name.as_str())
                 && self.is_global(object)
-                && let Some(builtin) = builtins::global(&format!("{}.{}", object.name, static_member.property.name))
-                    .filter(|builtin| builtin.callable)
+                && let Some(builtin) =
+                    builtins::global(&format!("{}.{}", object.name, static_member.property.name))
+                        .filter(|builtin| builtin.callable)
             {
                 self.record_node(object.node_id.get(), &Val::unknown());
                 let args = self.arguments(&call.arguments);
@@ -82,7 +86,12 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 self.always(EffectKind::Throws);
                 self.after_call(false);
                 let returned = args.values.first().cloned().unwrap_or_else(Val::unknown);
-                return Val { poisoned: true, trust: Trust::Unknown, ty: Type::Unknown, ..returned };
+                return Val {
+                    poisoned: true,
+                    trust: Trust::Unknown,
+                    ty: Type::Unknown,
+                    ..returned
+                };
             }
             let receiver = if let Expression::Super(_) = member.object() {
                 self.this.clone()
@@ -105,7 +114,13 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 let function = self.super_method(&key);
                 self.record_node(member.node_id(), &function);
                 let args = self.arguments(&call.arguments);
-                return self.call_value(site, &function, Some(&receiver), &args.values, args.spread);
+                return self.call_value(
+                    site,
+                    &function,
+                    Some(&receiver),
+                    &args.values,
+                    args.spread,
+                );
             }
             // Dispatch per receiver object, so each method sees only the objects it is
             // actually looked up on as `this`.
@@ -113,11 +128,15 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 Some(sites) if sites.len() > 1 => sites
                     .iter()
                     .map(|&object| {
-                        let ty = match self.an.heap(&object).map(|obj| obj.kind) {
+                        let ty = match self.an.heap(object).map(|obj| obj.kind) {
                             Some(ObjKind::Instance(class)) => Type::Instance(class),
                             _ => receiver.ty.clone(),
                         };
-                        Val { ty, pts: Pts::site(object), ..receiver.clone() }
+                        Val {
+                            ty,
+                            pts: Pts::site(object),
+                            ..receiver.clone()
+                        }
                     })
                     .collect(),
                 _ => vec![receiver.clone()],
@@ -131,7 +150,8 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             let args = self.arguments(&call.arguments);
             let mut value = Val::never();
             for (receiver, function) in per_site.iter().zip(&functions) {
-                let result = self.call_value(site, function, Some(receiver), &args.values, args.spread);
+                let result =
+                    self.call_value(site, function, Some(receiver), &args.values, args.spread);
                 value = value.join(&result);
             }
             if member.optional() && receiver.ty.may_be_nullish() {
@@ -149,17 +169,26 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     }
 
     /// Calls whatever `function` may be with `this` (if a method call) and `args`.
-    pub fn call_value(&mut self, site: NodeId, function: &Val, this: Option<&Val>, args: &[Val], spread: bool) -> Val {
+    pub fn call_value(
+        &mut self,
+        site: NodeId,
+        function: &Val,
+        this: Option<&Val>,
+        args: &[Val],
+        spread: bool,
+    ) -> Val {
         if super::expr::is_never(function) {
             return Val::never();
         }
-        let this = this.cloned().unwrap_or_else(|| Val::proven(Type::Undefined));
+        let this = this
+            .cloned()
+            .unwrap_or_else(|| Val::proven(Type::Undefined));
         let mut result = Val::never();
         let mut unknown = false;
         match function.pts.sites() {
             Some(sites) => {
                 for &target in sites {
-                    match self.an.heap(&target).map(|obj| obj.kind) {
+                    match self.an.heap(target).map(|obj| obj.kind) {
                         Some(ObjKind::Function(unit)) => {
                             let value = self.call_unit(site, unit, &this, args, spread);
                             result = result.join(&value);
@@ -190,14 +219,24 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     }
 
     /// A call to a unit of the program.
-    fn call_unit(&mut self, site: NodeId, unit: NodeRef, this: &Val, args: &[Val], spread: bool) -> Val {
+    fn call_unit(
+        &mut self,
+        site: NodeId,
+        unit: NodeRef,
+        this: &Val,
+        args: &[Val],
+        spread: bool,
+    ) -> Val {
         let world = self.an.world;
         let callee = world.unit(unit);
         let open = self.an.is_open(callee);
         let level = if open { Escape::Unknown } else { Escape::Known };
         let count = param_count(callee).max(args.len());
         for index in 0..count {
-            let value = args.get(index).cloned().unwrap_or_else(|| Val::proven(Type::Undefined));
+            let value = args
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| Val::proven(Type::Undefined));
             self.an.join_param(unit, index, &value);
         }
         for value in args {
@@ -222,7 +261,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             self.always(EffectKind::Allocates);
             return Val::unknown();
         }
-        self.an.returned(&unit).cloned().unwrap_or_else(Val::never)
+        self.an.returned(unit).cloned().unwrap_or_else(Val::never)
     }
 
     /// A call trioxide can't follow.
@@ -234,7 +273,8 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         self.escape_value(function, Escape::Unknown);
         // A method TypeScript says the receiver's class has.
         let declared = self.declared_method(this, site);
-        let callable = function.trust >= Trust::Declared && matches!(function.ty, Type::Function(..));
+        let callable =
+            function.trust >= Trust::Declared && matches!(function.ty, Type::Function(..));
         self.effect(EffectKind::CallsUnknown, false, declared);
         self.effect(EffectKind::Throws, false, declared && callable);
         if !declared {
@@ -273,8 +313,12 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return None;
         };
         match call.callee.without_parentheses().as_member_expression()? {
-            MemberExpression::StaticMemberExpression(member) => Some(member.property.name.to_string()),
-            MemberExpression::PrivateFieldExpression(member) => Some(format!("#{}", member.field.name)),
+            MemberExpression::StaticMemberExpression(member) => {
+                Some(member.property.name.to_string())
+            }
+            MemberExpression::PrivateFieldExpression(member) => {
+                Some(format!("#{}", member.field.name))
+            }
             MemberExpression::ComputedMemberExpression(_) => None,
         }
     }
@@ -286,7 +330,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         while let Some(id) = class {
             let info = self.an.world.classes.get(&id)?;
             if let Some(member) = info.instance_member(name) {
-                return member.unit.filter(|_| member.role == Some(MethodRole::Method));
+                return member
+                    .unit
+                    .filter(|_| member.role == Some(MethodRole::Method));
             }
             class = self.superclass(id);
             depth += 1;
@@ -299,9 +345,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     /// The single program class `class` extends, if known.
     fn superclass(&self, class: NodeRef) -> Option<NodeRef> {
-        let parent = self.an.super_of(&class)?;
+        let parent = self.an.super_of(class)?;
         match parent.pts.sites()? {
-            [site] => match self.an.heap(site)?.kind {
+            [site] => match self.an.heap(*site)?.kind {
                 ObjKind::Class(parent) => Some(parent),
                 _ => None,
             },
@@ -315,9 +361,16 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let mut depth = 0;
         while let Some(id) = class {
             let info = self.an.world.classes.get(&id)?;
-            let members: Vec<_> = info.members.iter().filter(|member| !member.is_static && member.name == name).collect();
+            let members: Vec<_> = info
+                .members
+                .iter()
+                .filter(|member| !member.is_static && member.name == name)
+                .collect();
             if !members.is_empty() {
-                return members.iter().find(|member| member.role == Some(role)).and_then(|member| member.unit);
+                return members
+                    .iter()
+                    .find(|member| member.role == Some(role))
+                    .and_then(|member| member.unit);
             }
             class = self.superclass(id);
             depth += 1;
@@ -334,7 +387,13 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     }
 
     /// Writing a property backed by a setter.
-    pub fn call_unit_as_setter(&mut self, unit: NodeRef, receiver: &Val, value: &Val, node: NodeId) {
+    pub fn call_unit_as_setter(
+        &mut self,
+        unit: NodeRef,
+        receiver: &Val,
+        value: &Val,
+        node: NodeId,
+    ) {
         let _ = self.call_unit(node, unit, receiver, std::slice::from_ref(value), false);
     }
 
@@ -360,12 +419,18 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return;
         };
         let this = self.this.clone();
-        let parent = self.an.super_of(&class).cloned().unwrap_or_else(Val::unknown);
+        let parent = self
+            .an
+            .super_of(class)
+            .cloned()
+            .unwrap_or_else(Val::unknown);
         match parent.pts.sites() {
             Some(sites) if parent.trust == Trust::Proven => {
                 for &site_ref in sites {
-                    match self.an.heap(&site_ref).map(|obj| obj.kind) {
-                        Some(ObjKind::Class(parent_class)) => self.construct_class(site, parent_class, &this, args),
+                    match self.an.heap(site_ref).map(|obj| obj.kind) {
+                        Some(ObjKind::Class(parent_class)) => {
+                            self.construct_class(site, parent_class, &this, args);
+                        }
                         _ => {
                             let _ = self.unknown_call(site, &parent, &this, &args.values);
                         }
@@ -379,7 +444,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         if let Some(info) = self.an.world.classes.get(&class) {
             let init = info.init;
             self.an.join_this(init, &this);
-            self.record.edges.push(Edge { site: self.node(site), callee: init, trust: Trust::Proven });
+            self.record.edges.push(Edge {
+                site: self.node(site),
+                callee: init,
+                trust: Trust::Proven,
+            });
         }
         self.after_call(false);
     }
@@ -395,17 +464,25 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             // `call_unit` treats a direct constructor call as a throw; this one is fine.
             if !heritage {
                 self.an.join_this(init, this);
-                self.record.edges.push(Edge { site: self.node(site), callee: init, trust: Trust::Proven });
+                self.record.edges.push(Edge {
+                    site: self.node(site),
+                    callee: init,
+                    trust: Trust::Proven,
+                });
             }
             return;
         }
         if heritage {
             // The default derived constructor passes its arguments to `super`.
-            let parent = self.an.super_of(&class).cloned().unwrap_or_else(Val::unknown);
+            let parent = self
+                .an
+                .super_of(class)
+                .cloned()
+                .unwrap_or_else(Val::unknown);
             match parent.pts.sites() {
                 Some(sites) if parent.trust == Trust::Proven => {
                     for &site_ref in sites {
-                        match self.an.heap(&site_ref).map(|obj| obj.kind) {
+                        match self.an.heap(site_ref).map(|obj| obj.kind) {
                             Some(ObjKind::Class(parent_class)) if parent_class != class => {
                                 self.construct_class(site, parent_class, this, args);
                             }
@@ -421,7 +498,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             }
         }
         self.an.join_this(init, this);
-        self.record.edges.push(Edge { site: self.node(site), callee: init, trust: Trust::Proven });
+        self.record.edges.push(Edge {
+            site: self.node(site),
+            callee: init,
+            trust: Trust::Proven,
+        });
     }
 
     /// A `new` expression.
@@ -440,10 +521,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let mut result = Val::never();
         let mut unknown = constructor.pts.sites().is_none();
         for &target in constructor.pts.sites().unwrap_or_default() {
-            match self.an.heap(&target).map(|obj| obj.kind) {
+            match self.an.heap(target).map(|obj| obj.kind) {
                 Some(ObjKind::Class(class)) => {
                     let instance = self.alloc(site, ObjKind::Instance(class));
-                    if self.an.heap(&instance).is_some_and(|obj| obj.present.is_empty() && obj.props.is_empty()) {
+                    if self
+                        .an
+                        .heap(instance)
+                        .is_some_and(|obj| obj.present.is_empty() && obj.props.is_empty())
+                    {
                         let present = crate::shapes::definite_fields(self.an.world, class);
                         self.mark(instance, |obj| obj.present.extend(present));
                     }
@@ -483,20 +568,29 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             }
             let proxy = self.unknown_construct(args, site);
             self.an.poison(&proxy.pts);
-            return Val { poisoned: true, ..proxy };
+            return Val {
+                poisoned: true,
+                ..proxy
+            };
         }
         let first = args.values.first();
         if let Some(kind) = TypedArrayKind::from_constructor_name(name) {
             let object = self.alloc(site, ObjKind::TypedArray(kind));
             let length = match first {
                 None => Some(0.0),
-                Some(value) if value.trust == Trust::Proven => match &value.ty {
-                    Type::Number(number) => {
+                Some(value) if value.trust == Trust::Proven => {
+                    if let Type::Number(number) = &value.ty {
                         // A length must be a valid index.
-                        self.effect(EffectKind::Throws, number.int && number.non_nan && number.range.min >= 0.0 && number.range.max <= numeric::MAX_ARRAY_LENGTH, false);
+                        self.effect(
+                            EffectKind::Throws,
+                            number.int
+                                && number.non_nan
+                                && number.range.min >= 0.0
+                                && number.range.max <= numeric::MAX_ARRAY_LENGTH,
+                            false,
+                        );
                         number.as_constant()
-                    }
-                    _ => {
+                    } else {
                         // Copies an array-like or iterable: as long as a tracked array.
                         let copied = self.iterate(value, site);
                         self.coerce(&copied, false);
@@ -504,7 +598,16 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                         let lengths: Option<Vec<Option<f64>>> = value.pts.sites().map(|sites| {
                             sites
                                 .iter()
-                                .map(|site| self.an.heap(site).filter(|obj| obj.kind == ObjKind::Array && !obj.dynamic && obj.escape != Escape::Unknown).and_then(|obj| obj.length))
+                                .map(|site| {
+                                    self.an
+                                        .heap(*site)
+                                        .filter(|obj| {
+                                            obj.kind == ObjKind::Array
+                                                && !obj.dynamic
+                                                && obj.escape != Escape::Unknown
+                                        })
+                                        .and_then(|obj| obj.length)
+                                })
                                 .collect()
                         });
                         match lengths.as_deref() {
@@ -512,7 +615,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                             _ => None,
                         }
                     }
-                },
+                }
                 Some(value) => {
                     self.escape_value(value, Escape::Unknown);
                     self.always(EffectKind::CallsUnknown);
@@ -520,7 +623,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     None
                 }
             };
-            let fresh = self.an.heap(&object).is_some_and(|obj| obj.length.is_none() && obj.props.is_empty() && !obj.holey);
+            let fresh = self
+                .an
+                .heap(object)
+                .is_some_and(|obj| obj.length.is_none() && obj.props.is_empty() && !obj.holey);
             self.mark(object, |obj| {
                 if fresh && !obj.dynamic {
                     obj.length = length;
@@ -535,13 +641,26 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         if name == "Array" {
             let object = self.alloc(site, ObjKind::Array);
             match args.values.as_slice() {
-                [length] if length.trust == Trust::Proven && matches!(length.ty, Type::Number(_)) => {
+                [length]
+                    if length.trust == Trust::Proven && matches!(length.ty, Type::Number(_)) =>
+                {
                     let number = length.ty.as_number().unwrap_or(NumberType::ANY);
-                    self.effect(EffectKind::Throws, number.int && number.non_nan && number.range.min >= 0.0 && number.range.max <= numeric::MAX_ARRAY_LENGTH, false);
+                    self.effect(
+                        EffectKind::Throws,
+                        number.int
+                            && number.non_nan
+                            && number.range.min >= 0.0
+                            && number.range.max <= numeric::MAX_ARRAY_LENGTH,
+                        false,
+                    );
                     let exact = number.as_constant();
                     self.mark(object, |obj| {
                         obj.holey = true;
-                        obj.length = if obj.length.is_none() || obj.length == exact { exact } else { None };
+                        obj.length = if obj.length.is_none() || obj.length == exact {
+                            exact
+                        } else {
+                            None
+                        };
                     });
                 }
                 values => {
@@ -550,13 +669,17 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     }
                     let count = values.len();
                     #[expect(clippy::cast_precision_loss, reason = "a handful of arguments")]
-                    let exact = (!args.spread && !(count == 1)).then_some(count as f64);
+                    let exact = (!args.spread && count != 1).then_some(count as f64);
                     self.mark(object, |obj| {
                         if count == 1 || args.spread {
                             obj.holey = true;
                             obj.length = None;
                         } else if obj.length != exact {
-                            obj.length = if obj.elem.ty == Type::Never { exact } else { None };
+                            obj.length = if obj.elem.ty == Type::Never {
+                                exact
+                            } else {
+                                None
+                            };
                         }
                     });
                 }
@@ -599,7 +722,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             _ => return None,
         };
         if matches!(kind, Receiver::Array | Receiver::TypedArray) {
-            let name = if kind == Receiver::Array { "Array" } else { "Object" };
+            let name = if kind == Receiver::Array {
+                "Array"
+            } else {
+                "Object"
+            };
             if self.an.patched.contains(name) {
                 return None;
             }
@@ -608,26 +735,60 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             if receiver.trust == Trust::Proven {
                 let sites = receiver.pts.sites()?;
                 let intact = sites.iter().all(|site| {
-                    self.an.heap(site).is_some_and(|obj| {
-                        matches!(obj.kind, ObjKind::Array | ObjKind::TypedArray(_)) && !obj.dynamic && obj.escape != Escape::Unknown
+                    self.an.heap(*site).is_some_and(|obj| {
+                        matches!(obj.kind, ObjKind::Array | ObjKind::TypedArray(_))
+                            && !obj.dynamic
+                            && obj.escape != Escape::Unknown
                     })
                 });
-                return Some((kind, if intact && !sites.is_empty() { Trust::Proven } else { Trust::Declared }));
+                return Some((
+                    kind,
+                    if intact && !sites.is_empty() {
+                        Trust::Proven
+                    } else {
+                        Trust::Declared
+                    },
+                ));
             }
         }
         Some((kind, receiver.trust))
     }
 
     /// Calls a modelled builtin. `trust` is how far it is known the builtin is what's called.
-    fn builtin_call(&mut self, builtin: &'static Builtin, args: &Args, receiver: Option<&Val>, site: NodeId, trust: Trust) -> Val {
+    fn builtin_call(
+        &mut self,
+        builtin: &'static Builtin,
+        args: &Args,
+        receiver: Option<&Val>,
+        site: NodeId,
+        trust: Trust,
+    ) -> Val {
         let effects = builtin.effects;
         let declared_only = trust != Trust::Proven;
         // Arguments are coerced to primitives by most builtins (Math.floor(x) runs valueOf).
         let coerces = matches!(builtin.ret, Ret::Number(_)) && receiver.is_none()
-            || matches!(builtin.name, "String" | "isNaN" | "isFinite" | "parseInt" | "parseFloat" | "Number.parseInt" | "Number.parseFloat" | "String.fromCharCode" | "Math.imul" | "Math.clz32");
+            || matches!(
+                builtin.name,
+                "String"
+                    | "isNaN"
+                    | "isFinite"
+                    | "parseInt"
+                    | "parseFloat"
+                    | "Number.parseInt"
+                    | "Number.parseFloat"
+                    | "String.fromCharCode"
+                    | "Math.imul"
+                    | "Math.clz32"
+            );
         for value in &args.values {
             if coerces {
-                self.coerce(value, matches!(builtin.ret, Ret::Number(NumberModel::Math(_)) | Ret::Number(NumberModel::Int32)));
+                self.coerce(
+                    value,
+                    matches!(
+                        builtin.ret,
+                        Ret::Number(NumberModel::Math(_) | NumberModel::Int32)
+                    ),
+                );
             } else if !builtin.effects.calls_args && !value.is_primitive(false) {
                 // A non-primitive argument may be converted (e.g. `includes`, `indexOf` don't, but
                 // `join` and `padStart` do); keep it simple and treat it as seen by the builtin.
@@ -636,9 +797,21 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         }
         let own_receiver = receiver.is_some_and(|receiver| self.owns(receiver));
         let free = |flag: bool| !flag;
-        self.effect(EffectKind::Reads, free(effects.reads) || own_receiver && !effects.writes_other, !effects.reads || own_receiver);
-        self.effect(EffectKind::Writes, free(effects.writes_other || effects.writes_receiver && !own_receiver), free(effects.writes_other || effects.writes_receiver && !own_receiver));
-        self.effect(EffectKind::Throws, free(effects.throws) && !declared_only, free(effects.throws));
+        self.effect(
+            EffectKind::Reads,
+            free(effects.reads) || own_receiver && !effects.writes_other,
+            !effects.reads || own_receiver,
+        );
+        self.effect(
+            EffectKind::Writes,
+            free(effects.writes_other || effects.writes_receiver && !own_receiver),
+            free(effects.writes_other || effects.writes_receiver && !own_receiver),
+        );
+        self.effect(
+            EffectKind::Throws,
+            free(effects.throws) && !declared_only,
+            free(effects.throws),
+        );
         if declared_only {
             self.effect(EffectKind::CallsUnknown, false, true);
             for value in args.values.iter().chain(receiver) {
@@ -657,7 +830,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         }
         let value = self.builtin_result(builtin, &args.values, receiver, site, &callback_results);
         self.after_call(!(effects.writes_receiver || effects.writes_other || effects.calls_args));
-        if declared_only { value.at_most(Trust::Declared) } else { value }
+        if declared_only {
+            value.at_most(Trust::Declared)
+        } else {
+            value
+        }
     }
 
     /// Whether `value` is only objects this unit made and nobody else holds.
@@ -665,7 +842,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         value.pts.sites().is_some_and(|sites| {
             !sites.is_empty()
                 && sites.iter().all(|site| {
-                    self.an.heap(site).is_some_and(|obj| obj.unit == self.unit.id && obj.escape == Escape::None)
+                    self.an
+                        .heap(*site)
+                        .is_some_and(|obj| obj.unit == self.unit.id && obj.escape == Escape::None)
                 })
         })
     }
@@ -695,7 +874,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     }
 
     /// Calls the callback arguments of an iterating builtin.
-    fn builtin_callbacks(&mut self, builtin: &'static Builtin, args: &Args, receiver: Option<&Val>, site: NodeId, declared_only: bool) -> Val {
+    fn builtin_callbacks(
+        &mut self,
+        builtin: &'static Builtin,
+        args: &Args,
+        receiver: Option<&Val>,
+        site: NodeId,
+        declared_only: bool,
+    ) -> Val {
         let Some(callback) = args.values.first() else {
             return Val::never();
         };
@@ -711,7 +897,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let unknown = match callback.pts.sites() {
             Some(sites) => {
                 for &target in sites {
-                    match self.an.heap(&target).map(|obj| obj.kind) {
+                    match self.an.heap(target).map(|obj| obj.kind) {
                         Some(ObjKind::Function(unit)) => targets.push(unit),
                         _ => return self.unknown_callback(site, callback),
                     }
@@ -724,7 +910,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return self.unknown_callback(site, callback);
         }
         for unit in targets {
-            let accumulator = self.an.returned(&unit).cloned().unwrap_or_else(Val::never);
+            let accumulator = self.an.returned(unit).cloned().unwrap_or_else(Val::never);
             let accumulator = match &initial {
                 Some(initial) => accumulator.join(initial),
                 None => accumulator.join(&element),
@@ -737,7 +923,6 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     CallbackParam::Index => index.clone(),
                     CallbackParam::Receiver => receiver.cloned().unwrap_or_else(Val::unknown),
                     CallbackParam::Accumulator => accumulator.clone(),
-                    CallbackParam::Unknown => Val::unknown(),
                 })
                 .collect();
             let value = self.call_unit(site, unit, &Val::proven(Type::Undefined), &params, false);
@@ -755,11 +940,24 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     }
 
     /// The value a builtin call or read produces.
-    pub fn builtin_ret(&mut self, builtin: &'static Builtin, args: &[Val], receiver: Option<&Val>, site: NodeId) -> Val {
+    pub fn builtin_ret(
+        &mut self,
+        builtin: &'static Builtin,
+        args: &[Val],
+        receiver: Option<&Val>,
+        site: NodeId,
+    ) -> Val {
         self.builtin_result(builtin, args, receiver, site, &Val::never())
     }
 
-    fn builtin_result(&mut self, builtin: &'static Builtin, args: &[Val], receiver: Option<&Val>, site: NodeId, callback_results: &Val) -> Val {
+    fn builtin_result(
+        &mut self,
+        builtin: &'static Builtin,
+        args: &[Val],
+        receiver: Option<&Val>,
+        site: NodeId,
+        callback_results: &Val,
+    ) -> Val {
         match builtin.ret {
             Ret::Number(model) => Val::number(self.number_model(model, args)),
             Ret::Boolean => Val::proven(Type::Boolean),
@@ -772,14 +970,20 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 Val::unknown()
             }
             Ret::Receiver => receiver.cloned().unwrap_or_else(Val::unknown),
-            Ret::FirstArgument => args.first().cloned().unwrap_or_else(|| Val::proven(Type::Undefined)),
+            Ret::FirstArgument => args
+                .first()
+                .cloned()
+                .unwrap_or_else(|| Val::proven(Type::Undefined)),
             Ret::ElementOrUndefined => {
-                let element = receiver.map_or_else(Val::unknown, |receiver| self.element(receiver, true));
+                let element =
+                    receiver.map_or_else(Val::unknown, |receiver| self.element(receiver, true));
                 element.join(&Val::proven(Type::Undefined))
             }
             Ret::ReceiverElements | Ret::NewArray | Ret::StringArray => {
                 let element = match builtin.ret {
-                    Ret::ReceiverElements => receiver.map_or_else(Val::unknown, |receiver| self.element(receiver, true)),
+                    Ret::ReceiverElements => {
+                        receiver.map_or_else(Val::unknown, |receiver| self.element(receiver, true))
+                    }
                     Ret::StringArray => Val::proven(Type::String),
                     _ if builtin.name == "map" => callback_results.clone(),
                     _ => Val::unknown(),
@@ -790,7 +994,8 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), object)
             }
             Ret::ReceiverTypedArray => {
-                let Some(Type::TypedArray(kind)) = receiver.map(|receiver| receiver.ty.clone()) else {
+                let Some(Type::TypedArray(kind)) = receiver.map(|receiver| receiver.ty.clone())
+                else {
                     return Val::unknown();
                 };
                 let object = self.alloc(site, ObjKind::TypedArray(kind));
@@ -799,11 +1004,18 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         }
     }
 
+    #[expect(clippy::unused_self, reason = "a method like the other builtin models")]
     fn number_model(&self, model: NumberModel, args: &[Val]) -> NumberType {
         let arg = |index: usize| -> NumberType {
+            #[expect(
+                clippy::match_same_arms,
+                reason = "distinct cases, documented separately"
+            )]
             match args.get(index) {
                 // A proven primitive converts to a known number; anything else is any number.
-                Some(value) if value.trust == Trust::Proven && value.is_primitive(false) => to_number(value),
+                Some(value) if value.trust == Trust::Proven && value.is_primitive(false) => {
+                    to_number(value)
+                }
                 Some(_) => NumberType::ANY,
                 // A missing argument is `undefined`: NaN.
                 None => NumberType::ANY,
@@ -811,16 +1023,32 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         };
         match model {
             NumberModel::Any => NumberType::ANY,
-            NumberModel::NonNaN => NumberType { non_nan: true, ..NumberType::ANY },
+            NumberModel::NonNaN => NumberType {
+                non_nan: true,
+                ..NumberType::ANY
+            },
             NumberModel::Int32 => numeric::int32(),
-            NumberModel::Uint32 => numeric::uint32(),
             #[expect(clippy::cast_precision_loss, reason = "bounds below 2^53")]
             NumberModel::Int(min, max) => numeric::int_range(min as f64, max as f64),
-            NumberModel::IndexOrMinusOne => numeric::int_range(-1.0, numeric::MAX_ARRAY_LENGTH - 1.0),
+            NumberModel::IndexOrMinusOne => {
+                numeric::int_range(-1.0, numeric::MAX_ARRAY_LENGTH - 1.0)
+            }
             NumberModel::Length => numeric::int_range(0.0, numeric::MAX_ARRAY_LENGTH),
-            NumberModel::CodeUnitOrNaN => NumberType { non_nan: false, ..numeric::int_range(0.0, 65535.0) },
-            NumberModel::IntOrNaN => NumberType { non_nan: false, int: true, ..NumberType::ANY },
-            NumberModel::Unit => NumberType { range: trioxide_types::Interval::new(0.0, 1.0), int: false, non_nan: true, non_neg_zero: true },
+            NumberModel::CodeUnitOrNaN => NumberType {
+                non_nan: false,
+                ..numeric::int_range(0.0, 65535.0)
+            },
+            NumberModel::IntOrNaN => NumberType {
+                non_nan: false,
+                int: true,
+                ..NumberType::ANY
+            },
+            NumberModel::Unit => NumberType {
+                range: trioxide_types::Interval::new(0.0, 1.0),
+                int: false,
+                non_nan: true,
+                non_neg_zero: true,
+            },
             NumberModel::Math(op) => match op {
                 MathOp::Abs => numeric::abs(arg(0)),
                 MathOp::Ceil => numeric::ceil(arg(0)),
@@ -830,13 +1058,21 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 MathOp::Sign => numeric::sign(arg(0)),
                 MathOp::Sqrt => numeric::sqrt(arg(0)),
                 MathOp::Wave => numeric::unit_wave(arg(0)),
-                MathOp::Fround => NumberType { int: false, ..arg(0) },
+                MathOp::Fround => NumberType {
+                    int: false,
+                    ..arg(0)
+                },
                 MathOp::Min | MathOp::Max => {
                     let max = op == MathOp::Max;
                     if args.is_empty() {
-                        return NumberType::constant(if max { f64::NEG_INFINITY } else { f64::INFINITY });
+                        return NumberType::constant(if max {
+                            f64::NEG_INFINITY
+                        } else {
+                            f64::INFINITY
+                        });
                     }
-                    (1..args.len()).fold(arg(0), |acc, index| numeric::min_max(acc, arg(index), max))
+                    (1..args.len())
+                        .fold(arg(0), |acc, index| numeric::min_max(acc, arg(index), max))
                 }
             },
         }
@@ -852,9 +1088,12 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let kept = bounds
             .into_iter()
             .filter(|&(_, array)| {
-                let value = self.env.vars.get(&array).cloned().or_else(|| {
-                    self.an.symbol_value(&self.module.symbol(array)).cloned()
-                });
+                let value = self
+                    .env
+                    .vars
+                    .get(&array)
+                    .cloned()
+                    .or_else(|| self.an.symbol_value(self.module.symbol(array)).cloned());
                 value.is_some_and(|value| self.length_is_stable(&value))
             })
             .collect();
@@ -866,7 +1105,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         value.pts.sites().is_some_and(|sites| {
             !sites.is_empty()
                 && sites.iter().all(|site| {
-                    self.an.heap(site).is_some_and(|obj| match obj.kind {
+                    self.an.heap(*site).is_some_and(|obj| match obj.kind {
                         // Only code holding a typed array (or its buffer) can detach it.
                         ObjKind::TypedArray(_) => obj.escape != Escape::Unknown,
                         _ => obj.escape == Escape::None,
@@ -880,15 +1119,25 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let symbols = self.module.semantic.scoping();
         let _ = symbols;
         let vars = self.env.vars.clone();
-        self.env.bounds.retain(|&(_, array)| match (&sites, vars.get(&array)) {
-            (Some(sites), Some(value)) => value.pts.sites().is_some_and(|own| own.iter().all(|site| !sites.contains(site))),
-            _ => false,
-        });
+        self.env
+            .bounds
+            .retain(|&(_, array)| match (&sites, vars.get(&array)) {
+                (Some(sites), Some(value)) => value
+                    .pts
+                    .sites()
+                    .is_some_and(|own| own.iter().all(|site| !sites.contains(site))),
+                _ => false,
+            });
     }
 
     /// Whether `object[index]` is in bounds: a tracked local index below the array's length
     /// by a loop condition, and not negative. The trust is the array's.
-    pub fn in_bounds(&mut self, object: &Expression<'_>, index: &Expression<'_>, object_value: &Val) -> Option<Trust> {
+    pub fn in_bounds(
+        &mut self,
+        object: &Expression<'_>,
+        index: &Expression<'_>,
+        object_value: &Val,
+    ) -> Option<Trust> {
         let index_symbol = self.tracked_identifier(index)?;
         let array = self.stable_symbol(object)?;
         if !self.env.bounds.contains(&(index_symbol, array)) {
@@ -900,7 +1149,12 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return None;
         }
         let array_kind = |value: &Val| {
-            value.ty.members().iter().all(|member| matches!(member, Type::Array(_) | Type::TypedArray(_) | Type::Tuple(_)))
+            value.ty.members().iter().all(|member| {
+                matches!(
+                    member,
+                    Type::Array(_) | Type::TypedArray(_) | Type::Tuple(_)
+                )
+            })
         };
         if !array_kind(object_value) || object_value.trust == Trust::Unknown {
             return None;
@@ -914,8 +1168,17 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 fn is_reflective(object: &str, method: &str) -> bool {
     matches!(
         (object, method),
-        ("Object", "defineProperty" | "defineProperties" | "setPrototypeOf" | "assign" | "__defineGetter__")
-            | ("Reflect", "defineProperty" | "setPrototypeOf" | "set" | "deleteProperty" | "apply" | "construct")
+        (
+            "Object",
+            "defineProperty"
+                | "defineProperties"
+                | "setPrototypeOf"
+                | "assign"
+                | "__defineGetter__"
+        ) | (
+            "Reflect",
+            "defineProperty" | "setPrototypeOf" | "set" | "deleteProperty" | "apply" | "construct"
+        )
     )
 }
 

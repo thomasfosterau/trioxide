@@ -49,7 +49,9 @@ impl SpanMap {
         loop {
             let mut next = None;
             current.for_each_child(&mut |child| {
-                let (Some(pos), Some(child_end)) = (child.pos().source_offset(), child.end().source_offset()) else {
+                let (Some(pos), Some(child_end)) =
+                    (child.pos().source_offset(), child.end().source_offset())
+                else {
                     return false;
                 };
                 if pos <= start && end <= child_end && !child.flags().intersects(NodeFlags::JSDoc) {
@@ -133,8 +135,13 @@ fn ascii_start(text: &str, pos: u32) -> Option<u32> {
     let start = skip_trivia(text, pos);
     let bytes = text.as_bytes();
     let first = *bytes.get(start as usize)?;
-    let special = !first.is_ascii() || (first == b'#' && start == 0) || matches!(first, b'<' | b'=' | b'>' | b'|');
-    let clean = bytes.get(pos as usize..start as usize)?.iter().all(u8::is_ascii);
+    let special = !first.is_ascii()
+        || (first == b'#' && start == 0)
+        || matches!(first, b'<' | b'=' | b'>' | b'|');
+    let clean = bytes
+        .get(pos as usize..start as usize)?
+        .iter()
+        .all(u8::is_ascii);
     (!special && clean).then_some(start)
 }
 

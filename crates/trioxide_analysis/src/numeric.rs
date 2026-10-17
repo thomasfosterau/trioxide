@@ -228,15 +228,6 @@ pub fn to_int32(a: NumberType) -> NumberType {
     }
 }
 
-/// `ToUint32(a)`.
-pub fn to_uint32(a: NumberType) -> NumberType {
-    if a.int && a.non_nan && a.range.min >= 0.0 && a.range.max <= UINT32_MAX {
-        int(a.range.min, a.range.max)
-    } else {
-        uint32()
-    }
-}
-
 /// `a | b`.
 pub fn bit_or(a: NumberType, b: NumberType) -> NumberType {
     let (a, b) = (to_int32(a), to_int32(b));
@@ -300,8 +291,15 @@ pub fn shr(a: NumberType, b: NumberType) -> NumberType {
     match shift_count(b) {
         Some(shift) => {
             let factor = f64::from(1u32 << shift);
-            int((a.range.min / factor).floor(), (a.range.max / factor).floor())
+            int(
+                (a.range.min / factor).floor(),
+                (a.range.max / factor).floor(),
+            )
         }
+        #[expect(
+            clippy::manual_clamp,
+            reason = "`min`/`max` ignore a NaN bound where `clamp` would propagate it"
+        )]
         None => int(a.range.min.min(-1.0).max(INT32_MIN), a.range.max.max(0.0)),
     }
 }
@@ -313,7 +311,10 @@ pub fn ushr(a: NumberType, b: NumberType) -> NumberType {
         return match shift {
             Some(shift) => {
                 let factor = f64::from(1u32 << shift);
-                int((a.range.min / factor).floor(), (a.range.max / factor).floor())
+                int(
+                    (a.range.min / factor).floor(),
+                    (a.range.max / factor).floor(),
+                )
             }
             None => int(0.0, a.range.max),
         };
@@ -495,11 +496,6 @@ pub fn assume_greater(a: NumberType, b: NumberType, strict: bool) -> NumberType 
     }
 }
 
-/// Whether the interval became empty (the branch is unreachable for numbers).
-pub fn is_empty(a: NumberType) -> bool {
-    a.range.min > a.range.max
-}
-
 /// Widens `next` against `previous`: any bound that moved goes to infinity.
 pub fn widen(previous: NumberType, next: NumberType) -> NumberType {
     let joined = previous.join(next);
@@ -564,8 +560,11 @@ mod tests {
     /// Every operation contains the exact result for constant operands.
     #[test]
     fn binary_operations_contain_their_results() {
-        type Op = (fn(NumberType, NumberType) -> NumberType, fn(f64, f64) -> f64);
-        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "JS semantics")]
+        type Op = (
+            fn(NumberType, NumberType) -> NumberType,
+            fn(f64, f64) -> f64,
+        );
+        #[expect(clippy::cast_sign_loss, reason = "JS semantics")]
         let ops: [(&str, Op); 13] = [
             ("+", (add, |a, b| a + b)),
             ("-", (sub, |a, b| a - b)),
@@ -576,16 +575,35 @@ mod tests {
             ("|", (bit_or, |a, b| f64::from(js_int32(a) | js_int32(b)))),
             ("&", (bit_and, |a, b| f64::from(js_int32(a) & js_int32(b)))),
             ("^", (bit_xor, |a, b| f64::from(js_int32(a) ^ js_int32(b)))),
-            ("<<", (shl, |a, b| f64::from(js_int32(a).wrapping_shl(js_int32(b) as u32 & 31)))),
-            (">>", (shr, |a, b| f64::from(js_int32(a) >> (js_int32(b) as u32 & 31)))),
-            (">>>", (ushr, |a, b| f64::from((js_int32(a) as u32) >> (js_int32(b) as u32 & 31)))),
+            (
+                "<<",
+                (shl, |a, b| {
+                    f64::from(js_int32(a).wrapping_shl(js_int32(b) as u32 & 31))
+                }),
+            ),
+            (
+                ">>",
+                (shr, |a, b| {
+                    f64::from(js_int32(a) >> (js_int32(b) as u32 & 31))
+                }),
+            ),
+            (
+                ">>>",
+                (ushr, |a, b| {
+                    f64::from((js_int32(a) as u32) >> (js_int32(b) as u32 & 31))
+                }),
+            ),
             ("max", (|a, b| min_max(a, b, true), js_max)),
         ];
         for (name, (op, exact)) in ops {
             for &a in &SAMPLES {
                 for &b in &SAMPLES {
                     let result = op(c(a), c(b));
-                    let expected = if name == "**" { js_pow(a, b) } else { exact(a, b) };
+                    let expected = if name == "**" {
+                        js_pow(a, b)
+                    } else {
+                        exact(a, b)
+                    };
                     assert!(
                         contains(result, expected),
                         "{a} {name} {b} = {expected}, not in {result:?}"
@@ -600,6 +618,7 @@ mod tests {
 
     #[test]
     fn unary_operations_contain_their_results() {
+        #[expect(clippy::type_complexity, reason = "a table of test cases")]
         let ops: [(&str, fn(NumberType) -> NumberType, fn(f64) -> f64); 8] = [
             ("neg", neg, |a| -a),
             ("floor", floor, f64::floor),
@@ -614,7 +633,10 @@ mod tests {
             for &a in &SAMPLES {
                 let expected = exact(a);
                 assert!(contains(op(c(a)), expected), "{name}({a}) = {expected}");
-                assert!(contains(op(c(a).join(c(0.25))), expected), "{name}({a}) hull");
+                assert!(
+                    contains(op(c(a).join(c(0.25))), expected),
+                    "{name}({a}) hull"
+                );
             }
         }
     }
@@ -637,7 +659,11 @@ mod tests {
         if !value.is_finite() {
             return 0;
         }
-        #[expect(clippy::cast_possible_truncation, reason = "modular conversion")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "modular conversion of a non-negative value"
+        )]
         let wrapped = (value.trunc().rem_euclid(4_294_967_296.0)) as u64 as u32;
         #[expect(clippy::cast_possible_wrap, reason = "two's complement")]
         let signed = wrapped as i32;
@@ -649,11 +675,16 @@ mod tests {
             return f64::NAN;
         }
         if a == 0.0 && b == 0.0 {
-            return if a.is_sign_positive() || b.is_sign_positive() { 0.0 } else { -0.0 };
+            return if a.is_sign_positive() || b.is_sign_positive() {
+                0.0
+            } else {
+                -0.0
+            };
         }
         a.max(b)
     }
 
+    #[expect(clippy::float_cmp, reason = "exact JS semantics")]
     fn js_pow(a: f64, b: f64) -> f64 {
         if b.is_nan() || (a.abs() == 1.0 && b.is_infinite()) {
             return f64::NAN;

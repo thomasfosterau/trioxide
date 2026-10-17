@@ -6,16 +6,19 @@ use oxc_ast::ast::{
 };
 use oxc_syntax::node::GetNodeId;
 use rustc_hash::FxHashSet;
-use trioxide_types::{Shape, Type};
+use trioxide_types::Type;
 
-use super::{Cx, EffectKind, Env, Escape, LOOP_WIDEN_AFTER, MAX_LOOP_ITERATIONS, ObjKind, expr::{Key, without_undefined}};
+use super::{
+    Cx, EffectKind, Env, Escape, LOOP_WIDEN_AFTER, MAX_LOOP_ITERATIONS, ObjKind,
+    expr::{Key, without_undefined},
+};
 use crate::{
     facts::Trust,
     value::Val,
-    world::{Body, MethodRole, static_key},
+    world::{MethodRole, static_key},
 };
 
-impl<'w, 'a> Cx<'_, 'w, 'a> {
+impl<'a> Cx<'_, '_, 'a> {
     /// Interprets statements in order.
     pub fn statements(&mut self, statements: &'a [Statement<'a>]) {
         for statement in statements {
@@ -38,7 +41,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     _ => None,
                 },
                 Statement::ExportDefaultDeclaration(export) => match &export.declaration {
-                    ExportDefaultDeclarationKind::FunctionDeclaration(function) => Some(&**function),
+                    ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                        Some(&**function)
+                    }
                     _ => None,
                 },
                 _ => None,
@@ -47,18 +52,24 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             if function.body.is_none() {
                 continue;
             }
-            let site = self.alloc(function.node_id.get(), ObjKind::Function(self.node(function.node_id.get())));
+            let site = self.alloc(
+                function.node_id.get(),
+                ObjKind::Function(self.node(function.node_id.get())),
+            );
             let value = Val::object(Type::opaque_function(Some(site)), site);
-            match function.id.as_ref().and_then(|id| id.symbol_id.get().map(|symbol| (id, symbol))) {
-                Some((id, symbol)) => self.write_symbol(symbol, value, Some(id.node_id.get())),
-                None => {
-                    // `export default function () {}`
-                    self.record_node(function.node_id.get(), &value);
-                    let node = self.node(function.node_id.get());
-                    self.an.join_default(node, &value);
-                    if !self.an.options.closed_world {
-                        self.escape_value(&value, Escape::Unknown);
-                    }
+            if let Some((id, symbol)) = function
+                .id
+                .as_ref()
+                .and_then(|id| id.symbol_id.get().map(|symbol| (id, symbol)))
+            {
+                self.write_symbol(symbol, value, Some(id.node_id.get()));
+            } else {
+                // `export default function () {}`
+                self.record_node(function.node_id.get(), &value);
+                let node = self.node(function.node_id.get());
+                self.an.join_default(node, &value);
+                if !self.an.options.closed_world {
+                    self.escape_value(&value, Escape::Unknown);
                 }
             }
         }
@@ -67,10 +78,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     /// Interprets one statement.
     pub fn statement(&mut self, statement: &'a Statement<'a>) {
         let labels = std::mem::take(&mut self.pending_labels);
+        #[expect(
+            clippy::match_same_arms,
+            reason = "distinct cases, documented separately"
+        )]
         match statement {
             Statement::BlockStatement(block) => {
                 self.hoist(&block.body);
-                self.labelled_block(labels, |cx| cx.statements(&block.body));
+                self.labelled_block(&labels, |cx| cx.statements(&block.body));
             }
             Statement::ExpressionStatement(statement) => {
                 let _ = self.expr(&statement.expression);
@@ -84,7 +99,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             Statement::IfStatement(statement) => {
                 let (yes, no) = self.condition(&statement.test);
                 self.env = yes;
-                self.labelled_block(labels, |cx| {
+                self.labelled_block(&labels, |cx| {
                     cx.statement(&statement.consequent);
                     let after_yes = std::mem::replace(&mut cx.env, no);
                     if let Some(alternate) = &statement.alternate {
@@ -98,7 +113,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     Some(argument) => self.expr(argument),
                     None => Val::proven(Type::Undefined),
                 };
-                let level = if self.an.is_open(self.unit) { Escape::Unknown } else { Escape::Known };
+                let level = if self.an.is_open(self.unit) {
+                    Escape::Unknown
+                } else {
+                    Escape::Known
+                };
                 self.escape_value(&value, level);
                 self.returned = self.returned.join(&value);
                 self.env = Env::unreachable();
@@ -126,18 +145,34 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     self.pending_labels = labels;
                     self.statement(&statement.body);
                 } else {
-                    self.labelled_block(labels, |cx| cx.statement(&statement.body));
+                    self.labelled_block(&labels, |cx| cx.statement(&statement.body));
                 }
             }
             Statement::WhileStatement(statement) => {
-                self.run_loop(&labels, Some(&statement.test), &statement.body, None, false, None);
+                self.run_loop(
+                    &labels,
+                    Some(&statement.test),
+                    &statement.body,
+                    None,
+                    false,
+                    None,
+                );
             }
             Statement::DoWhileStatement(statement) => {
-                self.run_loop(&labels, Some(&statement.test), &statement.body, None, true, None);
+                self.run_loop(
+                    &labels,
+                    Some(&statement.test),
+                    &statement.body,
+                    None,
+                    true,
+                    None,
+                );
             }
             Statement::ForStatement(statement) => {
                 match &statement.init {
-                    Some(ForStatementInit::VariableDeclaration(declaration)) => self.variable_declaration(declaration),
+                    Some(ForStatementInit::VariableDeclaration(declaration)) => {
+                        self.variable_declaration(declaration);
+                    }
                     Some(init) => {
                         if let Some(expression) = init.as_expression() {
                             let _ = self.expr(expression);
@@ -145,7 +180,14 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     }
                     None => {}
                 }
-                self.run_loop(&labels, statement.test.as_ref(), &statement.body, statement.update.as_ref(), false, None);
+                self.run_loop(
+                    &labels,
+                    statement.test.as_ref(),
+                    &statement.body,
+                    statement.update.as_ref(),
+                    false,
+                    None,
+                );
             }
             Statement::ForOfStatement(statement) => {
                 let iterable = self.expr(&statement.right);
@@ -157,16 +199,34 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 } else {
                     self.iterate(&iterable, statement.node_id.get())
                 };
-                self.run_loop(&labels, None, &statement.body, None, false, Some((&statement.left, element)));
+                self.run_loop(
+                    &labels,
+                    None,
+                    &statement.body,
+                    None,
+                    false,
+                    Some((&statement.left, &element)),
+                );
             }
             Statement::ForInStatement(statement) => {
                 let object = self.expr(&statement.right);
                 self.always(EffectKind::Reads);
                 // Enumerating a proxy's keys runs its traps.
-                self.effect(EffectKind::CallsUnknown, object.pts.sites().is_some() && object.trust == Trust::Proven, object.trust >= Trust::Declared);
-                self.run_loop(&labels, None, &statement.body, None, false, Some((&statement.left, Val::proven(Type::String))));
+                self.effect(
+                    EffectKind::CallsUnknown,
+                    object.pts.sites().is_some() && object.trust == Trust::Proven,
+                    object.trust >= Trust::Declared,
+                );
+                self.run_loop(
+                    &labels,
+                    None,
+                    &statement.body,
+                    None,
+                    false,
+                    Some((&statement.left, &Val::proven(Type::String))),
+                );
             }
-            Statement::SwitchStatement(statement) => self.switch(statement, labels),
+            Statement::SwitchStatement(statement) => self.switch(statement, &labels),
             Statement::TryStatement(statement) => self.try_statement(statement),
             Statement::WithStatement(statement) => {
                 let object = self.expr(&statement.object);
@@ -193,7 +253,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                         let value = self.expr(expression);
                         let node = self.node(expression.node_id());
                         self.an.join_default(node, &value);
-                        let level = if self.an.options.closed_world { Escape::Known } else { Escape::Unknown };
+                        let level = if self.an.options.closed_world {
+                            Escape::Known
+                        } else {
+                            Escape::Unknown
+                        };
                         self.escape_value(&value, level);
                     }
                 }
@@ -216,6 +280,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     }
 
     fn declaration(&mut self, declaration: &'a Declaration<'a>) {
+        #[expect(
+            clippy::match_same_arms,
+            reason = "distinct cases, documented separately"
+        )]
         match declaration {
             Declaration::VariableDeclaration(declaration) => self.variable_declaration(declaration),
             Declaration::FunctionDeclaration(_) => {}
@@ -234,7 +302,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 }
             }
             Declaration::TSNamespaceDeclaration(namespace) => {
-                if let oxc_ast::ast::TSNamespaceDeclarationBody::TSModuleBlock(block) = &namespace.body {
+                if let oxc_ast::ast::TSNamespaceDeclarationBody::TSModuleBlock(block) =
+                    &namespace.body
+                {
                     self.hoist(&block.body);
                     self.statements(&block.body);
                 }
@@ -265,7 +335,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         if declaration.declare {
             return;
         }
-        let using = matches!(declaration.kind, VariableDeclarationKind::Using | VariableDeclarationKind::AwaitUsing);
+        let using = matches!(
+            declaration.kind,
+            VariableDeclarationKind::Using | VariableDeclarationKind::AwaitUsing
+        );
         for declarator in &declaration.declarations {
             let value = match &declarator.init {
                 Some(init) => self.expr(init),
@@ -288,15 +361,18 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     /// Remembers `const n = array.length` for loop bounds.
     fn length_alias(&mut self, pattern: &'a BindingPattern<'a>, init: Option<&'a Expression<'a>>) {
-        let (BindingPattern::BindingIdentifier(id), Some(Expression::StaticMemberExpression(member))) =
-            (pattern, init.map(Expression::without_parentheses))
+        let (
+            BindingPattern::BindingIdentifier(id),
+            Some(Expression::StaticMemberExpression(member)),
+        ) = (pattern, init.map(Expression::without_parentheses))
         else {
             return;
         };
         if member.property.name != "length" {
             return;
         }
-        let (Some(n), Some(array)) = (id.symbol_id.get(), self.stable_symbol(&member.object)) else {
+        let (Some(n), Some(array)) = (id.symbol_id.get(), self.stable_symbol(&member.object))
+        else {
             return;
         };
         if self.is_tracked_here(n) {
@@ -326,7 +402,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                         match property.key.as_expression() {
                             Some(key) => {
                                 let key = self.expr(key);
-                                super::expr::Key::of_value(&key)
+                                Key::of_value(&key)
                             }
                             None => Key::Unknown,
                         }
@@ -351,11 +427,16 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 if let Some(rest) = &array.rest {
                     let site = self.alloc(rest.node_id.get(), ObjKind::Array);
                     self.store_elem(site, &element);
-                    self.bind_pattern(&rest.argument, Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site));
+                    self.bind_pattern(
+                        &rest.argument,
+                        Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site),
+                    );
                 }
             }
             BindingPattern::AssignmentPattern(assignment) => {
-                let value = if value.ty.members().contains(&Type::Undefined) || value.trust == Trust::Unknown {
+                let value = if value.ty.members().contains(&Type::Undefined)
+                    || value.trust == Trust::Unknown
+                {
                     let default = self.expr(&assignment.right);
                     without_undefined(&value).join(&default)
                 } else {
@@ -371,16 +452,29 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let open = self.an.is_open(self.unit);
         self.an.read(super::Dep::Params(self.unit.id));
         let spread = self.an.state.spread_called.contains(&self.unit.id);
-        let recorded = self.an.state.params.get(&self.unit.id).cloned().unwrap_or_default();
+        let recorded = self
+            .an
+            .state
+            .params
+            .get(&self.unit.id)
+            .cloned()
+            .unwrap_or_default();
         let incoming = |index: usize| -> Val {
             let known = recorded.get(index).cloned().unwrap_or_else(Val::never);
-            if open || spread { known.join(&Val::unknown()) } else { known }
+            if open || spread {
+                known.join(&Val::unknown())
+            } else {
+                known
+            }
         };
         let constructor = self.unit.role == Some(MethodRole::Constructor);
         for (index, param) in params.items.iter().enumerate() {
             let value = incoming(index);
             let value = match &param.initializer {
-                Some(initializer) if value.trust == Trust::Unknown || value.ty.members().contains(&Type::Undefined) => {
+                Some(initializer)
+                    if value.trust == Trust::Unknown
+                        || value.ty.members().contains(&Type::Undefined) =>
+                {
                     let default = self.expr(initializer);
                     without_undefined(&value).join(&default)
                 }
@@ -395,7 +489,13 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             {
                 let value = self.read_symbol(symbol);
                 let this = self.this.clone();
-                self.write_prop(&this, Key::Name(id.name.to_string()), &value, param.node_id.get(), true);
+                self.write_prop(
+                    &this,
+                    &Key::Name(id.name.to_string()),
+                    &value,
+                    param.node_id.get(),
+                    true,
+                );
             }
         }
         if let Some(rest) = &params.rest {
@@ -415,7 +515,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     }
 
     /// Runs `body` as a labelled statement: `break label` inside it lands after it.
-    fn labelled_block(&mut self, labels: Vec<&'a str>, body: impl FnOnce(&mut Self)) {
+    fn labelled_block(&mut self, labels: &[&'a str], body: impl FnOnce(&mut Self)) {
         let mark = self.breaks.len();
         body(self);
         if labels.is_empty() {
@@ -440,11 +540,15 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         body: &'a Statement<'a>,
         update: Option<&'a Expression<'a>>,
         do_while: bool,
-        binding: Option<(&'a ForStatementLeft<'a>, Val)>,
+        binding: Option<(&'a ForStatementLeft<'a>, &Val)>,
     ) {
         let entry = self.env.clone();
         let mut head = entry.clone();
-        let mut exit = if binding.is_some() { entry.clone() } else { Env::unreachable() };
+        let mut exit = if binding.is_some() {
+            entry.clone()
+        } else {
+            Env::unreachable()
+        };
         let break_mark = self.breaks.len();
         let mut iteration = 0;
         loop {
@@ -454,7 +558,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 exit = exit.join(&no);
                 self.env = yes;
             }
-            if let Some((left, element)) = &binding {
+            if let Some((left, element)) = binding {
                 self.bind_left(left, element.clone());
             }
             let continue_mark = self.continues.len();
@@ -471,10 +575,10 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 exit = exit.join(&no);
                 self.env = yes;
             }
-            if let Some(update) = update {
-                if self.env.reachable {
-                    let _ = self.expr(update);
-                }
+            if let Some(update) = update
+                && self.env.reachable
+            {
+                let _ = self.expr(update);
             }
             if binding.is_some() {
                 // A for-in/of loop may end after any iteration.
@@ -529,7 +633,7 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         }
     }
 
-    fn switch(&mut self, statement: &'a oxc_ast::ast::SwitchStatement<'a>, labels: Vec<&'a str>) {
+    fn switch(&mut self, statement: &'a oxc_ast::ast::SwitchStatement<'a>, labels: &[&'a str]) {
         let _ = self.expr(&statement.discriminant);
         let entry = self.env.clone();
         let mark = self.breaks.len();
@@ -582,7 +686,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         let mut thrown = entry.join(&after_try);
         thrown.reachable = entry.reachable;
         for symbol in &writes {
-            let all = self.an.symbol_value(&self.module.symbol(*symbol)).cloned().unwrap_or_else(Val::unknown);
+            let all = self
+                .an
+                .symbol_value(self.module.symbol(*symbol))
+                .cloned()
+                .unwrap_or_else(Val::unknown);
             if let Some(value) = thrown.vars.get_mut(symbol) {
                 *value = value.join(&all);
             } else if self.is_tracked_here(*symbol) {
@@ -621,20 +729,21 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     /// The symbol `expression` names, if it is an identifier whose binding can't change under
     /// the unit: a tracked local or a const.
-    pub fn stable_symbol(&self, expression: &Expression<'_>) -> Option<oxc_syntax::symbol::SymbolId> {
+    pub fn stable_symbol(
+        &self,
+        expression: &Expression<'_>,
+    ) -> Option<oxc_syntax::symbol::SymbolId> {
         let Expression::Identifier(ident) = expression.without_parentheses() else {
             return None;
         };
         let scoping = self.module.semantic.scoping();
-        let symbol = scoping.get_reference(ident.reference_id.get()?).symbol_id()?;
+        let symbol = scoping
+            .get_reference(ident.reference_id.get()?)
+            .symbol_id()?;
         let flags = scoping.symbol_flags(symbol);
-        let constant = flags.contains(oxc_syntax::symbol::SymbolFlags::ConstVariable) && !self.module.info(symbol).tainted;
+        let constant = flags.contains(oxc_syntax::symbol::SymbolFlags::ConstVariable)
+            && !self.module.info(symbol).tainted;
         (self.is_tracked_here(symbol) || constant).then_some(symbol)
-    }
-
-    /// Whether the unit being interpreted is a callable function (not a module or class body).
-    pub fn in_function(&self) -> bool {
-        matches!(self.unit.body, Body::Function(_) | Body::Arrow(_))
     }
 }
 

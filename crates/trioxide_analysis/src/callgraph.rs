@@ -33,13 +33,13 @@ pub fn build(world: &World<'_>, output: &Output) -> CallGraph {
 
 /// Tarjan's algorithm. Components come out callees first (reverse topological order).
 fn tarjan(nodes: &[NodeRef], edges: &[CallEdge]) -> Vec<Vec<NodeRef>> {
-    let mut successors: FxHashMap<NodeRef, Vec<NodeRef>> = FxHashMap::default();
-    for edge in edges {
-        successors.entry(edge.caller).or_default().push(edge.callee);
-    }
     struct Frame {
         node: NodeRef,
         next: usize,
+    }
+    let mut successors: FxHashMap<NodeRef, Vec<NodeRef>> = FxHashMap::default();
+    for edge in edges {
+        successors.entry(edge.caller).or_default().push(edge.callee);
     }
     let mut index: FxHashMap<NodeRef, usize> = FxHashMap::default();
     let mut low: FxHashMap<NodeRef, usize> = FxHashMap::default();
@@ -51,7 +51,10 @@ fn tarjan(nodes: &[NodeRef], edges: &[CallEdge]) -> Vec<Vec<NodeRef>> {
         if index.contains_key(&root) {
             continue;
         }
-        let mut frames = vec![Frame { node: root, next: 0 }];
+        let mut frames = vec![Frame {
+            node: root,
+            next: 0,
+        }];
         index.insert(root, counter);
         low.insert(root, counter);
         counter += 1;
@@ -59,16 +62,22 @@ fn tarjan(nodes: &[NodeRef], edges: &[CallEdge]) -> Vec<Vec<NodeRef>> {
         on_stack.insert(root);
         while let Some(frame) = frames.last_mut() {
             let node = frame.node;
-            let next = successors.get(&node).and_then(|list| list.get(frame.next)).copied();
+            let next = successors
+                .get(&node)
+                .and_then(|list| list.get(frame.next))
+                .copied();
             if let Some(successor) = next {
                 frame.next += 1;
-                if !index.contains_key(&successor) {
-                    index.insert(successor, counter);
+                if let std::collections::hash_map::Entry::Vacant(entry) = index.entry(successor) {
+                    entry.insert(counter);
                     low.insert(successor, counter);
                     counter += 1;
                     stack.push(successor);
                     on_stack.insert(successor);
-                    frames.push(Frame { node: successor, next: 0 });
+                    frames.push(Frame {
+                        node: successor,
+                        next: 0,
+                    });
                 } else if on_stack.contains(&successor) {
                     let value = low[&node].min(index[&successor]);
                     low.insert(node, value);
@@ -110,7 +119,10 @@ pub fn effects(
             return (Effects::ANY, Effects::ANY);
         };
         let allocates = record.allocations.iter().any(|site| {
-            state.heap.get(site).is_none_or(|obj| obj.escape != Escape::None)
+            state
+                .heap
+                .get(site)
+                .is_none_or(|obj| obj.escape != Escape::None)
         });
         let mut proven = record.proven;
         let mut declared = record.declared;

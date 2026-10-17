@@ -4,8 +4,7 @@ use rustc_hash::FxHashMap;
 use trioxide_types::{Shape, Type};
 
 use crate::{
-    AnalysisOptions,
-    callgraph,
+    AnalysisOptions, callgraph,
     facts::{AllocKind, Allocation, ClassShape, Escape, Fact, Facts, FunctionInfo, Trust},
     interp::{self, ObjKind, Results, State},
     link::{Links, Target},
@@ -14,7 +13,12 @@ use crate::{
 };
 
 /// Builds the fact tables.
-pub fn facts(world: &World<'_>, links: &Links, results: &Results, options: &AnalysisOptions) -> Facts {
+pub fn facts(
+    world: &World<'_>,
+    links: &Links,
+    results: &Results,
+    options: &AnalysisOptions,
+) -> Facts {
     let mut facts = Facts::new(options.trust_types);
     for (import, target) in links.imports() {
         if let Target::Symbol(target) = target {
@@ -52,7 +56,8 @@ pub fn facts(world: &World<'_>, links: &Links, results: &Results, options: &Anal
     }
     facts.set_call_graph(graph);
 
-    let mut instances: FxHashMap<trioxide_common::NodeRef, Vec<&interp::Obj>> = FxHashMap::default();
+    let mut instances: FxHashMap<trioxide_common::NodeRef, Vec<&interp::Obj>> =
+        FxHashMap::default();
     for (&site, obj) in &state.heap {
         let kind = match obj.kind {
             ObjKind::Object => AllocKind::Object,
@@ -72,7 +77,10 @@ pub fn facts(world: &World<'_>, links: &Links, results: &Results, options: &Anal
             interp::Escape::Known => Escape::Known,
             interp::Escape::Unknown => Escape::Unknown,
         };
-        let stable = !obj.dynamic && !obj.deleted && obj.added.is_empty() && obj.escape != interp::Escape::Unknown;
+        let stable = !obj.dynamic
+            && !obj.deleted
+            && obj.added.is_empty()
+            && obj.escape != interp::Escape::Unknown;
         facts.set_allocation(
             site,
             Allocation {
@@ -109,7 +117,13 @@ pub fn facts(world: &World<'_>, links: &Links, results: &Results, options: &Anal
             shape.deletes = true;
             shape.dynamic = true;
         }
-        facts.set_class_shape(class, Fact { value: shape, trust });
+        facts.set_class_shape(
+            class,
+            Fact {
+                value: shape,
+                trust,
+            },
+        );
     }
     facts
 }
@@ -131,9 +145,19 @@ fn refine(ty: &Type, pts: &Pts, state: &State, depth: usize) -> Type {
         return Type::Unknown;
     }
     match ty {
-        Type::Union(members) => Type::union(members.iter().map(|member| refine(member, pts, state, depth))),
-        Type::Object(shape) if shape.properties.is_empty() && !shape.exact => object_shape(pts, state, depth).unwrap_or_else(|| ty.clone()),
-        Type::Array(element) if **element == Type::Unknown => array_element(pts, state, depth).map_or_else(|| ty.clone(), |element| Type::Array(std::sync::Arc::new(element))),
+        Type::Union(members) => Type::union(
+            members
+                .iter()
+                .map(|member| refine(member, pts, state, depth)),
+        ),
+        Type::Object(shape) if shape.properties.is_empty() && !shape.exact => {
+            object_shape(pts, state, depth).unwrap_or_else(|| ty.clone())
+        }
+        Type::Array(element) if **element == Type::Unknown => array_element(pts, state, depth)
+            .map_or_else(
+                || ty.clone(),
+                |element| Type::Array(std::sync::Arc::new(element)),
+            ),
         other => other.clone(),
     }
 }
@@ -145,7 +169,11 @@ fn object_shape(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
         .filter_map(|site| state.heap.get(site))
         .filter(|obj| obj.kind == ObjKind::Object)
         .collect();
-    if sites.is_empty() || sites.iter().any(|obj| obj.dynamic || obj.escape == interp::Escape::Unknown) {
+    if sites.is_empty()
+        || sites
+            .iter()
+            .any(|obj| obj.dynamic || obj.escape == interp::Escape::Unknown)
+    {
         return None;
     }
     let mut keys: Vec<String> = Vec::new();
@@ -159,7 +187,9 @@ fn object_shape(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
     let exact = sites.iter().all(|obj| {
         !obj.deleted
             && obj.added.is_empty()
-            && keys.iter().all(|key| obj.present.contains(key) && obj.props.contains_key(key))
+            && keys
+                .iter()
+                .all(|key| obj.present.contains(key) && obj.props.contains_key(key))
     });
     let properties = keys
         .into_iter()
@@ -181,7 +211,10 @@ fn object_shape(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
             (key, ty)
         })
         .collect();
-    Some(Type::Object(std::sync::Arc::new(Shape { properties, exact })))
+    Some(Type::Object(std::sync::Arc::new(Shape {
+        properties,
+        exact,
+    })))
 }
 
 fn array_element(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
@@ -191,7 +224,11 @@ fn array_element(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
         .filter_map(|site| state.heap.get(site))
         .filter(|obj| obj.kind == ObjKind::Array)
         .collect();
-    if sites.is_empty() || sites.iter().any(|obj| obj.dynamic || obj.escape == interp::Escape::Unknown) {
+    if sites.is_empty()
+        || sites
+            .iter()
+            .any(|obj| obj.dynamic || obj.escape == interp::Escape::Unknown)
+    {
         return None;
     }
     let mut element = Val::never();

@@ -5,8 +5,8 @@ use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
 use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
 use trioxide_project::{
-    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, JsxMode,
-    ModuleGraph, find_tsconfig,
+    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, JsxMode, ModuleGraph,
+    find_tsconfig,
 };
 use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
 
@@ -213,7 +213,11 @@ impl Project {
             .iter()
             .find(|input| input.id == id)
             .expect("the module is in the graph");
-        Ok(trioxide_analysis::render(&self.analysis.facts, module, &inputs))
+        Ok(trioxide_analysis::render(
+            &self.analysis.facts,
+            module,
+            &inputs,
+        ))
     }
 
     /// The analysis facts from the last build or [`facts`](Self::facts) call.

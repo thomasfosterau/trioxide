@@ -30,7 +30,9 @@ fn expectations(source: &str) -> Vec<Expectation> {
     let mut offset = 0usize;
     while let Some(at) = rest.find("/*@") {
         let start = offset + at;
-        let Some(end) = source[start..].find("*/") else { break };
+        let Some(end) = source[start..].find("*/") else {
+            break;
+        };
         let text = source[start + 3..start + end].trim().to_string();
         found.push(Expectation {
             line: source[..start].lines().count().max(1),
@@ -101,7 +103,10 @@ fn check(facts: &Facts, node: NodeRef, expectation: &str) -> Result<(), String> 
         other => return Err(format!("bad trust {other:?}")),
     };
     if fact.trust != trust {
-        return Err(format!("expected {trust:?}, got {:?} ({:?})", fact.trust, fact.value));
+        return Err(format!(
+            "expected {trust:?}, got {:?} ({:?})",
+            fact.trust, fact.value
+        ));
     }
     for word in words {
         let ok = match word {
@@ -115,7 +120,10 @@ fn check(facts: &Facts, node: NodeRef, expectation: &str) -> Result<(), String> 
             kind => kind_matches(kind, fact.value),
         };
         if !ok {
-            return Err(format!("`{word}` does not hold for {:?} @{:?}", fact.value, fact.trust));
+            return Err(format!(
+                "`{word}` does not hold for {:?} @{:?}",
+                fact.value, fact.trust
+            ));
         }
     }
     Ok(())
@@ -135,7 +143,11 @@ fn expectations_hold() {
             let allocator = Allocator::default();
             let parsed = Parser::new(&allocator, &module.source, module.source_type).parse();
             let program = allocator.alloc(parsed.program);
-            let semantic = SemanticBuilder::new().with_enum_eval(true).with_build_nodes(true).build(program).semantic;
+            let semantic = SemanticBuilder::new()
+                .with_enum_eval(true)
+                .with_build_nodes(true)
+                .build(program)
+                .semantic;
             for expectation in found {
                 count += 1;
                 let before = module.source[..expectation.comment_start as usize].trim_end();
@@ -147,17 +159,31 @@ fn expectations_hold() {
                     .max_by_key(|node| node.kind().span().size());
                 let place = format!("{}:{}", module.path.display(), expectation.line);
                 let Some(node) = node else {
-                    failures.push(format!("{place}: no expression ends before `/*@{}*/`", expectation.text));
+                    failures.push(format!(
+                        "{place}: no expression ends before `/*@{}*/`",
+                        expectation.text
+                    ));
                     continue;
                 };
-                let node_ref = NodeRef { module: module.id, node: node.id() };
+                let node_ref = NodeRef {
+                    module: module.id,
+                    node: node.id(),
+                };
                 if let Err(error) = check(&loaded.analysis.facts, node_ref, &expectation.text) {
                     let text = node.kind().span().source_text(&module.source);
-                    failures.push(format!("{place}: `{text}` /*@{}*/: {error}", expectation.text));
+                    failures.push(format!(
+                        "{place}: `{text}` /*@{}*/: {error}",
+                        expectation.text
+                    ));
                 }
             }
         }
     }
     assert!(count > 0, "no expectations found");
-    assert!(failures.is_empty(), "{} of {count} expectations failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} of {count} expectations failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }

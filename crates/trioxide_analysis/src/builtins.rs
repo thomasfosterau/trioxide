@@ -47,8 +47,6 @@ pub enum NumberModel {
     NonNaN,
     /// An int32.
     Int32,
-    /// A uint32.
-    Uint32,
     /// An integer in `[min, max]`.
     Int(i64, i64),
     /// An integer in `[-1, 2^32 - 2]`: an index or -1 (`indexOf`).
@@ -112,8 +110,6 @@ pub enum CallbackParam {
     Receiver,
     /// The accumulator of `reduce`: the initial value or a callback result.
     Accumulator,
-    /// Something not modelled.
-    Unknown,
 }
 
 /// What kind of value a method is looked up on.
@@ -182,8 +178,11 @@ const ITERATES: BuiltinEffects = BuiltinEffects {
     ..PURE
 };
 
-const ELEMENT_CALLBACK: &[CallbackParam] =
-    &[CallbackParam::Element, CallbackParam::Index, CallbackParam::Receiver];
+const ELEMENT_CALLBACK: &[CallbackParam] = &[
+    CallbackParam::Element,
+    CallbackParam::Index,
+    CallbackParam::Receiver,
+];
 const REDUCE_CALLBACK: &[CallbackParam] = &[
     CallbackParam::Accumulator,
     CallbackParam::Element,
@@ -256,8 +255,22 @@ pub static BUILTINS: &[Builtin] = &[
     function("String", Ret::String, PURE),
     function("Number", number(N::Any), PURE),
     function("Boolean", Ret::Boolean, PURE),
-    function("encodeURIComponent", Ret::String, BuiltinEffects { throws: true, ..PURE }),
-    function("decodeURIComponent", Ret::String, BuiltinEffects { throws: true, ..PURE }),
+    function(
+        "encodeURIComponent",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+    ),
+    function(
+        "decodeURIComponent",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+    ),
     // Math.
     value("Math.PI", number(N::NonNaN)),
     value("Math.E", number(N::NonNaN)),
@@ -281,7 +294,15 @@ pub static BUILTINS: &[Builtin] = &[
     math("Math.fround", M::Fround),
     function("Math.imul", number(N::Int32), PURE),
     function("Math.clz32", number(N::Int(0, 32)), PURE),
-    function("Math.random", number(N::Unit), BuiltinEffects { reads: true, writes_other: true, ..PURE }),
+    function(
+        "Math.random",
+        number(N::Unit),
+        BuiltinEffects {
+            reads: true,
+            writes_other: true,
+            ..PURE
+        },
+    ),
     function("Math.tan", number(N::Any), PURE),
     function("Math.asin", number(N::Any), PURE),
     function("Math.acos", number(N::Any), PURE),
@@ -300,8 +321,14 @@ pub static BUILTINS: &[Builtin] = &[
     function("Math.cosh", number(N::Any), PURE),
     function("Math.tanh", number(N::Any), PURE),
     // Number.
-    value("Number.MAX_SAFE_INTEGER", number(N::Int(9_007_199_254_740_991, 9_007_199_254_740_991))),
-    value("Number.MIN_SAFE_INTEGER", number(N::Int(-9_007_199_254_740_991, -9_007_199_254_740_991))),
+    value(
+        "Number.MAX_SAFE_INTEGER",
+        number(N::Int(9_007_199_254_740_991, 9_007_199_254_740_991)),
+    ),
+    value(
+        "Number.MIN_SAFE_INTEGER",
+        number(N::Int(-9_007_199_254_740_991, -9_007_199_254_740_991)),
+    ),
     value("Number.EPSILON", number(N::NonNaN)),
     value("Number.MAX_VALUE", number(N::NonNaN)),
     value("Number.MIN_VALUE", number(N::NonNaN)),
@@ -314,66 +341,322 @@ pub static BUILTINS: &[Builtin] = &[
     function("Number.isNaN", Ret::Boolean, PURE),
     function("Number.parseInt", number(N::IntOrNaN), PURE),
     function("Number.parseFloat", number(N::Any), PURE),
-    method(R::Number, "toFixed", Ret::String, BuiltinEffects { throws: true, ..PURE }, &[]),
-    method(R::Number, "toString", Ret::String, BuiltinEffects { throws: true, ..PURE }, &[]),
-    method(R::Number, "toPrecision", Ret::String, BuiltinEffects { throws: true, ..PURE }, &[]),
+    method(
+        R::Number,
+        "toFixed",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
+    method(
+        R::Number,
+        "toString",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
+    method(
+        R::Number,
+        "toPrecision",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
     // JSON.
-    function("JSON.stringify", Ret::Unknown, BuiltinEffects { reads: true, throws: true, calls_args: true, ..PURE }),
-    function("JSON.parse", Ret::Unknown, BuiltinEffects { allocates: true, throws: true, calls_args: true, ..PURE }),
+    function(
+        "JSON.stringify",
+        Ret::Unknown,
+        BuiltinEffects {
+            reads: true,
+            throws: true,
+            calls_args: true,
+            ..PURE
+        },
+    ),
+    function(
+        "JSON.parse",
+        Ret::Unknown,
+        BuiltinEffects {
+            allocates: true,
+            throws: true,
+            calls_args: true,
+            ..PURE
+        },
+    ),
     // Object.
-    function("Object.keys", Ret::StringArray, BuiltinEffects { throws: true, ..COPY }),
-    function("Object.values", Ret::NewArray, BuiltinEffects { throws: true, ..COPY }),
-    function("Object.entries", Ret::NewArray, BuiltinEffects { throws: true, ..COPY }),
+    function(
+        "Object.keys",
+        Ret::StringArray,
+        BuiltinEffects {
+            throws: true,
+            ..COPY
+        },
+    ),
+    function(
+        "Object.values",
+        Ret::NewArray,
+        BuiltinEffects {
+            throws: true,
+            ..COPY
+        },
+    ),
+    function(
+        "Object.entries",
+        Ret::NewArray,
+        BuiltinEffects {
+            throws: true,
+            ..COPY
+        },
+    ),
     function("Object.is", Ret::Boolean, PURE),
-    function("Object.freeze", Ret::FirstArgument, BuiltinEffects { writes_other: true, ..PURE }),
+    function(
+        "Object.freeze",
+        Ret::FirstArgument,
+        BuiltinEffects {
+            writes_other: true,
+            ..PURE
+        },
+    ),
     function("Object.isFrozen", Ret::Boolean, READS),
     // Array and String statics.
     function("Array.isArray", Ret::Boolean, PURE),
     function("String.fromCharCode", Ret::String, PURE),
-    function("Date.now", number(N::NonNaN), BuiltinEffects { reads: true, ..PURE }),
+    function(
+        "Date.now",
+        number(N::NonNaN),
+        BuiltinEffects {
+            reads: true,
+            ..PURE
+        },
+    ),
     // Array.prototype.
     method(R::Array, "at", Ret::ElementOrUndefined, READS, &[]),
     method(R::Array, "includes", Ret::Boolean, READS, &[]),
     method(R::Array, "indexOf", number(N::IndexOrMinusOne), READS, &[]),
-    method(R::Array, "lastIndexOf", number(N::IndexOrMinusOne), READS, &[]),
-    method(R::Array, "join", Ret::String, BuiltinEffects { throws: true, calls_args: true, ..READS }, &[]),
+    method(
+        R::Array,
+        "lastIndexOf",
+        number(N::IndexOrMinusOne),
+        READS,
+        &[],
+    ),
+    method(
+        R::Array,
+        "join",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            calls_args: true,
+            ..READS
+        },
+        &[],
+    ),
     method(R::Array, "slice", Ret::ReceiverElements, COPY, &[]),
     method(R::Array, "concat", Ret::NewArray, COPY, &[]),
-    method(R::Array, "map", Ret::NewArray, BuiltinEffects { allocates: true, ..ITERATES }, ELEMENT_CALLBACK),
-    method(R::Array, "filter", Ret::ReceiverElements, BuiltinEffects { allocates: true, ..ITERATES }, ELEMENT_CALLBACK),
-    method(R::Array, "forEach", Ret::Undefined, ITERATES, ELEMENT_CALLBACK),
+    method(
+        R::Array,
+        "map",
+        Ret::NewArray,
+        BuiltinEffects {
+            allocates: true,
+            ..ITERATES
+        },
+        ELEMENT_CALLBACK,
+    ),
+    method(
+        R::Array,
+        "filter",
+        Ret::ReceiverElements,
+        BuiltinEffects {
+            allocates: true,
+            ..ITERATES
+        },
+        ELEMENT_CALLBACK,
+    ),
+    method(
+        R::Array,
+        "forEach",
+        Ret::Undefined,
+        ITERATES,
+        ELEMENT_CALLBACK,
+    ),
     method(R::Array, "some", Ret::Boolean, ITERATES, ELEMENT_CALLBACK),
     method(R::Array, "every", Ret::Boolean, ITERATES, ELEMENT_CALLBACK),
-    method(R::Array, "find", Ret::ElementOrUndefined, ITERATES, ELEMENT_CALLBACK),
-    method(R::Array, "findIndex", number(N::IndexOrMinusOne), ITERATES, ELEMENT_CALLBACK),
+    method(
+        R::Array,
+        "find",
+        Ret::ElementOrUndefined,
+        ITERATES,
+        ELEMENT_CALLBACK,
+    ),
+    method(
+        R::Array,
+        "findIndex",
+        number(N::IndexOrMinusOne),
+        ITERATES,
+        ELEMENT_CALLBACK,
+    ),
     method(R::Array, "reduce", Ret::Unknown, ITERATES, REDUCE_CALLBACK),
-    method(R::Array, "push", number(N::Length), BuiltinEffects { retains_args: true, throws: true, ..MUTATES }, &[]),
+    method(
+        R::Array,
+        "push",
+        number(N::Length),
+        BuiltinEffects {
+            retains_args: true,
+            throws: true,
+            ..MUTATES
+        },
+        &[],
+    ),
     method(R::Array, "pop", Ret::ElementOrUndefined, MUTATES, &[]),
     method(R::Array, "shift", Ret::ElementOrUndefined, MUTATES, &[]),
-    method(R::Array, "unshift", number(N::Length), BuiltinEffects { retains_args: true, throws: true, ..MUTATES }, &[]),
+    method(
+        R::Array,
+        "unshift",
+        number(N::Length),
+        BuiltinEffects {
+            retains_args: true,
+            throws: true,
+            ..MUTATES
+        },
+        &[],
+    ),
     method(R::Array, "reverse", Ret::Receiver, MUTATES, &[]),
-    method(R::Array, "sort", Ret::Receiver, BuiltinEffects { throws: true, calls_args: true, ..MUTATES }, SORT_CALLBACK),
-    method(R::Array, "fill", Ret::Receiver, BuiltinEffects { retains_args: true, ..MUTATES }, &[]),
+    method(
+        R::Array,
+        "sort",
+        Ret::Receiver,
+        BuiltinEffects {
+            throws: true,
+            calls_args: true,
+            ..MUTATES
+        },
+        SORT_CALLBACK,
+    ),
+    method(
+        R::Array,
+        "fill",
+        Ret::Receiver,
+        BuiltinEffects {
+            retains_args: true,
+            ..MUTATES
+        },
+        &[],
+    ),
     // Typed arrays (the `%TypedArray%.prototype` methods).
     method(R::TypedArray, "at", Ret::ElementOrUndefined, READS, &[]),
     method(R::TypedArray, "includes", Ret::Boolean, READS, &[]),
-    method(R::TypedArray, "indexOf", number(N::IndexOrMinusOne), READS, &[]),
+    method(
+        R::TypedArray,
+        "indexOf",
+        number(N::IndexOrMinusOne),
+        READS,
+        &[],
+    ),
     method(R::TypedArray, "fill", Ret::Receiver, MUTATES, &[]),
-    method(R::TypedArray, "set", Ret::Undefined, BuiltinEffects { throws: true, ..MUTATES }, &[]),
-    method(R::TypedArray, "subarray", Ret::ReceiverTypedArray, BuiltinEffects { allocates: true, ..PURE }, &[]),
+    method(
+        R::TypedArray,
+        "set",
+        Ret::Undefined,
+        BuiltinEffects {
+            throws: true,
+            ..MUTATES
+        },
+        &[],
+    ),
+    method(
+        R::TypedArray,
+        "subarray",
+        Ret::ReceiverTypedArray,
+        BuiltinEffects {
+            allocates: true,
+            ..PURE
+        },
+        &[],
+    ),
     method(R::TypedArray, "slice", Ret::ReceiverTypedArray, COPY, &[]),
-    method(R::TypedArray, "forEach", Ret::Undefined, ITERATES, ELEMENT_CALLBACK),
-    method(R::TypedArray, "reduce", Ret::Unknown, ITERATES, REDUCE_CALLBACK),
-    method(R::TypedArray, "sort", Ret::Receiver, BuiltinEffects { throws: true, calls_args: true, ..MUTATES }, SORT_CALLBACK),
+    method(
+        R::TypedArray,
+        "forEach",
+        Ret::Undefined,
+        ITERATES,
+        ELEMENT_CALLBACK,
+    ),
+    method(
+        R::TypedArray,
+        "reduce",
+        Ret::Unknown,
+        ITERATES,
+        REDUCE_CALLBACK,
+    ),
+    method(
+        R::TypedArray,
+        "sort",
+        Ret::Receiver,
+        BuiltinEffects {
+            throws: true,
+            calls_args: true,
+            ..MUTATES
+        },
+        SORT_CALLBACK,
+    ),
     // String.prototype (on primitive strings, which nothing can mutate).
     method(R::String, "charAt", Ret::String, PURE, &[]),
     method(R::String, "charCodeAt", number(N::CodeUnitOrNaN), PURE, &[]),
     method(R::String, "codePointAt", Ret::Unknown, PURE, &[]),
-    method(R::String, "indexOf", number(N::Int(-1, 9_007_199_254_740_990)), PURE, &[]),
-    method(R::String, "lastIndexOf", number(N::Int(-1, 9_007_199_254_740_990)), PURE, &[]),
-    method(R::String, "includes", Ret::Boolean, BuiltinEffects { throws: true, ..PURE }, &[]),
-    method(R::String, "startsWith", Ret::Boolean, BuiltinEffects { throws: true, ..PURE }, &[]),
-    method(R::String, "endsWith", Ret::Boolean, BuiltinEffects { throws: true, ..PURE }, &[]),
+    method(
+        R::String,
+        "indexOf",
+        number(N::Int(-1, 9_007_199_254_740_990)),
+        PURE,
+        &[],
+    ),
+    method(
+        R::String,
+        "lastIndexOf",
+        number(N::Int(-1, 9_007_199_254_740_990)),
+        PURE,
+        &[],
+    ),
+    method(
+        R::String,
+        "includes",
+        Ret::Boolean,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
+    method(
+        R::String,
+        "startsWith",
+        Ret::Boolean,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
+    method(
+        R::String,
+        "endsWith",
+        Ret::Boolean,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
     method(R::String, "slice", Ret::String, PURE, &[]),
     method(R::String, "substring", Ret::String, PURE, &[]),
     method(R::String, "toUpperCase", Ret::String, PURE, &[]),
@@ -381,10 +664,47 @@ pub static BUILTINS: &[Builtin] = &[
     method(R::String, "trim", Ret::String, PURE, &[]),
     method(R::String, "trimStart", Ret::String, PURE, &[]),
     method(R::String, "trimEnd", Ret::String, PURE, &[]),
-    method(R::String, "padStart", Ret::String, BuiltinEffects { throws: true, ..PURE }, &[]),
-    method(R::String, "padEnd", Ret::String, BuiltinEffects { throws: true, ..PURE }, &[]),
-    method(R::String, "repeat", Ret::String, BuiltinEffects { throws: true, ..PURE }, &[]),
-    method(R::String, "split", Ret::StringArray, BuiltinEffects { allocates: true, throws: true, ..PURE }, &[]),
+    method(
+        R::String,
+        "padStart",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
+    method(
+        R::String,
+        "padEnd",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
+    method(
+        R::String,
+        "repeat",
+        Ret::String,
+        BuiltinEffects {
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
+    method(
+        R::String,
+        "split",
+        Ret::StringArray,
+        BuiltinEffects {
+            allocates: true,
+            throws: true,
+            ..PURE
+        },
+        &[],
+    ),
     method(R::String, "localeCompare", number(N::NonNaN), PURE, &[]),
     method(R::String, "concat", Ret::String, PURE, &[]),
     method(R::String, "at", Ret::Unknown, PURE, &[]),
@@ -392,7 +712,9 @@ pub static BUILTINS: &[Builtin] = &[
 
 /// The global namespace objects whose members are modelled; a write to any of them (or a
 /// shadowing binding) disables their models.
-pub const NAMESPACES: [&str; 7] = ["Math", "Number", "JSON", "Object", "Array", "String", "Date"];
+pub const NAMESPACES: [&str; 7] = [
+    "Math", "Number", "JSON", "Object", "Array", "String", "Date",
+];
 
 /// The model of a global or namespace member, e.g. `"Math.floor"`.
 pub fn global(name: &str) -> Option<&'static Builtin> {
@@ -401,15 +723,18 @@ pub fn global(name: &str) -> Option<&'static Builtin> {
 
 /// The model of a method on a proven receiver kind.
 pub fn method_of(receiver: Receiver, name: &str) -> Option<&'static Builtin> {
-    static INDEX: std::sync::LazyLock<rustc_hash::FxHashMap<(Receiver, &'static str), &'static Builtin>> =
-        std::sync::LazyLock::new(|| {
-            let mut index = rustc_hash::FxHashMap::default();
-            for builtin in BUILTINS {
-                // The first entry wins, as in a linear search.
-                index.entry((builtin.receiver, builtin.name)).or_insert(builtin);
-            }
+    static INDEX: std::sync::LazyLock<
+        rustc_hash::FxHashMap<(Receiver, &'static str), &'static Builtin>,
+    > = std::sync::LazyLock::new(|| {
+        let mut index = rustc_hash::FxHashMap::default();
+        for builtin in BUILTINS {
+            // The first entry wins, as in a linear search.
             index
-        });
+                .entry((builtin.receiver, builtin.name))
+                .or_insert(builtin);
+        }
+        index
+    });
     INDEX.get(&(receiver, name)).copied()
 }
 
@@ -445,8 +770,19 @@ mod tests {
                 builtin.name
             );
         }
-        assert_eq!(global("Math.floor").unwrap().ret, Ret::Number(NumberModel::Math(MathOp::Floor)));
-        assert!(method_of(Receiver::Array, "push").unwrap().effects.writes_receiver);
-        assert_eq!(method_of(Receiver::Array, "map").unwrap().callback[1], CallbackParam::Index);
+        assert_eq!(
+            global("Math.floor").unwrap().ret,
+            Ret::Number(NumberModel::Math(MathOp::Floor))
+        );
+        assert!(
+            method_of(Receiver::Array, "push")
+                .unwrap()
+                .effects
+                .writes_receiver
+        );
+        assert_eq!(
+            method_of(Receiver::Array, "map").unwrap().callback[1],
+            CallbackParam::Index
+        );
     }
 }

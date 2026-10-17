@@ -65,6 +65,10 @@ pub struct Unit<'a> {
     /// Its role in the class, for function units.
     pub role: Option<MethodRole>,
     /// Whether it is a `static` class member.
+    #[expect(
+        dead_code,
+        reason = "descriptive world data, not read by the interpreter yet"
+    )]
     pub is_static: bool,
     /// A human-readable name.
     pub name: Option<String>,
@@ -77,12 +81,6 @@ pub struct Unit<'a> {
 }
 
 impl Unit<'_> {
-    /// Whether the unit is a function the program can call (not a module, block or field
-    /// initialiser).
-    pub fn is_callable(&self) -> bool {
-        matches!(self.body, Body::Function(_) | Body::Arrow(_))
-    }
-
     /// Whether `this` is lexical (arrow functions).
     pub fn lexical_this(&self) -> bool {
         matches!(self.body, Body::Arrow(_))
@@ -109,6 +107,10 @@ pub struct Member {
     /// `static`.
     pub is_static: bool,
     /// The member's node.
+    #[expect(
+        dead_code,
+        reason = "descriptive world data, not read by the interpreter yet"
+    )]
     pub node: NodeId,
 }
 
@@ -119,6 +121,10 @@ pub struct ClassInfo<'a> {
     /// The AST.
     pub class: &'a Class<'a>,
     /// The class's name, if any.
+    #[expect(
+        dead_code,
+        reason = "descriptive world data, not read by the interpreter yet"
+    )]
     pub name: Option<String>,
     /// The `constructor` unit, if written.
     pub constructor: Option<NodeRef>,
@@ -156,6 +162,10 @@ pub struct SymbolInfo {
     pub nested_reads: bool,
     /// Function-scoped (`var`, a function declaration or a parameter): readable as
     /// `undefined` before its first write.
+    #[expect(
+        dead_code,
+        reason = "descriptive world data, not read by the interpreter yet"
+    )]
     pub hoisted: bool,
     /// An import binding.
     pub import: bool,
@@ -170,6 +180,10 @@ pub struct Module<'a> {
     /// Its path.
     pub path: &'a Path,
     /// Its source.
+    #[expect(
+        dead_code,
+        reason = "descriptive world data, not read by the interpreter yet"
+    )]
     pub source: &'a str,
     /// The AST.
     pub program: &'a Program<'a>,
@@ -219,14 +233,17 @@ impl<'a> Module<'a> {
         let scoping = self.semantic.scoping();
         let nodes = self.semantic.nodes();
         let declaration = scoping.symbol_declaration(symbol);
-        std::iter::once(declaration).chain(nodes.ancestor_ids(declaration)).take(4).any(|id| match nodes.kind(id) {
-            AstKind::Function(function) => function.declare || function.body.is_none(),
-            AstKind::VariableDeclaration(declaration) => declaration.declare,
-            AstKind::Class(class) => class.declare,
-            AstKind::TSEnumDeclaration(declaration) => declaration.declare,
-            AstKind::TSNamespaceDeclaration(declaration) => declaration.declare,
-            _ => false,
-        })
+        std::iter::once(declaration)
+            .chain(nodes.ancestor_ids(declaration))
+            .take(4)
+            .any(|id| match nodes.kind(id) {
+                AstKind::Function(function) => function.declare || function.body.is_none(),
+                AstKind::VariableDeclaration(declaration) => declaration.declare,
+                AstKind::Class(class) => class.declare,
+                AstKind::TSEnumDeclaration(declaration) => declaration.declare,
+                AstKind::TSNamespaceDeclaration(declaration) => declaration.declare,
+                _ => false,
+            })
     }
 
     /// Whether code the compiler generates (rather than the program's own source) imports
@@ -245,7 +262,12 @@ impl<'a> Module<'a> {
 
     /// The unit whose code contains `node` (`node` itself if it is a unit and `include_self`).
     pub fn unit_of(&self, node: NodeId, include_self: bool) -> NodeRef {
-        if let Some(&unit) = self.unit_cache.borrow().get(&node).filter(|_| !include_self) {
+        if let Some(&unit) = self
+            .unit_cache
+            .borrow()
+            .get(&node)
+            .filter(|_| !include_self)
+        {
             return unit;
         }
         let nodes = self.semantic.nodes();
@@ -333,7 +355,7 @@ impl<'a> World<'a> {
             member_of: FxHashMap::default(),
             unit_symbols: FxHashMap::default(),
         };
-            for (allocator, input) in allocators.iter().zip(inputs) {
+        for (allocator, input) in allocators.iter().zip(inputs) {
             let parsed = Parser::new(allocator, input.source, input.source_type).parse();
             let broken = parsed.fatal_error || !parsed.diagnostics.is_empty();
             let program: &'a Program<'a> = allocator.alloc(parsed.program);
@@ -385,7 +407,9 @@ impl<'a> World<'a> {
         let mut classes = Vec::new();
         for node in nodes.iter() {
             let id = node.id();
-            let strict = scoping.scope_flags(node.scope_id()).contains(ScopeFlags::StrictMode)
+            let strict = scoping
+                .scope_flags(node.scope_id())
+                .contains(ScopeFlags::StrictMode)
                 || module.program.source_type.is_module();
             match node.kind() {
                 AstKind::Program(program) => {
@@ -692,9 +716,8 @@ impl<'a> World<'a> {
                         && !in_class_init,
                     tainted,
                     nested_reads,
-                    hoisted: flags.intersects(
-                        SymbolFlags::FunctionScopedVariable | SymbolFlags::Function,
-                    ),
+                    hoisted: flags
+                        .intersects(SymbolFlags::FunctionScopedVariable | SymbolFlags::Function),
                     import,
                     exported: exported.contains(&symbol),
                 }
@@ -704,7 +727,10 @@ impl<'a> World<'a> {
 }
 
 /// The role and static-ness of a function that is a class member, and the member's name.
-fn method_role(module: &Module<'_>, function: NodeId) -> (Option<MethodRole>, bool, Option<String>) {
+fn method_role(
+    module: &Module<'_>,
+    function: NodeId,
+) -> (Option<MethodRole>, bool, Option<String>) {
     let nodes = module.semantic.nodes();
     match nodes.parent_kind(function) {
         AstKind::MethodDefinition(method) => {
@@ -714,11 +740,13 @@ fn method_role(module: &Module<'_>, function: NodeId) -> (Option<MethodRole>, bo
                 MethodDefinitionKind::Get => MethodRole::Getter,
                 MethodDefinitionKind::Set => MethodRole::Setter,
             };
-            let class_name = match nodes.kind(nodes.parent_id(nodes.parent_id(method.node_id.get()))) {
-                AstKind::Class(class) => class.id.as_ref().map(|id| id.name.to_string()),
-                _ => None,
-            };
-            let key = static_key(&method.key, method.computed).unwrap_or_else(|| "[computed]".into());
+            let class_name =
+                match nodes.kind(nodes.parent_id(nodes.parent_id(method.node_id.get()))) {
+                    AstKind::Class(class) => class.id.as_ref().map(|id| id.name.to_string()),
+                    _ => None,
+                };
+            let key =
+                static_key(&method.key, method.computed).unwrap_or_else(|| "[computed]".into());
             let name = match class_name {
                 Some(class) => format!("{class}.{key}"),
                 None => key,

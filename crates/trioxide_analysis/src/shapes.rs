@@ -28,7 +28,10 @@ pub fn constructor_assigned(world: &World<'_>, class: NodeRef) -> Vec<String> {
     assigned
 }
 
-fn fields_and_constructor_assignments(world: &World<'_>, class: NodeRef) -> (Vec<String>, Vec<String>) {
+fn fields_and_constructor_assignments(
+    world: &World<'_>,
+    class: NodeRef,
+) -> (Vec<String>, Vec<String>) {
     let Some(info) = world.classes.get(&class) else {
         return (Vec::new(), Vec::new());
     };
@@ -64,10 +67,20 @@ fn fields_and_constructor_assignments(world: &World<'_>, class: NodeRef) -> (Vec
         }
         fields.push(name);
     }
-    let Some(constructor) = info.class.body.body.iter().find_map(|element| match element {
-        ClassElement::MethodDefinition(method) if method.kind == MethodDefinitionKind::Constructor => Some(&method.value),
-        _ => None,
-    }) else {
+    let Some(constructor) = info
+        .class
+        .body
+        .body
+        .iter()
+        .find_map(|element| match element {
+            ClassElement::MethodDefinition(method)
+                if method.kind == MethodDefinitionKind::Constructor =>
+            {
+                Some(&method.value)
+            }
+            _ => None,
+        })
+    else {
         return (fields, Vec::new());
     };
     let mut assigned = Vec::new();
@@ -75,7 +88,11 @@ fn fields_and_constructor_assignments(world: &World<'_>, class: NodeRef) -> (Vec
     (fields, assigned)
 }
 
-fn constructor_prefix(constructor: &Function<'_>, fields: &mut Vec<String>, assigned: &mut Vec<String>) {
+fn constructor_prefix(
+    constructor: &Function<'_>,
+    fields: &mut Vec<String>,
+    assigned: &mut Vec<String>,
+) {
     for param in &constructor.params.items {
         if is_parameter_property(param)
             && let BindingPattern::BindingIdentifier(id) = &param.pattern
@@ -86,11 +103,13 @@ fn constructor_prefix(constructor: &Function<'_>, fields: &mut Vec<String>, assi
             return;
         }
     }
-    let Some(body) = &constructor.body else { return };
+    let Some(body) = &constructor.body else {
+        return;
+    };
     for statement in &body.statements {
         match statement {
-            Statement::ExpressionStatement(statement)
-                if matches!(&statement.expression, Expression::CallExpression(call) if matches!(call.callee, Expression::Super(_)) && !call.arguments.iter().any(|argument| argument.as_expression().is_some_and(uses_this))) => {}
+            Statement::ExpressionStatement(statement) if matches!(&statement.expression, Expression::CallExpression(call) if matches!(call.callee, Expression::Super(_)) && !call.arguments.iter().any(|argument| argument.as_expression().is_some_and(uses_this))) =>
+                {}
             Statement::ExpressionStatement(statement) => {
                 let Expression::AssignmentExpression(assign) = &statement.expression else {
                     if uses_this(&statement.expression) {
@@ -147,12 +166,20 @@ fn constructor_prefix(constructor: &Function<'_>, fields: &mut Vec<String>, assi
 /// module by a binding nothing reassigns.
 pub fn static_superclass(world: &World<'_>, class: NodeRef) -> Option<NodeRef> {
     let info = world.classes.get(&class)?;
-    let Expression::Identifier(ident) = info.class.heritage.as_ref()?.expression.without_parentheses() else {
+    let Expression::Identifier(ident) = info
+        .class
+        .heritage
+        .as_ref()?
+        .expression
+        .without_parentheses()
+    else {
         return None;
     };
     let module = world.module(class.module);
     let scoping = module.semantic.scoping();
-    let symbol = scoping.get_reference(ident.reference_id.get()?).symbol_id()?;
+    let symbol = scoping
+        .get_reference(ident.reference_id.get()?)
+        .symbol_id()?;
     if scoping.symbol_is_mutated(symbol) || module.info(symbol).tainted {
         return None;
     }
@@ -186,8 +213,12 @@ fn is_quiet(world: &World<'_>, class: NodeRef, depth: usize) -> bool {
                 }
             }
             ClassElement::AccessorProperty(property) if !property.r#static => return false,
-            ClassElement::MethodDefinition(method) if method.kind == MethodDefinitionKind::Constructor => {
-                let Some(body) = &method.value.body else { continue };
+            ClassElement::MethodDefinition(method)
+                if method.kind == MethodDefinitionKind::Constructor =>
+            {
+                let Some(body) = &method.value.body else {
+                    continue;
+                };
                 for param in &method.value.params.items {
                     if param.initializer.as_deref().is_some_and(uses_this) {
                         return false;
@@ -200,8 +231,13 @@ fn is_quiet(world: &World<'_>, class: NodeRef, depth: usize) -> bool {
                                 !uses_this(&assign.right)
                                     && matches!(&assign.left, AssignmentTarget::StaticMemberExpression(member) if matches!(member.object, Expression::ThisExpression(_)))
                             }
-                            Expression::CallExpression(call) if matches!(call.callee, Expression::Super(_)) => {
-                                !call.arguments.iter().any(|argument| argument.as_expression().is_some_and(uses_this))
+                            Expression::CallExpression(call)
+                                if matches!(call.callee, Expression::Super(_)) =>
+                            {
+                                !call
+                                    .arguments
+                                    .iter()
+                                    .any(|argument| argument.as_expression().is_some_and(uses_this))
                             }
                             expression => !uses_this(expression),
                         },

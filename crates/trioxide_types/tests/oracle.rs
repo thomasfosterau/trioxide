@@ -115,7 +115,10 @@ fn primitives_literals_and_unions() {
     assert_eq!(f.type_of("big", 0), Some(Type::BigInt));
     assert_eq!(
         f.type_of("u", 0),
-        Some(Type::Union(std::sync::Arc::from([Type::Undefined, Type::NUMBER])))
+        Some(Type::Union(std::sync::Arc::from([
+            Type::Undefined,
+            Type::NUMBER
+        ])))
     );
     // `any` and `void` say nothing about the value.
     assert_eq!(f.type_of("a", 0), Some(Type::Unknown));
@@ -162,15 +165,16 @@ fn arrays_tuples_typed_arrays_and_objects() {
     );
     assert_eq!(
         f.type_of("pair", 0),
-        Some(Type::Tuple(std::sync::Arc::from([Type::NUMBER, Type::String])))
+        Some(Type::Tuple(std::sync::Arc::from([
+            Type::NUMBER,
+            Type::String
+        ])))
     );
     assert_eq!(
         f.type_of("opt", 0),
-        Some(Type::Array(std::sync::Arc::new(Type::Union(std::sync::Arc::from([
-            Type::Undefined,
-            Type::NUMBER,
-            Type::String,
-        ])))))
+        Some(Type::Array(std::sync::Arc::new(Type::Union(
+            std::sync::Arc::from([Type::Undefined, Type::NUMBER, Type::String,])
+        ))))
     );
     assert_eq!(
         f.type_of("fa", 0),
@@ -299,7 +303,10 @@ fn declarations_symbols_and_signatures() {
     assert_eq!(f.oracle.type_at(m, narrowed), Some(Type::String));
     assert_eq!(
         f.oracle.symbol_type_at(m, narrowed),
-        Some(Type::Union(std::sync::Arc::from([Type::NUMBER, Type::String])))
+        Some(Type::Union(std::sync::Arc::from([
+            Type::NUMBER,
+            Type::String
+        ])))
     );
     assert_eq!(
         f.oracle

@@ -57,7 +57,8 @@ pub enum Type {
 impl Type {
     /// A function with nothing known about its signature, known to be `id` if given.
     pub fn opaque_function(id: Option<FunctionId>) -> Self {
-        static UNKNOWN: std::sync::LazyLock<Arc<Signature>> = std::sync::LazyLock::new(Arc::default);
+        static UNKNOWN: std::sync::LazyLock<Arc<Signature>> =
+            std::sync::LazyLock::new(Arc::default);
         Self::Function(Arc::clone(&UNKNOWN), id)
     }
 
@@ -74,12 +75,21 @@ impl PartialEq for Type {
             (Self::Number(a), Self::Number(b)) => a == b,
             (Self::Array(a), Self::Array(b)) => Arc::ptr_eq(a, b) || a == b,
             (Self::TypedArray(a), Self::TypedArray(b)) => a == b,
-            (Self::Tuple(a), Self::Tuple(b)) | (Self::Union(a), Self::Union(b)) => Arc::ptr_eq(a, b) || a == b,
+            (Self::Tuple(a), Self::Tuple(b)) | (Self::Union(a), Self::Union(b)) => {
+                Arc::ptr_eq(a, b) || a == b
+            }
             (Self::Object(a), Self::Object(b)) => Arc::ptr_eq(a, b) || a == b,
             (Self::Instance(a), Self::Instance(b)) => a == b,
             (Self::Function(a, x), Self::Function(b, y)) => x == y && (Arc::ptr_eq(a, b) || a == b),
             (
-                Self::Unknown | Self::Never | Self::Boolean | Self::String | Self::BigInt | Self::Symbol | Self::Null | Self::Undefined,
+                Self::Unknown
+                | Self::Never
+                | Self::Boolean
+                | Self::String
+                | Self::BigInt
+                | Self::Symbol
+                | Self::Null
+                | Self::Undefined,
                 _,
             ) => std::mem::discriminant(self) == std::mem::discriminant(other),
             _ => false,
@@ -265,9 +275,13 @@ impl Type {
                 .then(a.non_neg_zero.cmp(&b.non_neg_zero))
         }
         fn list(a: &[Type], b: &[Type]) -> Ordering {
-            a.len()
-                .cmp(&b.len())
-                .then_with(|| a.iter().zip(b).map(|(a, b)| a.canonical_cmp(b)).find(|o| o.is_ne()).unwrap_or(Ordering::Equal))
+            a.len().cmp(&b.len()).then_with(|| {
+                a.iter()
+                    .zip(b)
+                    .map(|(a, b)| a.canonical_cmp(b))
+                    .find(|o| o.is_ne())
+                    .unwrap_or(Ordering::Equal)
+            })
         }
         fn variant(ty: &Type) -> u8 {
             match ty {
@@ -289,7 +303,10 @@ impl Type {
                 Type::Union(_) => 15,
             }
         }
-        let by_variant = self.union_rank().cmp(&other.union_rank()).then(variant(self).cmp(&variant(other)));
+        let by_variant = self
+            .union_rank()
+            .cmp(&other.union_rank())
+            .then(variant(self).cmp(&variant(other)));
         if by_variant.is_ne() {
             return by_variant;
         }

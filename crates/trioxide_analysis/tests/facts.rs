@@ -8,12 +8,15 @@ use std::fmt::Write as _;
 #[test]
 fn facts_snapshots() {
     let fixtures = common::fixtures();
-    assert!(!fixtures.is_empty());
+    assert_ne!(fixtures, [] as [std::path::PathBuf; 0]);
     let filter = std::env::var("FIXTURE").ok();
     for entry in fixtures {
         let dir = entry.parent().unwrap();
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
-        if filter.as_ref().is_some_and(|filter| !name.contains(filter.as_str())) {
+        if filter
+            .as_ref()
+            .is_some_and(|filter| !name.contains(filter.as_str()))
+        {
             continue;
         }
         let loaded = common::load(&entry);
@@ -25,7 +28,11 @@ fn facts_snapshots() {
         for input in &inputs {
             let path = input.path.strip_prefix(dir).unwrap_or(input.path);
             writeln!(text, "//- {}", path.display()).unwrap();
-            text.push_str(&trioxide_analysis::render(&loaded.analysis.facts, input, &inputs));
+            text.push_str(&trioxide_analysis::render(
+                &loaded.analysis.facts,
+                input,
+                &inputs,
+            ));
             text.push('\n');
         }
         let mut settings = insta::Settings::clone_current();

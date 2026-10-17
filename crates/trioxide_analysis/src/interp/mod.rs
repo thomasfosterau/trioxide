@@ -41,8 +41,22 @@ use crate::{
 /// Global objects the lib declares with interface types (which the oracle answers `Unknown`
 /// for), when not shadowed.
 const LIB_OBJECTS: [&str; 16] = [
-    "console", "Math", "JSON", "Object", "Number", "String", "Array", "Date", "Promise", "Reflect", "Symbol", "Map",
-    "Set", "globalThis", "Intl", "Error",
+    "console",
+    "Math",
+    "JSON",
+    "Object",
+    "Number",
+    "String",
+    "Array",
+    "Date",
+    "Promise",
+    "Reflect",
+    "Symbol",
+    "Map",
+    "Set",
+    "globalThis",
+    "Intl",
+    "Error",
 ];
 
 /// Rounds after which numeric facts in the whole-program tables are widened.
@@ -239,7 +253,10 @@ impl Output {
             }
         }
         for (node, trust) in other.in_bounds {
-            self.in_bounds.entry(node).and_modify(|old| *old = (*old).min(trust)).or_insert(trust);
+            self.in_bounds
+                .entry(node)
+                .and_modify(|old| *old = (*old).min(trust))
+                .or_insert(trust);
         }
         self.units.extend(other.units);
     }
@@ -253,8 +270,6 @@ pub struct Results {
     pub output: Output,
     /// Whether a fixed point was reached (if not, nothing may be trusted).
     pub converged: bool,
-    /// Builtin namespaces the program writes to (their models are off).
-    pub patched: FxHashSet<String>,
     /// How the run went.
     pub stats: Stats,
 }
@@ -299,7 +314,11 @@ pub fn run(
     };
     let started = std::time::Instant::now();
     let mut converged = false;
-    analyzer.deps.get_mut().dirty.extend(world.unit_order.iter().copied());
+    analyzer
+        .deps
+        .get_mut()
+        .dirty
+        .extend(world.unit_order.iter().copied());
     analyzer.stats.units = world.unit_order.len();
     while analyzer.round < MAX_ROUNDS {
         for &unit in &world.unit_order {
@@ -329,7 +348,6 @@ pub fn run(
         state: analyzer.state,
         output,
         converged,
-        patched: analyzer.patched,
         stats: analyzer.stats,
     }
 }
@@ -341,19 +359,28 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
     use oxc_ast::AstKind;
     const GLOBAL_OBJECTS: [&str; 4] = ["globalThis", "window", "self", "global"];
     let mut patched = FxHashSet::default();
-    let all = || crate::builtins::NAMESPACES.iter().map(|name| (*name).to_string());
+    let all = || {
+        crate::builtins::NAMESPACES
+            .iter()
+            .map(|name| (*name).to_string())
+    };
     for module in &world.modules {
         let scoping = module.semantic.scoping();
         let nodes = module.semantic.nodes();
         for name in crate::builtins::NAMESPACES {
             // A binding of the same name anywhere shadows it somewhere.
-            if scoping.symbol_ids().any(|symbol| scoping.symbol_name(symbol) == name) {
+            if scoping
+                .symbol_ids()
+                .any(|symbol| scoping.symbol_name(symbol) == name)
+            {
                 patched.insert(name.to_string());
             }
         }
         for reference in scoping.root_unresolved_references_ids().flatten() {
             let node = scoping.get_reference(reference).node_id();
-            let AstKind::IdentifierReference(ident) = nodes.kind(node) else { continue };
+            let AstKind::IdentifierReference(ident) = nodes.kind(node) else {
+                continue;
+            };
             let name = ident.name.as_str();
             let namespace = crate::builtins::NAMESPACES.contains(&name);
             let global_object = GLOBAL_OBJECTS.contains(&name);
@@ -375,7 +402,12 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
 
 /// Whether the reference `node` to a namespace (or the global object) only reads a member
 /// without handing anything out: `Math.floor(x)`, `Math.PI`, `globalThis.foo`.
-fn safe_namespace_use(nodes: &oxc_semantic::AstNodes<'_>, node: NodeId, name: &str, global_object: bool) -> bool {
+fn safe_namespace_use(
+    nodes: &oxc_semantic::AstNodes<'_>,
+    node: NodeId,
+    name: &str,
+    global_object: bool,
+) -> bool {
     use oxc_ast::AstKind;
     let parent = nodes.parent_id(node);
     let AstKind::StaticMemberExpression(member) = nodes.kind(parent) else {
@@ -468,10 +500,10 @@ impl Env {
         for (symbol, value) in &other.vars {
             vars.entry(*symbol)
                 .and_modify(|existing| {
-                if existing != value {
-                    *existing = existing.join(value);
-                }
-            })
+                    if existing != value {
+                        *existing = existing.join(value);
+                    }
+                })
                 .or_insert_with(|| value.clone());
         }
         Self {
@@ -506,8 +538,10 @@ impl Env {
     }
 
     fn forget(&mut self, symbol: SymbolId) {
-        self.bounds.retain(|(index, array)| *index != symbol && *array != symbol);
-        self.lengths.retain(|(n, array)| *n != symbol && *array != symbol);
+        self.bounds
+            .retain(|(index, array)| *index != symbol && *array != symbol);
+        self.lengths
+            .retain(|(n, array)| *n != symbol && *array != symbol);
     }
 }
 
@@ -541,7 +575,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let deps = self.deps.get_mut();
         deps.current = Some(unit.id);
         deps.current_reads.clear();
-        let capacity = self.outputs.get(&unit.id).map_or(0, |output| output.nodes.len());
+        let capacity = self
+            .outputs
+            .get(&unit.id)
+            .map_or(0, |output| output.nodes.len());
         self.output = Output::default();
         self.output.nodes.reserve(capacity);
         let module = self.world.module(unit.id.module);
@@ -602,7 +639,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
         let returned = std::mem::replace(&mut cx.returned, Val::never());
         let record = std::mem::take(&mut cx.record);
-        self.join_return(unit.id, returned);
+        self.join_return(unit.id, &returned);
         self.output.units.insert(unit.id, record);
         let output = std::mem::take(&mut self.output);
         self.outputs.insert(unit.id, output);
@@ -621,7 +658,13 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     /// Notes that `dep` changed: every unit that read it runs again.
     pub fn touch(&self, dep: Dep) {
         let mut deps = self.deps.borrow_mut();
-        let Deps { current, current_reads, readers, dirty, .. } = &mut *deps;
+        let Deps {
+            current,
+            current_reads,
+            readers,
+            dirty,
+            ..
+        } = &mut *deps;
         if let Some(units) = readers.get(&dep) {
             // The current unit's result depends only on what this run read so far.
             let skip = current.filter(|_| !current_reads.contains(&dep));
@@ -630,33 +673,33 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     }
 
     /// The heap entry of `site`, as a dependency of the current unit.
-    pub fn heap(&self, site: &AllocId) -> Option<&Obj> {
-        self.read(Dep::Heap(*site));
-        self.state.heap.get(site)
+    pub fn heap(&self, site: AllocId) -> Option<&Obj> {
+        self.read(Dep::Heap(site));
+        self.state.heap.get(&site)
     }
 
     /// Every value `symbol` holds, as a dependency of the current unit.
-    pub fn symbol_value(&self, symbol: &SymbolRef) -> Option<&Val> {
-        self.read(Dep::Symbol(*symbol));
-        self.state.symbols.get(symbol)
+    pub fn symbol_value(&self, symbol: SymbolRef) -> Option<&Val> {
+        self.read(Dep::Symbol(symbol));
+        self.state.symbols.get(&symbol)
     }
 
     /// What `unit` returns, as a dependency of the current unit.
-    pub fn returned(&self, unit: &NodeRef) -> Option<&Val> {
-        self.read(Dep::Return(*unit));
-        self.state.returns.get(unit)
+    pub fn returned(&self, unit: NodeRef) -> Option<&Val> {
+        self.read(Dep::Return(unit));
+        self.state.returns.get(&unit)
     }
 
     /// What `class` extends, as a dependency of the current unit.
-    pub fn super_of(&self, class: &NodeRef) -> Option<&Val> {
-        self.read(Dep::Super(*class));
-        self.state.supers.get(class)
+    pub fn super_of(&self, class: NodeRef) -> Option<&Val> {
+        self.read(Dep::Super(class));
+        self.state.supers.get(&class)
     }
 
     /// The value of an `export default` expression, as a dependency of the current unit.
-    pub fn default_value(&self, node: &NodeRef) -> Option<&Val> {
-        self.read(Dep::Default(*node));
-        self.state.defaults.get(node)
+    pub fn default_value(&self, node: NodeRef) -> Option<&Val> {
+        self.read(Dep::Default(node));
+        self.state.defaults.get(&node)
     }
 
     /// `this` for a unit: what known callers passed, or what TypeScript says if unknown code
@@ -689,7 +732,12 @@ impl<'w, 'a> Analyzer<'w, 'a> {
 
     fn recorded_this(&mut self, unit: &Unit<'a>) -> Val {
         self.read(Dep::This(unit.id));
-        let recorded = self.state.this.get(&unit.id).cloned().unwrap_or_else(Val::never);
+        let recorded = self
+            .state
+            .this
+            .get(&unit.id)
+            .cloned()
+            .unwrap_or_else(Val::never);
         if self.is_open(unit) {
             recorded.join(&Val::unknown())
         } else {
@@ -698,6 +746,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     }
 
     /// The value of the class object for `class`.
+    #[expect(clippy::unused_self, reason = "a method like the other value builders")]
     fn class_value(&self, class: NodeRef) -> Val {
         Val::object(Type::opaque_function(Some(class)), class)
     }
@@ -706,7 +755,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     /// whatever TypeScript declares).
     pub fn is_open(&self, unit: &Unit<'a>) -> bool {
         self.read(Dep::Heap(unit.id));
-        if let Some(class) = unit.class.or_else(|| self.world.member_of.get(&unit.id).copied()) {
+        if let Some(class) = unit
+            .class
+            .or_else(|| self.world.member_of.get(&unit.id).copied())
+        {
             self.read(Dep::Heap(class));
             if let Some(info) = self.world.classes.get(&class) {
                 self.read(Dep::Heap(info.init));
@@ -740,9 +792,9 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
     }
 
-    fn join_return(&mut self, unit: NodeRef, value: Val) {
+    fn join_return(&mut self, unit: NodeRef, value: &Val) {
         let slot = self.state.returns.entry(unit).or_insert_with(Val::never);
-        if Self::join_into(self.round, slot, &value) {
+        if Self::join_into(self.round, slot, value) {
             self.touch(Dep::Return(unit));
         }
     }
@@ -786,7 +838,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         if !self.state.heap.contains_key(&site) {
             self.touch(Dep::Heap(site));
         }
-        self.state.heap.entry(site).or_insert_with(|| Obj::new(kind, unit))
+        self.state
+            .heap
+            .entry(site)
+            .or_insert_with(|| Obj::new(kind, unit))
     }
 
     /// Marks every site in `pts` (and what it reaches) as reaching code that may redefine its
@@ -839,7 +894,8 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             }
             // A class's prototype, constructor and methods go with it, and so do an
             // instance's (`instance.constructor` reaches the class).
-            if let ObjKind::Class(class) | ObjKind::Instance(class) | ObjKind::Prototype(class) = kind
+            if let ObjKind::Class(class) | ObjKind::Instance(class) | ObjKind::Prototype(class) =
+                kind
                 && let Some(info) = self.world.classes.get(&class)
             {
                 pending.push(class);
@@ -851,20 +907,30 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     }
 
     /// The allocation sites every export of `module` (and of what it re-exports) may hold.
-    fn exported_values(&self, module: trioxide_common::ModuleId, out: &mut Vec<AllocId>, seen: &mut FxHashSet<trioxide_common::ModuleId>) {
+    fn exported_values(
+        &self,
+        module: trioxide_common::ModuleId,
+        out: &mut Vec<AllocId>,
+        seen: &mut FxHashSet<trioxide_common::ModuleId>,
+    ) {
         if !seen.insert(module) {
             return;
         }
         let info = self.world.module(module);
         for (index, symbol) in info.symbols.iter().enumerate() {
             if symbol.exported
-                && let Some(value) = self.symbol_value(&info.symbol(SymbolId::from_usize(index)))
+                && let Some(value) = self.symbol_value(info.symbol(SymbolId::from_usize(index)))
                 && let Some(sites) = value.pts.sites()
             {
                 out.extend_from_slice(sites);
             }
         }
-        for entry in info.record.star_export_entries.iter().chain(&info.record.indirect_export_entries) {
+        for entry in info
+            .record
+            .star_export_entries
+            .iter()
+            .chain(&info.record.indirect_export_entries)
+        {
             if let Some(target) = entry
                 .module_request
                 .as_ref()
@@ -875,15 +941,19 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
         // `export default <expression>` values and re-exported imports.
         for (import, target) in self.links.imports() {
-            if import.module == module && info.info(import.symbol).exported
+            if import.module == module
+                && info.info(import.symbol).exported
                 && let crate::link::Target::Symbol(target) = target
-                && let Some(sites) = self.symbol_value(&target).and_then(|value| value.pts.sites())
+                && let Some(sites) = self
+                    .symbol_value(target)
+                    .and_then(|value| value.pts.sites())
             {
                 out.extend_from_slice(sites);
             }
         }
-        if let crate::link::Target::Expression(node) = crate::link::resolve_export(self.world, info, "default", &mut FxHashSet::default())
-            && let Some(sites) = self.default_value(&node).and_then(|value| value.pts.sites())
+        if let crate::link::Target::Expression(node) =
+            crate::link::resolve_export(self.world, info, "default", &mut FxHashSet::default())
+            && let Some(sites) = self.default_value(node).and_then(|value| value.pts.sites())
         {
             out.extend_from_slice(sites);
         }
@@ -892,7 +962,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     /// The namespace object of `module`.
     pub fn namespace(&mut self, module: trioxide_common::ModuleId, unit: NodeRef) -> Val {
         let program = self.world.module(module).program.node_id.get();
-        let site = NodeRef { module, node: program };
+        let site = NodeRef {
+            module,
+            node: program,
+        };
         self.obj(site, ObjKind::Namespace(module), unit);
         Val::object(Type::empty_object(), site)
     }
@@ -911,7 +984,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     }
 }
 
-impl<'w, 'a> Cx<'_, 'w, 'a> {
+impl Cx<'_, '_, '_> {
     /// The node `id` of this module as a global ref.
     pub fn node(&self, id: NodeId) -> NodeRef {
         self.module.node(id)
@@ -952,13 +1025,19 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         use oxc_ast::AstKind;
         let nodes = self.module.semantic.nodes();
         match nodes.kind(node) {
-            AstKind::CallExpression(_) => matches!(nodes.parent_kind(node), AstKind::ExpressionStatement(_)),
+            AstKind::CallExpression(_) => {
+                matches!(nodes.parent_kind(node), AstKind::ExpressionStatement(_))
+            }
             AstKind::IdentifierReference(ident) => {
                 LIB_OBJECTS.contains(&ident.name.as_str())
-                    && ident
-                        .reference_id
-                        .get()
-                        .is_some_and(|reference| self.module.semantic.scoping().get_reference(reference).symbol_id().is_none())
+                    && ident.reference_id.get().is_some_and(|reference| {
+                        self.module
+                            .semantic
+                            .scoping()
+                            .get_reference(reference)
+                            .symbol_id()
+                            .is_none()
+                    })
             }
             _ => false,
         }
@@ -1024,7 +1103,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             // Enum members are properties of the enum object: TypeScript's types say what.
             return Val::unknown();
         }
-        if flags.contains(oxc_syntax::symbol::SymbolFlags::Ambient) || self.module.is_ambient(symbol) {
+        if flags.contains(oxc_syntax::symbol::SymbolFlags::Ambient)
+            || self.module.is_ambient(symbol)
+        {
             // `declare`d: defined by code outside the program.
             self.always(EffectKind::Reads);
             return Val::unknown();
@@ -1040,14 +1121,17 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             return Val::never();
         }
         let scoping = self.module.semantic.scoping();
-        let mutable = !scoping
-            .symbol_flags(symbol)
-            .intersects(oxc_syntax::symbol::SymbolFlags::ConstVariable | oxc_syntax::symbol::SymbolFlags::Function)
-            || scoping.symbol_is_mutated(symbol);
+        let mutable = !scoping.symbol_flags(symbol).intersects(
+            oxc_syntax::symbol::SymbolFlags::ConstVariable
+                | oxc_syntax::symbol::SymbolFlags::Function,
+        ) || scoping.symbol_is_mutated(symbol);
         if mutable {
             self.always(EffectKind::Reads);
         }
-        self.an.symbol_value(&self.module.symbol(symbol)).cloned().unwrap_or_else(Val::never)
+        self.an
+            .symbol_value(self.module.symbol(symbol))
+            .cloned()
+            .unwrap_or_else(Val::never)
     }
 
     /// The value an import binding refers to.
@@ -1062,10 +1146,18 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                     return Val::poisoned();
                 }
                 self.always(EffectKind::Reads);
-                self.an.symbol_value(&target).cloned().unwrap_or_else(Val::never)
+                self.an
+                    .symbol_value(target)
+                    .cloned()
+                    .unwrap_or_else(Val::never)
             }
-            Some(crate::link::Target::Expression(node)) if !self.an.world.module(node.module).broken => {
-                self.an.default_value(&node).cloned().unwrap_or_else(Val::never)
+            Some(crate::link::Target::Expression(node))
+                if !self.an.world.module(node.module).broken =>
+            {
+                self.an
+                    .default_value(node)
+                    .cloned()
+                    .unwrap_or_else(Val::never)
             }
             Some(crate::link::Target::Namespace(module)) => {
                 let unit = self.unit.id;
@@ -1102,7 +1194,9 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
             // Other units can see it.
             self.escape_value(&value, Escape::Known);
         }
-        if info.exported && (!self.an.options.closed_world || self.module.called_from_generated_code()) {
+        if info.exported
+            && (!self.an.options.closed_world || self.module.called_from_generated_code())
+        {
             // Importers outside the program can read it.
             self.escape_value(&value, Escape::Unknown);
         }
@@ -1134,7 +1228,11 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
         }
         let slot = obj.props.entry(key.to_string()).or_insert_with(Val::never);
         changed |= Analyzer::join_into(round, slot, value);
-        if !creating && !obj.present.contains(key) && obj.unit != own_unit && obj.added.insert(key.to_string()) {
+        if !creating
+            && !obj.present.contains(key)
+            && obj.unit != own_unit
+            && obj.added.insert(key.to_string())
+        {
             changed = true;
         }
         let level = obj.escape.max(Escape::Known);
@@ -1162,17 +1260,26 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
     pub fn mark(&mut self, site: AllocId, update: impl FnOnce(&mut Obj)) {
         self.an.read(Dep::Heap(site));
         if let Some(obj) = self.an.state.heap.get_mut(&site) {
-            let before = (obj.dynamic, obj.deleted, obj.holey, obj.length, obj.present.len());
+            let before = (
+                obj.dynamic,
+                obj.deleted,
+                obj.holey,
+                obj.length,
+                obj.present.len(),
+            );
             update(obj);
-            if before != (obj.dynamic, obj.deleted, obj.holey, obj.length, obj.present.len()) {
+            if before
+                != (
+                    obj.dynamic,
+                    obj.deleted,
+                    obj.holey,
+                    obj.length,
+                    obj.present.len(),
+                )
+            {
                 self.an.touch(Dep::Heap(site));
             }
         }
-    }
-
-    /// The span of a node of this module.
-    pub fn span_of(&self, node: NodeId) -> Span {
-        self.module.kind(node).span()
     }
 }
 
@@ -1212,7 +1319,9 @@ pub fn unit_open(world: &World<'_>, state: &State, unit: &Unit<'_>) -> bool {
     };
     match unit.body {
         Body::Module(_) | Body::StaticBlock(_) => false,
-        Body::ClassInit(_) => unit.class.is_none_or(|class| class_open(world, state, class)),
+        Body::ClassInit(_) => unit
+            .class
+            .is_none_or(|class| class_open(world, state, class)),
         Body::Function(_) | Body::Arrow(_) => {
             if escaped(unit.id) {
                 return true;

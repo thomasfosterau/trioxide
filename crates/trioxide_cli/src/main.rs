@@ -141,9 +141,12 @@ fn run(cli: &Cli) -> Result<(), Failure> {
         Emit::Js => {}
         Emit::Facts => {
             let Command::Transform { file } = &cli.command else {
-                return Err(Failure::Usage("--emit=facts only applies to `trioxide transform`".into()));
+                return Err(Failure::Usage(
+                    "--emit=facts only applies to `trioxide transform`".into(),
+                ));
             };
-            let file = std::path::absolute(file).map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
+            let file = std::path::absolute(file)
+                .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
             let mut project = open_project(global, Some(&file))?;
             print_stdout(&project.facts(&file)?);
             return Ok(());

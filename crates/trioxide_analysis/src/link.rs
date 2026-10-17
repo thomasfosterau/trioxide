@@ -196,7 +196,9 @@ fn default_expression(module: &Module<'_>) -> Target {
                     }
                     class.node_id.get()
                 }
-                ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => return Target::Unresolved,
+                ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => {
+                    return Target::Unresolved;
+                }
                 expression => match expression.as_expression() {
                     Some(expression) => oxc_ast::ast::Expression::node_id(expression),
                     None => return Target::Unresolved,

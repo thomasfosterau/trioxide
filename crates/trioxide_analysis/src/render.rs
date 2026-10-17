@@ -22,11 +22,18 @@ pub fn render(facts: &Facts, module: &ModuleInput<'_>, all: &[ModuleInput<'_>]) 
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, module.source, module.source_type).parse();
     let program = allocator.alloc(parsed.program);
-    let semantic = SemanticBuilder::new().with_enum_eval(true).with_build_nodes(true).build(program).semantic;
+    let semantic = SemanticBuilder::new()
+        .with_enum_eval(true)
+        .with_build_nodes(true)
+        .build(program)
+        .semantic;
     let nodes = semantic.nodes();
     let names = Names::new(module.id, module.source, &semantic, all);
     let lines = LineIndex::new(module.source);
-    let at = |node: NodeId| NodeRef { module: module.id, node };
+    let at = |node: NodeId| NodeRef {
+        module: module.id,
+        node,
+    };
     let mut out = String::new();
 
     let mut units: Vec<NodeId> = nodes
@@ -34,7 +41,10 @@ pub fn render(facts: &Facts, module: &ModuleInput<'_>, all: &[ModuleInput<'_>]) 
         .filter(|node| {
             matches!(
                 node.kind(),
-                AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) | AstKind::StaticBlock(_) | AstKind::Program(_)
+                AstKind::Function(_)
+                    | AstKind::ArrowFunctionExpression(_)
+                    | AstKind::StaticBlock(_)
+                    | AstKind::Program(_)
             ) || matches!(node.kind(), AstKind::ClassBody(_))
         })
         .map(oxc_semantic::AstNode::id)
@@ -70,8 +80,15 @@ pub fn render(facts: &Facts, module: &ModuleInput<'_>, all: &[ModuleInput<'_>]) 
             .edges_from(at(unit))
             .map(|edge| {
                 let (line, column) = lines.position(names.span(edge.site).start);
-                let trust = if edge.trust == Trust::Proven { "" } else { " @declared" };
-                format!("{line}:{column} -> {}{trust}", names.unit(facts, edge.callee))
+                let trust = if edge.trust == Trust::Proven {
+                    ""
+                } else {
+                    " @declared"
+                };
+                format!(
+                    "{line}:{column} -> {}{trust}",
+                    names.unit(facts, edge.callee)
+                )
             })
             .collect();
         callees.dedup();
@@ -94,7 +111,13 @@ pub fn render(facts: &Facts, module: &ModuleInput<'_>, all: &[ModuleInput<'_>]) 
     for (class, span) in classes {
         let shape = facts.class_shape(at(class));
         let (line, column) = lines.position(span.start);
-        write!(out, "  {} ({line}:{column}): fields [{}]", names.class(at(class)), shape.value.fields.join(", ")).unwrap();
+        write!(
+            out,
+            "  {} ({line}:{column}): fields [{}]",
+            names.class(at(class)),
+            shape.value.fields.join(", ")
+        )
+        .unwrap();
         if shape.trust == Trust::Unknown {
             out.push_str(" shape unknown");
         } else if shape.value.is_stable() {
@@ -115,13 +138,24 @@ pub fn render(facts: &Facts, module: &ModuleInput<'_>, all: &[ModuleInput<'_>]) 
 
     let mut rows: Vec<(u32, u32, String)> = Vec::new();
     for node in nodes.iter() {
-        let Some(label) = label(node.kind()) else { continue };
+        let Some(label) = label(node.kind()) else {
+            continue;
+        };
         let id = node.id();
         let span = node.kind().span();
         let fact = facts.ty(at(id));
-        let mut row = format!("{label} `{}`: {}", snippet(span.source_text(module.source)), names.fact(&fact));
+        let mut row = format!(
+            "{label} `{}`: {}",
+            snippet(span.source_text(module.source)),
+            names.fact(&fact)
+        );
         if facts.in_bounds(at(id)).trust != Trust::Unknown {
-            write!(out_of(&mut row), " in-bounds{}", trust_suffix(facts.in_bounds(at(id)).trust)).unwrap();
+            write!(
+                out_of(&mut row),
+                " in-bounds{}",
+                trust_suffix(facts.in_bounds(at(id)).trust)
+            )
+            .unwrap();
         }
         if let Some(allocation) = facts.allocation(at(id)) {
             let escape = match allocation.escape.value {
@@ -130,7 +164,9 @@ pub fn render(facts: &Facts, module: &ModuleInput<'_>, all: &[ModuleInput<'_>]) 
                 Escape::Unknown => "unknown",
             };
             write!(out_of(&mut row), " escape={escape}").unwrap();
-            if matches!(allocation.kind, AllocKind::Object | AllocKind::Array) && allocation.stable_shape.value {
+            if matches!(allocation.kind, AllocKind::Object | AllocKind::Array)
+                && allocation.stable_shape.value
+            {
                 row.push_str(" stable-shape");
             }
         }
@@ -156,7 +192,9 @@ fn label(kind: AstKind<'_>) -> Option<&'static str> {
     Some(match kind {
         AstKind::IdentifierReference(_) => "ref",
         AstKind::BindingIdentifier(_) => "bind",
-        AstKind::StaticMemberExpression(_) | AstKind::ComputedMemberExpression(_) | AstKind::PrivateFieldExpression(_) => "member",
+        AstKind::StaticMemberExpression(_)
+        | AstKind::ComputedMemberExpression(_)
+        | AstKind::PrivateFieldExpression(_) => "member",
         AstKind::CallExpression(_) => "call",
         AstKind::NewExpression(_) => "new",
         AstKind::BinaryExpression(_) | AstKind::LogicalExpression(_) => "binary",
@@ -226,9 +264,19 @@ pub fn number(number: &NumberType) -> String {
                 format!("{value}")
             }
         };
-        write!(out, "[{}, {}]", bound(number.range.min), bound(number.range.max)).unwrap();
+        write!(
+            out,
+            "[{}, {}]",
+            bound(number.range.min),
+            bound(number.range.max)
+        )
+        .unwrap();
     }
-    for (flag, name) in [(number.int, "int"), (number.non_nan, "nonNaN"), (number.non_neg_zero, "nonNegZero")] {
+    for (flag, name) in [
+        (number.int, "int"),
+        (number.non_nan, "nonNaN"),
+        (number.non_neg_zero, "nonNegZero"),
+    ] {
         if flag {
             out.push(' ');
             out.push_str(name);
@@ -246,14 +294,28 @@ struct Names<'s> {
 }
 
 impl<'s> Names<'s> {
-    fn new(module: ModuleId, source: &'s str, semantic: &oxc_semantic::Semantic<'_>, all: &[ModuleInput<'_>]) -> Self {
+    fn new(
+        module: ModuleId,
+        source: &'s str,
+        semantic: &oxc_semantic::Semantic<'_>,
+        all: &[ModuleInput<'_>],
+    ) -> Self {
         let mut spans = rustc_hash::FxHashMap::default();
         let mut classes = rustc_hash::FxHashMap::default();
         for node in semantic.nodes().iter() {
             spans.insert(node.id(), node.kind().span());
             if let AstKind::Class(class) = node.kind() {
-                let name = class.id.as_ref().map_or_else(|| "<class>".to_string(), |id| id.name.to_string());
-                classes.insert(NodeRef { module, node: node.id() }, name);
+                let name = class
+                    .id
+                    .as_ref()
+                    .map_or_else(|| "<class>".to_string(), |id| id.name.to_string());
+                classes.insert(
+                    NodeRef {
+                        module,
+                        node: node.id(),
+                    },
+                    name,
+                );
             }
         }
         // Classes of other modules, by parsing them too (only their names are needed).
@@ -261,11 +323,24 @@ impl<'s> Names<'s> {
             let allocator = Allocator::default();
             let parsed = Parser::new(&allocator, other.source, other.source_type).parse();
             let program = allocator.alloc(parsed.program);
-            let semantic = SemanticBuilder::new().with_enum_eval(true).with_build_nodes(true).build(program).semantic;
+            let semantic = SemanticBuilder::new()
+                .with_enum_eval(true)
+                .with_build_nodes(true)
+                .build(program)
+                .semantic;
             for node in semantic.nodes().iter() {
                 if let AstKind::Class(class) = node.kind() {
-                    let name = class.id.as_ref().map_or_else(|| "<class>".to_string(), |id| id.name.to_string());
-                    classes.insert(NodeRef { module: other.id, node: node.id() }, name);
+                    let name = class
+                        .id
+                        .as_ref()
+                        .map_or_else(|| "<class>".to_string(), |id| id.name.to_string());
+                    classes.insert(
+                        NodeRef {
+                            module: other.id,
+                            node: node.id(),
+                        },
+                        name,
+                    );
                 }
             }
         }
@@ -286,7 +361,10 @@ impl<'s> Names<'s> {
     }
 
     fn class(&self, class: NodeRef) -> String {
-        self.classes.get(&class).cloned().unwrap_or_else(|| "<class>".into())
+        self.classes
+            .get(&class)
+            .cloned()
+            .unwrap_or_else(|| "<class>".into())
     }
 
     fn unit(&self, facts: &Facts, unit: NodeRef) -> String {
@@ -321,7 +399,14 @@ impl<'s> Names<'s> {
             Type::Undefined => "undefined".into(),
             Type::Array(element) => format!("{}[]", self.wrapped(element)),
             Type::TypedArray(kind) => kind.constructor_name().into(),
-            Type::Tuple(items) => format!("[{}]", items.iter().map(|item| self.ty(item)).collect::<Vec<_>>().join(", ")),
+            Type::Tuple(items) => format!(
+                "[{}]",
+                items
+                    .iter()
+                    .map(|item| self.ty(item))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Type::Object(shape) => {
                 let body = shape
                     .properties
@@ -338,15 +423,20 @@ impl<'s> Names<'s> {
                 }
             }
             Type::Instance(class) => self.class(*class),
-            Type::Function(_, Some(_)) => "function".into(),
-            Type::Function(_, None) => "function".into(),
-            Type::Union(members) => members.iter().map(|member| self.wrapped(member)).collect::<Vec<_>>().join(" | "),
+            Type::Function(_, _) => "function".into(),
+            Type::Union(members) => members
+                .iter()
+                .map(|member| self.wrapped(member))
+                .collect::<Vec<_>>()
+                .join(" | "),
         }
     }
 
     fn wrapped(&self, ty: &Type) -> String {
         let text = self.ty(ty);
-        if matches!(ty, Type::Union(_)) || (matches!(ty, Type::Number(n) if n.as_constant().is_none() && (!n.range.is_full() || n.int || n.non_nan))) {
+        if matches!(ty, Type::Union(_))
+            || (matches!(ty, Type::Number(n) if n.as_constant().is_none() && (!n.range.is_full() || n.int || n.non_nan)))
+        {
             format!("({text})")
         } else {
             text
@@ -375,10 +465,16 @@ impl LineIndex {
     }
 
     fn position(&self, offset: u32) -> (usize, usize) {
-        let line = self.starts.partition_point(|&start| start <= offset).saturating_sub(1);
+        let line = self
+            .starts
+            .partition_point(|&start| start <= offset)
+            .saturating_sub(1);
         let start = self.starts[line] as usize;
         let end = (offset as usize).min(self.source.len());
-        let column = self.source.get(start..end).map_or(0, |text| text.chars().count());
+        let column = self
+            .source
+            .get(start..end)
+            .map_or(0, |text| text.chars().count());
         (line + 1, column + 1)
     }
 }

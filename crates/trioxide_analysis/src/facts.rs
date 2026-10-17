@@ -117,7 +117,9 @@ impl Effects {
 }
 
 /// How far an allocated object may travel from the code that creates it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Escape {
     /// Only the creating function (or module) ever holds it: it is never returned, stored
@@ -434,6 +436,10 @@ impl Facts {
     }
 
     /// Records a function's effect summary. Replaces any previous fact.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public API, like the other setters"
+    )]
     pub fn set_effects(&mut self, function: FunctionId, fact: Fact<Effects>) {
         let declared = fact.value;
         let proven = if fact.trust == Trust::Proven {
@@ -444,7 +450,12 @@ impl Facts {
         self.effects.insert(function, (proven, declared));
     }
 
-    pub(crate) fn set_effect_summaries(&mut self, function: FunctionId, proven: Effects, declared: Effects) {
+    pub(crate) fn set_effect_summaries(
+        &mut self,
+        function: FunctionId,
+        proven: Effects,
+        declared: Effects,
+    ) {
         self.effects.insert(function, (proven, declared));
     }
 

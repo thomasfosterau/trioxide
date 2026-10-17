@@ -179,7 +179,10 @@ fn emit_facts_prints_the_analysis() {
     let out = trioxide(&["--emit=facts", "transform", input.to_str().unwrap()]);
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
-    assert!(text.contains("functions:") && text.contains("nodes:"), "{text}");
+    assert!(
+        text.contains("functions:") && text.contains("nodes:"),
+        "{text}"
+    );
     assert!(text.contains("@proven"), "{text}");
 
     let out = trioxide(&["--emit=facts", "build", input.to_str().unwrap()]);

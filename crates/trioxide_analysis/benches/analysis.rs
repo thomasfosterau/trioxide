@@ -7,6 +7,11 @@
 //! cargo bench -p trioxide_analysis
 //! ```
 
+#![expect(
+    missing_docs,
+    reason = "`criterion_group!` generates an undocumented function"
+)]
+
 use std::path::{Path, PathBuf};
 
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -28,15 +33,24 @@ impl Corpus {
     fn load() -> Self {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut sources = Vec::new();
-        for dir in ["crates/trioxide_types/tests/corpus", "tests/fixtures/analysis"] {
+        for dir in [
+            "crates/trioxide_types/tests/corpus",
+            "tests/fixtures/analysis",
+        ] {
             collect(&root.join(dir), &mut sources);
         }
         sources.sort();
         let mut files = Vec::new();
-        let copies = std::env::var("COPIES").ok().and_then(|n| n.parse().ok()).unwrap_or(COPIES);
+        let copies = std::env::var("COPIES")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(COPIES);
         for copy in 0..copies {
             for (name, source) in &sources {
-                files.push((PathBuf::from(format!("/__bench__/c{copy}/{name}")), source.clone()));
+                files.push((
+                    PathBuf::from(format!("/__bench__/c{copy}/{name}")),
+                    source.clone(),
+                ));
             }
         }
         Self { files }
@@ -102,7 +116,12 @@ fn bench(c: &mut Criterion) {
         let analysis = analyze(&corpus.inputs(), &mut oracle, AnalysisOptions::default());
         #[expect(clippy::print_stderr, reason = "opt-in statistics")]
         {
-            eprintln!("{} modules: {:?} in {:?}", corpus.files.len(), analysis.stats, started.elapsed());
+            eprintln!(
+                "{} modules: {:?} in {:?}",
+                corpus.files.len(),
+                analysis.stats,
+                started.elapsed()
+            );
         }
     }
     let mut group = c.benchmark_group("analysis");

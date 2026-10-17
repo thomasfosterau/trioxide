@@ -9,24 +9,24 @@
 //! TS types, ranges, escape analysis and builtin models (PLAN §2 step 4). Until then
 //! [`analyze`] returns empty tables, so every query answers `Unknown`.
 
-mod facts;
 mod builtins;
 mod callgraph;
+mod facts;
 mod interp;
+mod link;
 mod numeric;
+mod render;
 mod shapes;
 mod summary;
 mod value;
-mod link;
-mod render;
 mod world;
 
+pub use facts::{
+    AllocKind, Allocation, CallEdge, CallGraph, ClassShape, Effects, Escape, Fact, Facts,
+    FunctionInfo, Trust,
+};
 pub use interp::Stats;
 pub use render::render;
-pub use facts::{
-    AllocKind, Allocation, CallEdge, CallGraph, ClassShape, Effects, Escape, Fact, Facts, FunctionInfo,
-    Trust,
-};
 use std::path::Path;
 
 use oxc_allocator::Allocator;
@@ -79,6 +79,10 @@ pub struct Analysis {
 
 impl Analysis {
     /// No facts at all: every query answers `Unknown`.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public API used by the facade"
+    )]
     pub fn empty(options: AnalysisOptions) -> Self {
         Self {
             facts: Facts::new(options.trust_types),
@@ -95,7 +99,15 @@ impl Analysis {
 /// The oracle must already have `load`ed the same sources; spans in queries are byte offsets
 /// into `modules[i].source`. Node ids match the ones the pipeline's own parse and semantic
 /// build produce for the same source.
-pub fn analyze(modules: &[ModuleInput<'_>], oracle: &mut dyn TypeOracle, options: AnalysisOptions) -> Analysis {
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public API used by the facade"
+)]
+pub fn analyze(
+    modules: &[ModuleInput<'_>],
+    oracle: &mut dyn TypeOracle,
+    options: AnalysisOptions,
+) -> Analysis {
     let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
     let world = World::build(&allocators, modules);
     register_declarations(&world, oracle);
@@ -104,8 +116,11 @@ pub fn analyze(modules: &[ModuleInput<'_>], oracle: &mut dyn TypeOracle, options
     let mut diagnostics = Vec::new();
     if !results.converged {
         diagnostics.push(
-            Diagnostic::new(Severity::Advice, "analysis did not reach a fixed point; no facts are reported")
-                .with_code("trioxide(analysis)"),
+            Diagnostic::new(
+                Severity::Advice,
+                "analysis did not reach a fixed point; no facts are reported",
+            )
+            .with_code("trioxide(analysis)"),
         );
     }
     let facts = summary::facts(&world, &links, &results, &options);
@@ -124,7 +139,9 @@ fn register_declarations(world: &World<'_>, oracle: &mut dyn TypeOracle) {
         let mut declarations = Vec::new();
         for node in module.semantic.nodes().iter() {
             let span = match node.kind() {
-                AstKind::Function(function) => function.id.as_ref().map_or(function.span, |id| id.span),
+                AstKind::Function(function) => {
+                    function.id.as_ref().map_or(function.span, |id| id.span)
+                }
                 AstKind::ArrowFunctionExpression(arrow) => arrow.span,
                 AstKind::Class(class) => class.id.as_ref().map_or(class.span, |id| id.span),
                 _ => continue,
