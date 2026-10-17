@@ -51,10 +51,10 @@ These shape everything else. All of them are agreed.
 1. **Load**: resolve entries, build the module graph, parse every module with `oxc_parser`
    (TS kept), and build `oxc_semantic` per module.
 2. **Type-check**: build a tsrs program over the same sources (in-memory VFS, the same
-   `tsconfig.json`). Walk each oxc AST, match nodes to tsrs nodes by byte span, query the
-   nodes trioxide cares about (identifiers, member and call expressions, parameters,
-   returns), and convert the answers into trioxide types (§3). With `check: true`, also
-   report tsrs diagnostics.
+   `tsconfig.json`). Nodes are matched to tsrs nodes by byte span and queried on demand,
+   during analysis, only where trioxide's own analysis knows nothing better (identifiers,
+   member and call expressions, parameters); answers are converted into trioxide types (§3).
+   With `check: true`, also report tsrs diagnostics.
 3. **Link**: resolve imports to exports across modules, producing global `SymbolRef`s
    (module id + `SymbolId`).
 4. **Analyse**, as side tables keyed by `(ModuleId, NodeId/SymbolId)`:
@@ -151,7 +151,10 @@ before asking.
 interest, the adapter finds the tsrs node with the same start (skipping TS-style leading
 trivia via `get_start_of_node`) and end. Parenthesised expressions and JSDoc reparsing
 differ between the two ASTs, so this mapping gets dedicated tests. Unmatched nodes become
-`Unknown`, never a guess.
+`Unknown`, never a guess. The lookup walks down from the file through the children that
+contain the span (a matching node always contains it) instead of indexing every node, since
+a file is queried far less often than it has nodes; ties go to the node that most directly
+denotes a value, then the innermost.
 
 **Soundness (trust levels, D1).** A tsrs type is `Proven` only when nothing unsound feeds
 it:
@@ -166,6 +169,47 @@ it:
 Reaching `eval`, `with`, `arguments` aliasing, `Proxy`, or `Object.defineProperty` on the
 value degrades the affected bindings to `Unknown`. The bottom-up interprocedural summary pass
 over the call graph's SCCs propagates trust levels together with effects.
+
+**How the analysis proves things (`trioxide_analysis`).** Rather than checking tsrs types
+for unsound constructs after the fact, the analysis computes values itself and only falls
+back to TS where it knows nothing:
+
+- *Abstract interpretation.* Every unit (module body, function, arrow, static block, class
+  field initialisers) is interpreted over abstract values `{ type, trust, points-to }`.
+  Locals written only by their own unit are flow-sensitive (branches narrow and join, loops
+  iterate to a fixed point with widening); everything else lives in whole-program tables
+  that only grow by joins (symbols, parameters per position, `this`, returns, superclasses,
+  `export default` values, and a flow-insensitive heap of allocation sites). A worklist
+  re-interprets a unit only when a table entry it read changed. A value the analysis
+  computed from literals, operators, builtin models and narrowing is `Proven`; where it
+  knows nothing, TS's type at that node is used as `Declared`.
+- *Openness instead of "is every caller known".* A function's parameters and `this` are
+  joined with "unknown" (so at best `Declared`) exactly when its function object, class,
+  prototype or an instance may reach code trioxide doesn't see: escape analysis over
+  allocation sites, with library-mode exports, unknown callees, `eval`/`with` scopes,
+  decorators, JSX factories and TS namespaces as escape points. In app mode an export alone
+  does not escape.
+- *Poisoned values.* Values from `eval`, `Proxy`, `Reflect`/`Object.defineProperty` targets
+  and similar reflection are `Unknown` *and* skip the TS fallback, since TS's type for them
+  is not evidence.
+- *Builtin integrity.* Builtin models assume the program doesn't patch builtins. Any
+  shadowing, assignment, or use of a namespace (`Math`, `JSON`, …) or the global object
+  other than a plain member read or call turns that namespace's models off.
+- *Effects* are computed twice, once counting only `Proven` facts and once counting
+  `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
+- *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
+  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged.
+
+Correctness is tested two ways: `/*@trust …*/` annotations in the analysis fixtures state the
+expected trust of particular expressions, and a runtime checker instruments every `Proven`
+fact of every fixture and runs it under node, failing on any violation.
+
+**Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
+The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work
+as the parse (instruction counts ~1.1–1.2×), but tsrs parses on all cores and the
+interpreter on one, so wall-clock time is about 5× the parse on a 4-core machine (see
+`benches/analysis.rs`). Closing the gap needs parallel interpretation (Jacobi-style sweeps
+over a read-only snapshot with per-thread write logs, and one tsrs checker per thread).
 
 **Embedding constraints.** tsrs checkers take `&mut self` (one per thread, behind a mutex),
 and its arenas are `'static`. The oracle runs every type query on the program's first
@@ -319,7 +363,9 @@ IslandBuilder}`.
 
 **CLI:** `trioxide build [entries…] --out-dir dist`, `trioxide transform <file>` (stdout),
 `trioxide explain [target]`, `trioxide check-toolchain`. `--config`, `--root`, `--mode`,
-`--world`, `--trust-types`, `--no-wasm`, `--emit=js|rust|wasm|report`. A hidden
+`--world`, `--trust-types`, `--no-wasm`, `--emit=js|rust|wasm|report|facts`
+(`--emit=facts` with `transform` prints the analysis facts of that file: per function, class
+and node, with spans and trust levels). A hidden
 `trioxide strip <file>` prints types-stripped-only output for the differential suite.
 
 **npm:** `import { transform, build, explain } from 'trioxide'` and
