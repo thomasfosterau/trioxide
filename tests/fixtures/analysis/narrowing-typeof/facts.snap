@@ -1,0 +1,63 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/narrowing-typeof
+input_file: tests/fixtures/analysis/narrowing-typeof/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  describe (3:8): pure
+  parse (16:1): pure
+  main (24:8): reads writes allocates throws calls-unknown
+    calls 25:15 -> describe
+    calls 25:28 -> describe
+    calls 25:43 -> describe
+    calls 25:59 -> describe
+    calls 26:15 -> parse
+    calls 26:25 -> parse
+nodes:
+  3:17 bind `describe`: function@proven
+  3:26 bind `value`: null | boolean | 1 | string@proven
+  4:7 binary `typeof value === "number"`: boolean@proven
+  4:7 unary `typeof value`: string@proven
+  4:14 ref `value`: null | boolean | 1 | string@proven
+  5:12 binary `"number " + (value /*@proven number*/)`: string@proven
+  5:25 ref `value`: 1@proven
+  7:7 binary `typeof value === "string"`: boolean@proven
+  7:7 unary `typeof value`: string@proven
+  7:14 ref `value`: null | boolean | string@proven
+  8:12 binary `"string " + value /*@proven string*/....`: string@proven
+  8:24 member `value /*@proven string*/.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  8:24 ref `value`: string@proven
+  10:7 binary `typeof value !== "boolean"`: boolean@proven
+  10:7 unary `typeof value`: string@proven
+  10:14 ref `value`: null | boolean@proven
+  13:10 cond `value /*@proven boolean*/ ? "yes" : "no"`: string@proven
+  13:10 ref `value`: boolean@proven
+  16:10 bind `parse`: function@proven
+  16:16 bind `input`: 3 | string@proven
+  18:7 binary `typeof input === "number"`: boolean@proven
+  18:7 unary `typeof input`: string@proven
+  18:14 ref `input`: 3 | string@proven
+  19:12 ref `input`: 3@proven
+  21:10 member `input /*@proven string*/.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  21:10 ref `input`: string@proven
+  24:17 bind `main`: function@proven
+  25:3 call `console.log(describe(1), describe("a"...`: unknown
+  25:3 member `console.log`: unknown
+  25:3 ref `console`: unknown
+  25:15 call `describe(1)`: string@proven
+  25:15 ref `describe`: function@proven
+  25:28 call `describe("a")`: string@proven
+  25:28 ref `describe`: function@proven
+  25:43 call `describe(true)`: string@proven
+  25:43 ref `describe`: function@proven
+  25:59 call `describe(null)`: string@proven
+  25:59 ref `describe`: function@proven
+  26:3 call `console.log(parse(3), parse("abc"))`: unknown
+  26:3 member `console.log`: unknown
+  26:3 ref `console`: unknown
+  26:15 call `parse(3)`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  26:15 ref `parse`: function@proven
+  26:25 call `parse("abc")`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  26:25 ref `parse`: function@proven

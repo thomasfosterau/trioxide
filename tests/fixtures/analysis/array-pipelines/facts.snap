@@ -1,0 +1,95 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/array-pipelines
+input_file: tests/fixtures/analysis/array-pipelines/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): pure
+  main (3:8): reads writes allocates throws calls-unknown
+    calls 5:19 -> <anonymous>
+    calls 6:16 -> <anonymous>
+    calls 7:17 -> <anonymous>
+    calls 13:17 -> <anonymous>
+    calls 15:3 -> <anonymous>
+  <anonymous> (5:30): pure
+  <anonymous> (6:31): pure
+  <anonymous> (7:29): pure
+  <anonymous> (13:29): pure
+  <anonymous> (15:18): reads writes allocates throws calls-unknown
+nodes:
+  3:17 bind `main`: function@proven
+  4:9 bind `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  4:18 array `[1, 2, 3, 4]`: (number[1, 4] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  5:9 bind `doubled`: (number[2, 8] int nonNaN nonNegZero)[]@proven
+  5:19 call `values.map((v) => v /*@proven number ...`: (number[2, 8] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  5:19 member `values.map`: unknown
+  5:19 ref `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  5:31 bind `v`: number[1, 4] int nonNaN nonNegZero@proven
+  5:37 binary `v /*@proven number int*/ * 2`: number[2, 8] int nonNaN nonNegZero@proven
+  5:37 ref `v`: number[1, 4] int nonNaN nonNegZero@proven
+  6:9 bind `even`: (number[2, 8] int nonNaN nonNegZero)[]@proven
+  6:16 call `doubled.filter((v, i) => i /*@proven ...`: (number[2, 8] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  6:16 member `doubled.filter`: unknown
+  6:16 ref `doubled`: (number[2, 8] int nonNaN nonNegZero)[]@proven
+  6:32 bind `v`: number[2, 8] int nonNaN nonNegZero@proven
+  6:35 bind `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  6:41 binary `i /*@proven number int nonNaN*/ % 2 =...`: boolean@proven
+  6:41 binary `i /*@proven number int nonNaN*/ % 2`: number[0, 1] int nonNaN nonNegZero@proven
+  6:41 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  7:9 bind `total`: number[0, inf] int nonNaN nonNegZero@proven
+  7:17 call `even.reduce((acc, v) => acc + v, 0)`: number[0, inf] int nonNaN nonNegZero@proven
+  7:17 member `even.reduce`: unknown
+  7:17 ref `even`: (number[2, 8] int nonNaN nonNegZero)[]@proven
+  7:30 bind `acc`: number[0, inf] int nonNaN nonNegZero@proven
+  7:35 bind `v`: number[2, 8] int nonNaN nonNegZero@proven
+  7:41 binary `acc + v`: number[2, inf] int nonNaN nonNegZero@proven
+  7:41 ref `acc`: number[0, inf] int nonNaN nonNegZero@proven
+  7:47 ref `v`: number[2, 8] int nonNaN nonNegZero@proven
+  8:3 call `console.log(total /*@proven number*/)`: unknown
+  8:3 member `console.log`: unknown
+  8:3 ref `console`: unknown
+  8:15 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  10:3 call `console.log((doubled /*@proven array*...`: unknown
+  10:3 member `console.log`: unknown
+  10:3 ref `console`: unknown
+  10:15 member `(doubled /*@proven array*/).length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  10:16 ref `doubled`: (number[2, 8] int nonNaN nonNegZero)[]@proven
+  10:51 member `(even /*@proven array*/).length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  10:52 ref `even`: (number[2, 8] int nonNaN nonNegZero)[]@proven
+  11:9 bind `words`: string[]@proven
+  11:17 call `"a b c".split(" ")`: string[]@proven escape=none stable-shape
+  11:17 member `"a b c".split`: unknown
+  12:3 call `console.log(words.join("-") /*@proven...`: unknown
+  12:3 member `console.log`: unknown
+  12:3 ref `console`: unknown
+  12:15 call `words.join("-")`: string@proven
+  12:15 member `words.join`: unknown
+  12:15 ref `words`: string[]@proven
+  12:51 member `(words /*@proven array*/).length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  12:52 ref `words`: string[]@proven
+  13:9 bind `found`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  13:17 call `values.find((v) => v > 2)`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  13:17 member `values.find`: unknown
+  13:17 ref `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  13:30 bind `v`: number[1, 4] int nonNaN nonNegZero@proven
+  13:36 binary `v > 2`: boolean@proven
+  13:36 ref `v`: number[1, 4] int nonNaN nonNegZero@proven
+  14:3 call `console.log(found /*@proven union*/)`: unknown
+  14:3 member `console.log`: unknown
+  14:3 ref `console`: unknown
+  14:15 ref `found`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  15:3 call `values.forEach((v, i, all) => { conso...`: undefined@proven
+  15:3 member `values.forEach`: unknown
+  15:3 ref `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  15:19 bind `v`: number[1, 4] int nonNaN nonNegZero@proven
+  15:22 bind `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  15:25 bind `all`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  16:5 call `console.log(v + i, (all /*@proven arr...`: unknown
+  16:5 member `console.log`: unknown
+  16:5 ref `console`: unknown
+  16:17 binary `v + i`: number[1, 4294967298] int nonNaN nonNegZero@proven
+  16:17 ref `v`: number[1, 4] int nonNaN nonNegZero@proven
+  16:21 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  16:24 member `(all /*@proven array*/).length`: 4@proven
+  16:25 ref `all`: (number[1, 4] int nonNaN nonNegZero)[]@proven

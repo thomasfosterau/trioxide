@@ -1,0 +1,62 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/escape
+input_file: tests/fixtures/analysis/escape/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  keep (5:1): writes
+  read (9:1): reads
+  main (13:8): reads writes allocates throws calls-unknown
+    calls 18:25 -> read
+    calls 19:3 -> keep
+nodes:
+  3:5 bind `global`: undefined@proven
+  5:10 bind `keep`: function@proven
+  5:15 bind `o`: {| v: 3 |}@proven
+  6:3 assign `global = o`: {| v: 3 |}@proven
+  6:3 ref `global`: {| v: 3 |}@proven
+  6:12 ref `o`: {| v: 3 |}@proven
+  9:10 bind `read`: function@proven
+  9:15 bind `o`: {| v: 2 |}@proven
+  10:10 member `o.v`: 2@proven
+  10:10 ref `o`: {| v: 2 |}@proven
+  13:17 bind `main`: function@proven
+  14:9 bind `local`: {| v: 1 |}@proven
+  14:17 object `{ v: 1 }`: {| v: 1 |}@proven escape=none stable-shape
+  15:9 bind `passed`: {| v: 2 |}@proven
+  15:18 object `{ v: 2 }`: {| v: 2 |}@proven escape=known stable-shape
+  16:9 bind `stored`: {| v: 3 |}@proven
+  16:18 object `{ v: 3 }`: {| v: 3 |}@proven escape=known stable-shape
+  17:9 bind `leaked`: object@proven
+  17:18 object `{ v: 4 }`: object@proven escape=unknown
+  18:3 call `console.log(local.v + read(passed))`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 binary `local.v + read(passed)`: 3@proven
+  18:15 member `local.v`: 1@proven
+  18:15 ref `local`: {| v: 1 |}@proven
+  18:25 call `read(passed)`: 2@proven
+  18:25 ref `read`: function@proven
+  18:30 ref `passed`: {| v: 2 |}@proven
+  19:3 call `keep(stored)`: undefined@proven
+  19:3 ref `keep`: function@proven
+  19:8 ref `stored`: {| v: 3 |}@proven
+  20:3 call `console.log(leaked)`: unknown
+  20:3 member `console.log`: unknown
+  20:3 ref `console`: unknown
+  20:15 ref `leaked`: object@proven
+  21:9 bind `pair`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  21:16 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  22:10 bind `a`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  22:13 bind `b`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  22:18 ref `pair`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  23:3 call `console.log(a + b, global?.v)`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 binary `a + b`: number@proven
+  23:15 ref `a`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  23:19 ref `b`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  23:22 member `global?.v`: unknown
+  23:22 ref `global`: undefined | {| v: 3 |}@proven

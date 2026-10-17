@@ -1,0 +1,55 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/accessors
+input_file: tests/fixtures/analysis/accessors/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Temperature.<fields> (3:19): writes
+  Temperature.fahrenheit (5:17): reads
+  Temperature.fahrenheit (8:17): writes
+  main (13:8): reads writes allocates throws calls-unknown
+    calls 14:13 -> Temperature.<fields>
+    calls 15:3 -> Temperature.fahrenheit
+    calls 16:15 -> Temperature.fahrenheit
+  next (20:13) open: reads writes throws calls-unknown
+classes:
+  Temperature (3:1): fields [celsius] stable
+nodes:
+  3:7 bind `Temperature`: function@proven
+  6:12 binary `this.celsius * 1.8 + 32`: number[32, 212] nonNaN nonNegZero@proven
+  6:12 binary `this.celsius * 1.8`: number[0, 180] nonNaN nonNegZero@proven
+  6:12 member `this.celsius`: number[0, 100] nonNaN nonNegZero@proven
+  6:12 this `this`: Temperature@proven
+  8:18 bind `value`: 212@proven
+  9:5 assign `this.celsius = (value - 32) / 1.8`: 100@proven
+  9:5 member `this.celsius`: unknown
+  9:5 this `this`: Temperature@proven
+  9:20 binary `(value - 32) / 1.8`: 100@proven
+  9:21 binary `value - 32`: 180@proven
+  9:21 ref `value`: 212@proven
+  13:17 bind `main`: function@proven
+  14:9 bind `t`: Temperature@proven
+  14:13 new `new Temperature()`: Temperature@proven escape=known
+  14:17 ref `Temperature`: function@proven
+  15:3 assign `t.fahrenheit = 212`: 212@proven
+  15:3 member `t.fahrenheit`: unknown
+  15:3 ref `t`: Temperature@proven
+  16:3 call `console.log(t.fahrenheit /*@proven nu...`: unknown
+  16:3 member `console.log`: unknown
+  16:3 ref `console`: unknown
+  16:15 member `t.fahrenheit`: number[32, 212] nonNaN nonNegZero@proven
+  16:15 ref `t`: Temperature@proven
+  18:9 bind `counter`: object@proven
+  18:19 object `{ count: 0, get next(): number { retu...`: object@proven escape=none
+  21:14 unary `++this.count`: number nonNegZero@declared
+  21:16 member `this.count`: unknown
+  21:16 this `this`: unknown
+  25:3 call `console.log(counter.next /*@declared ...`: unknown
+  25:3 member `console.log`: unknown
+  25:3 ref `console`: unknown
+  25:15 member `counter.next`: number@declared
+  25:15 ref `counter`: object@proven
+  25:50 member `counter.next`: number@declared
+  25:50 ref `counter`: object@proven

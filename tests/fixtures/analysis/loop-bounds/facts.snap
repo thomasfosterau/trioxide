@@ -1,0 +1,111 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/loop-bounds
+input_file: tests/fixtures/analysis/loop-bounds/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  sum (3:8): reads
+  cached (11:8): reads
+  shrinking (20:8): reads writes
+  backwards (31:8): reads
+  main (41:8): reads writes allocates throws calls-unknown
+    calls 42:15 -> sum
+    calls 42:31 -> cached
+    calls 42:47 -> shrinking
+    calls 42:72 -> backwards
+nodes:
+  3:17 bind `sum`: function@proven
+  3:21 bind `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  4:7 bind `total`: 0@proven
+  5:12 bind `i`: 0@proven
+  5:19 binary `i < values.length`: boolean@proven
+  5:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  5:23 member `values.length`: 3@proven
+  5:23 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  5:38 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  5:38 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  6:5 assign `total += (values[i] /*@proven number ...`: number[1, inf] int nonNaN nonNegZero@proven
+  6:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  6:15 member `values[i]`: number[1, 3] int nonNaN nonNegZero@proven in-bounds@proven
+  6:15 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  6:22 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  8:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  11:17 bind `cached`: function@proven
+  11:24 bind `values`: (number[4, 5] int nonNaN nonNegZero)[]@proven
+  12:7 bind `total`: 0@proven
+  13:9 bind `n`: 2@proven
+  13:13 member `values.length`: 2@proven
+  13:13 ref `values`: (number[4, 5] int nonNaN nonNegZero)[]@proven
+  14:12 bind `i`: 0@proven
+  14:19 binary `i < n`: boolean@proven
+  14:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  14:23 ref `n`: 2@proven
+  14:26 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  14:26 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  15:5 assign `total += (values[i] /*@proven number ...`: number[4, inf] int nonNaN nonNegZero@proven
+  15:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  15:15 member `values[i]`: number[4, 5] int nonNaN nonNegZero@proven in-bounds@proven
+  15:15 ref `values`: (number[4, 5] int nonNaN nonNegZero)[]@proven
+  15:22 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  17:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  20:17 bind `shrinking`: function@proven
+  20:27 bind `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  21:7 bind `total`: 0@proven
+  22:12 bind `i`: 0@proven
+  22:19 binary `i < values.length`: boolean@proven
+  22:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  22:23 member `values.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  22:23 ref `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  22:38 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  22:38 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  23:5 call `values.pop()`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  23:5 member `values.pop`: unknown
+  23:5 ref `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  25:11 bind `value`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  25:19 member `values[i]`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  25:19 ref `values`: (number[1, 4] int nonNaN nonNegZero)[]@proven
+  25:26 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  26:5 assign `total += value ?? 0`: number[0, inf] int nonNaN nonNegZero@proven
+  26:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  26:14 binary `value ?? 0`: number[0, 4] int nonNaN nonNegZero@proven
+  26:14 ref `value`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  28:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  31:17 bind `backwards`: function@proven
+  31:27 bind `values`: Int32Array@proven
+  31:35 ref `Int32Array`: unknown
+  32:7 bind `total`: 0@proven
+  33:12 bind `i`: 1@proven
+  33:16 binary `values.length - 1`: 1@proven
+  33:16 member `values.length`: 2@proven
+  33:16 ref `values`: Int32Array@proven
+  33:35 binary `i >= 0`: boolean@proven
+  33:35 ref `i`: number[-1, 1] int nonNaN nonNegZero@proven
+  33:43 unary `i--`: number[0, 1] int nonNaN nonNegZero@proven
+  33:43 ref `i`: number[-1, 1] int nonNaN nonNegZero@proven
+  36:5 assign `total += (values[i] /*@proven union*/...`: number int nonNaN nonNegZero@proven
+  36:5 ref `total`: number int nonNaN nonNegZero@proven
+  36:14 binary `(values[i] /*@proven union*/) ?? 0`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  36:15 member `values[i]`: undefined | (number[-2147483648, 2147483647] int nonNaN nonNegZero)@proven
+  36:15 ref `values`: Int32Array@proven
+  36:22 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  38:10 ref `total`: number int nonNaN nonNegZero@proven
+  41:17 bind `main`: function@proven
+  42:3 call `console.log(sum([1, 2, 3]), cached([4...`: unknown
+  42:3 member `console.log`: unknown
+  42:3 ref `console`: unknown
+  42:15 call `sum([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  42:15 ref `sum`: function@proven
+  42:19 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  42:31 call `cached([4, 5])`: number[0, inf] int nonNaN nonNegZero@proven
+  42:31 ref `cached`: function@proven
+  42:38 array `[4, 5]`: (number[4, 5] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  42:47 call `shrinking([1, 2, 3, 4])`: number[0, inf] int nonNaN nonNegZero@proven
+  42:47 ref `shrinking`: function@proven
+  42:57 array `[1, 2, 3, 4]`: (number[1, 4] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  42:72 call `backwards(new Int32Array([1, 2]))`: number int nonNaN nonNegZero@proven
+  42:72 ref `backwards`: function@proven
+  42:82 new `new Int32Array([1, 2])`: Int32Array@proven escape=known
+  42:86 ref `Int32Array`: unknown
+  42:97 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=none stable-shape

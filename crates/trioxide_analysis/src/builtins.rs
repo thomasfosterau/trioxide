@@ -239,7 +239,6 @@ const fn number(model: NumberModel) -> Ret {
     Ret::Number(model)
 }
 
-use CallbackParam as C;
 use MathOp as M;
 use NumberModel as N;
 use Receiver as R;
@@ -426,10 +425,6 @@ pub const OBJECT_PROTOTYPE: [&str; 12] = [
     "__lookupSetter__",
 ];
 
-/// `C` is used here for brevity in the table; re-exported for tests.
-#[cfg(test)]
-pub(crate) use C as CallbackParamAlias;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +442,6 @@ mod tests {
         }
         assert_eq!(global("Math.floor").unwrap().ret, Ret::Number(NumberModel::Math(MathOp::Floor)));
         assert!(method_of(Receiver::Array, "push").unwrap().effects.writes_receiver);
-        assert_eq!(method_of(Receiver::Array, "map").unwrap().callback[1], CallbackParamAlias::Index);
+        assert_eq!(method_of(Receiver::Array, "map").unwrap().callback[1], CallbackParam::Index);
     }
 }

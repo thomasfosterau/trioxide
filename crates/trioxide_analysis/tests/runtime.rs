@@ -172,6 +172,12 @@ fn instrument(facts: &Facts, module: ModuleId, source: &str, source_type: oxc_sp
         if must_not_wrap(nodes, node.id()) {
             continue;
         }
+        // `super()` must stay a statement for TypeScript's parameter properties.
+        if let AstKind::CallExpression(call) = node.kind()
+            && matches!(call.callee, oxc_ast::ast::Expression::Super(_))
+        {
+            continue;
+        }
         let span: Span = node.kind().span();
         let id = format!("m{}:{}", module.index(), node.id().index());
         writeln!(predicates, "  {id:?}: [(v) => {}, {:?}],", predicate(fact.value), format!("{:?} at {}..{}", fact.value, span.start, span.end)).unwrap();

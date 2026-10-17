@@ -1,0 +1,43 @@
+// Array reads bounded by `.length` in loop conditions are in bounds; shrinking breaks that.
+
+export function sum(values: number[]): number {
+  let total = 0;
+  for (let i = 0; i < values.length; i++) {
+    total += (values[i] /*@proven number in-bounds*/);
+  }
+  return total;
+}
+
+export function cached(values: number[]): number {
+  let total = 0;
+  const n = values.length;
+  for (let i = 0; i < n; i++) {
+    total += (values[i] /*@proven number in-bounds*/);
+  }
+  return total;
+}
+
+export function shrinking(values: number[]): number {
+  let total = 0;
+  for (let i = 0; i < values.length; i++) {
+    values.pop();
+    // After a pop, `i` may be past the end.
+    const value = values[i] /*@proven union*/;
+    total += value ?? 0;
+  }
+  return total;
+}
+
+export function backwards(values: Int32Array): number {
+  let total = 0;
+  for (let i = values.length - 1; i >= 0; i--) {
+    // Counting down from length - 1 is in range too, but only `i < length` conditions are
+    // recognised: the read may be undefined as far as the analysis knows.
+    total += (values[i] /*@proven union*/) ?? 0;
+  }
+  return total;
+}
+
+export function main(): void {
+  console.log(sum([1, 2, 3]), cached([4, 5]), shrinking([1, 2, 3, 4]), backwards(new Int32Array([1, 2])));
+}

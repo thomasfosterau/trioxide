@@ -206,7 +206,11 @@ impl Type {
         }
         members.reverse();
         // A canonical order, so equal unions compare equal whatever order they were built in.
-        members.sort_by_key(Self::union_rank);
+        members.sort_by_cached_key(|member| {
+            let rank = member.union_rank();
+            let detail = if rank == 7 { format!("{member:?}") } else { String::new() };
+            (rank, detail)
+        });
         match members.len() {
             0 => Self::Never,
             1 => members.pop().expect("one member"),

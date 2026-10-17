@@ -438,14 +438,16 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                             keys.push(key);
                         }
                         (Some(key), _) if key != "__proto__" => {
-                            // A getter or setter: reads and writes run code.
-                            self.escape_value(&value, Escape::Known);
+                            // A getter or setter: property accesses (which trioxide doesn't
+                            // follow for literals) call it.
+                            self.escape_value(&value, Escape::Unknown);
                             self.store_prop(site, &key, &Val::unknown(), true);
                             dynamic = true;
                         }
                         _ => {
                             // `__proto__: x` sets the prototype; computed keys are unknown.
-                            self.escape_value(&value, Escape::Known);
+                            let level = if property.kind == PropertyKind::Init { Escape::Known } else { Escape::Unknown };
+                            self.escape_value(&value, level);
                             dynamic = true;
                         }
                     }
@@ -587,6 +589,8 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
 
     /// Instance field initialisers, run with `this` the new instance (the class-init unit).
     pub fn class_fields(&mut self, class: &'a Class<'a>) {
+        let class_ref = self.node(class.node_id.get());
+        let assigned = crate::shapes::constructor_assigned(self.an.world, class_ref);
         for element in &class.body.body {
             if let ClassElement::PropertyDefinition(property) = element
                 && !property.r#static
@@ -594,6 +598,8 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 let value = match &property.value {
                     Some(value) => self.expr(value),
                     None if property.declare => continue,
+                    // The constructor assigns it before anything can read the `undefined`.
+                    None if static_key(&property.key, property.computed).is_some_and(|key| assigned.contains(&key)) => continue,
                     None => Val::proven(Type::Undefined),
                 };
                 let key = static_key(&property.key, property.computed);
@@ -1243,10 +1249,19 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                         Some(length) => Val::number(NumberType::constant(length)),
                         None => Val::number(numeric::int_range(0.0, numeric::MAX_ARRAY_LENGTH)),
                     },
-                    key if key.is_index() => Val::proven(Type::union([
-                        kind.element().map_or(Type::BigInt, Type::Number),
-                        Type::Undefined,
-                    ])),
+                    key if key.is_index() => {
+                        let element = kind.element().map_or(Type::BigInt, Type::Number);
+                        // A typed array's length only changes if code holding it detaches it.
+                        let in_range = match (key.name().and_then(|n| n.parse::<f64>().ok()), obj.length) {
+                            (Some(index), Some(length)) => index < length,
+                            _ => false,
+                        };
+                        if in_range {
+                            Val::proven(element)
+                        } else {
+                            Val::proven(Type::union([element, Type::Undefined]))
+                        }
+                    }
                     _ => Val::unknown(),
                 };
             }

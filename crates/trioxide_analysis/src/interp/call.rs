@@ -98,17 +98,42 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                 let args = self.arguments(&call.arguments);
                 return self.builtin_call(builtin, &args, Some(&receiver), site, trust);
             }
-            let function = if let Expression::Super(_) = member.object() {
-                self.super_method(&key)
-            } else {
-                self.read_prop(&receiver, &key, member.node_id())
-            };
             if !member.optional() {
                 self.require_object(&receiver);
             }
+            if let Expression::Super(_) = member.object() {
+                let function = self.super_method(&key);
+                self.record_node(member.node_id(), &function);
+                let args = self.arguments(&call.arguments);
+                return self.call_value(site, &function, Some(&receiver), &args.values, args.spread);
+            }
+            // Dispatch per receiver object, so each method sees only the objects it is
+            // actually looked up on as `this`.
+            let per_site: Vec<Val> = match receiver.pts.sites() {
+                Some(sites) if sites.len() > 1 => sites
+                    .iter()
+                    .map(|&object| {
+                        let ty = match self.an.state.heap.get(&object).map(|obj| obj.kind) {
+                            Some(ObjKind::Instance(class)) => Type::Instance(class),
+                            _ => receiver.ty.clone(),
+                        };
+                        Val { ty, pts: Pts::site(object), ..receiver.clone() }
+                    })
+                    .collect(),
+                _ => vec![receiver.clone()],
+            };
+            let functions: Vec<Val> = per_site
+                .iter()
+                .map(|receiver| self.read_prop(receiver, &key, member.node_id()))
+                .collect();
+            let function = functions.iter().fold(Val::never(), |acc, f| acc.join(f));
             self.record_node(member.node_id(), &function);
             let args = self.arguments(&call.arguments);
-            let mut value = self.call_value(site, &function, Some(&receiver), &args.values, args.spread);
+            let mut value = Val::never();
+            for (receiver, function) in per_site.iter().zip(&functions) {
+                let result = self.call_value(site, function, Some(receiver), &args.values, args.spread);
+                value = value.join(&result);
+            }
             if member.optional() && receiver.ty.may_be_nullish() {
                 value = value.join(&Val::proven(Type::Undefined));
             }
@@ -472,11 +497,20 @@ impl<'w, 'a> Cx<'_, 'w, 'a> {
                         number.as_constant()
                     }
                     _ => {
-                        // Copies an array-like or iterable.
+                        // Copies an array-like or iterable: as long as a tracked array.
                         let copied = self.iterate(value, site);
                         self.coerce(&copied, false);
                         self.always(EffectKind::Throws);
-                        None
+                        let lengths: Option<Vec<Option<f64>>> = value.pts.sites().map(|sites| {
+                            sites
+                                .iter()
+                                .map(|site| self.an.state.heap.get(site).filter(|obj| obj.kind == ObjKind::Array && !obj.dynamic && obj.escape != Escape::Unknown).and_then(|obj| obj.length))
+                                .collect()
+                        });
+                        match lengths.as_deref() {
+                            Some([Some(length)]) => Some(*length),
+                            _ => None,
+                        }
                     }
                 },
                 Some(value) => {
