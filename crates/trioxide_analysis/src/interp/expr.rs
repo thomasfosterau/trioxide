@@ -80,17 +80,14 @@ impl<'a> Cx<'_, '_, 'a> {
             || frame.declared != crate::facts::Effects::PURE
             || frame.edges < self.record.edges.len()
         {
-            let record = super::ExprRecord {
+            #[expect(clippy::cast_possible_truncation, reason = "edges of one unit")]
+            let visit = super::ExprVisit {
+                node: expression.node_id(),
                 proven: frame.proven,
                 declared: frame.declared,
-                callees: self.callees_since(frame.edges),
+                edges: (frame.edges as u32, self.record.edges.len() as u32),
             };
-            let key = self.node(expression.node_id());
-            self.record
-                .expr_effects
-                .entry(key)
-                .and_modify(|existing| existing.join(&record))
-                .or_insert(record);
+            self.record.expr_effects.push(visit);
         }
         self.record_node(expression.node_id(), &value);
         value

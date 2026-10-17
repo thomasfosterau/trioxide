@@ -242,8 +242,9 @@ pub struct UnitRecord {
     pub allocations: Vec<AllocId>,
     /// Call sites (and implicit-call sites) where code trioxide doesn't see may run.
     pub open_sites: FxHashSet<NodeRef>,
-    /// Each evaluated expression's own effects and the units it calls, where it has any.
-    pub expr_effects: FxHashMap<NodeRef, ExprRecord>,
+    /// Each visit of an expression with effects or calls: its node, its own effects and the
+    /// range of `edges` it made (merged per node by the summary).
+    pub expr_effects: Vec<ExprVisit>,
     /// What each loop does.
     pub loops: FxHashMap<NodeRef, LoopRecord>,
     /// Statements reached with a reachable environment.
@@ -252,27 +253,18 @@ pub struct UnitRecord {
     pub skipped: FxHashSet<NodeRef>,
 }
 
-/// An expression's own effects (without its callees') and the units it calls.
-#[derive(Debug, Clone, Default)]
-pub struct ExprRecord {
+/// One evaluation of an expression: its own effects (without its callees') and the edges
+/// (calls, implicit ones included) it made.
+#[derive(Debug, Clone, Copy)]
+pub struct ExprVisit {
+    /// The expression.
+    pub node: NodeId,
     /// Counting only proven facts.
     pub proven: Effects,
     /// Counting declared facts as proof.
     pub declared: Effects,
-    /// Units it calls (directly or through implicit calls).
-    pub callees: Vec<NodeRef>,
-}
-
-impl ExprRecord {
-    fn join(&mut self, other: &Self) {
-        self.proven = union(self.proven, other.proven);
-        self.declared = union(self.declared, other.declared);
-        for callee in &other.callees {
-            if !self.callees.contains(callee) {
-                self.callees.push(*callee);
-            }
-        }
-    }
+    /// Its edges: `edges[start..end]` of the unit's record.
+    pub edges: (u32, u32),
 }
 
 /// What a loop (its test, body and update) does.

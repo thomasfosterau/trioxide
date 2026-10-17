@@ -3,7 +3,7 @@
 use oxc_span::Span;
 use oxc_syntax::symbol::SymbolId;
 use rustc_hash::{FxHashMap, FxHashSet};
-use trioxide_common::{ModuleId, NodeRef, SymbolRef};
+use trioxide_common::{NodeId, NodeRef, SymbolRef};
 use trioxide_types::{Shape, Type};
 
 use crate::{
@@ -282,8 +282,26 @@ fn usage_facts(
     let mut skipped = Vec::new();
     for (&unit, record) in &results.output.units {
         open_sites.extend(record.open_sites.iter().copied());
-        for (&node, expr) in &record.expr_effects {
-            let (proven, declared) = with_callees(expr.proven, expr.declared, &expr.callees);
+        // Visits of one expression are merged (loops revisit them).
+        let mut visits: Vec<&interp::ExprVisit> = record.expr_effects.iter().collect();
+        visits.sort_unstable_by_key(|visit| visit.node);
+        let mut callees: Vec<NodeRef> = Vec::new();
+        for group in visits.chunk_by(|a, b| a.node == b.node) {
+            let (mut proven, mut declared) = (Effects::PURE, Effects::PURE);
+            callees.clear();
+            for visit in group {
+                proven = union(proven, visit.proven);
+                declared = union(declared, visit.declared);
+                let (start, end) = (visit.edges.0 as usize, visit.edges.1 as usize);
+                callees.extend(record.edges[start..end].iter().map(|edge| edge.callee));
+            }
+            callees.sort_unstable();
+            callees.dedup();
+            let (proven, declared) = with_callees(proven, declared, &callees);
+            let node = NodeRef {
+                module: unit.module,
+                node: group[0].node,
+            };
             facts.set_expr_effects(node, proven, declared);
         }
         let module = world.module(unit.module);
@@ -363,38 +381,38 @@ fn usage_facts(
         }
         pending.extend(graph.edges_from(unit).map(|edge| edge.callee));
     }
-    // Dead code: unreachable units, and statements no reachable path got to.
-    let mut dead: FxHashMap<ModuleId, Vec<Span>> = FxHashMap::default();
+    // Dead code: unreachable units, and statements no reachable path got to, with everything
+    // inside them (node ids are preorder, so a node's descendants follow it).
+    let mut roots: Vec<NodeRef> = world
+        .unit_order
+        .iter()
+        .copied()
+        .filter(|unit| {
+            !live.contains(unit)
+                && matches!(world.unit(*unit).body, Body::Function(_) | Body::Arrow(_))
+        })
+        .collect();
+    roots.extend(
+        skipped
+            .into_iter()
+            .filter(|statement| !reached.contains(statement)),
+    );
     let mut unreachable = FxHashSet::default();
-    for &unit in &world.unit_order {
-        if live.contains(&unit) {
+    for root in roots {
+        if unreachable.contains(&root) {
             continue;
         }
-        let span = match world.unit(unit).body {
-            Body::Function(function) => function.span,
-            Body::Arrow(arrow) => arrow.span,
-            _ => continue,
-        };
-        dead.entry(unit.module).or_default().push(span);
-    }
-    for statement in skipped {
-        if reached.contains(&statement) {
-            continue;
-        }
-        let module = world.module(statement.module);
-        let span = oxc_span::GetSpan::span(&module.semantic.nodes().kind(statement.node));
-        dead.entry(statement.module).or_default().push(span);
-    }
-    for (module_id, spans) in dead {
-        let module = world.module(module_id);
-        for node in module.semantic.nodes().iter() {
-            let span = oxc_span::GetSpan::span(&node.kind());
-            if spans
-                .iter()
-                .any(|dead| dead.start <= span.start && span.end <= dead.end)
-            {
-                unreachable.insert(module.node(node.id()));
+        let module = world.module(root.module);
+        let nodes = module.semantic.nodes();
+        let span = oxc_span::GetSpan::span(&nodes.kind(root.node));
+        unreachable.insert(root);
+        for index in root.node.index() + 1..nodes.len() {
+            let id = NodeId::from_usize(index);
+            let inner = oxc_span::GetSpan::span(&nodes.kind(id));
+            if !(span.start <= inner.start && inner.end <= span.end) {
+                break;
             }
+            unreachable.insert(module.node(id));
         }
     }
     facts.set_unreachable(unreachable);
@@ -427,7 +445,7 @@ fn invariant_expressions(
     let loop_writes = loop_facts.effects.0.writes;
     // Node ids are preorder: the loop's descendants follow it.
     let inside: Vec<_> = (node.node.index() + 1..nodes.len())
-        .map(oxc_syntax::node::NodeId::from_usize)
+        .map(NodeId::from_usize)
         .take_while(|&id| {
             let span = nodes.kind(id).span();
             loop_span.start <= span.start && span.end <= loop_span.end
