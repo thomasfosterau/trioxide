@@ -1,0 +1,133 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/throwing-callees
+input_file: tests/fixtures/analysis/throwing-callees/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): reads writes allocates throws
+    calls 38:3 -> static
+  thrower (5:1): throws
+  viaArrow (12:18): throws
+    calls 12:41 -> thrower
+  viaBlockArrow (14:23): throws
+    calls 15:10 -> thrower
+  viaFunction (18:1): throws
+    calls 19:10 -> viaArrow
+  writesArrow (22:21): reads writes
+  Checked.<fields> (24:15): pure
+  Checked.constructor (26:14): writes throws
+    calls 27:18 -> thrower
+  Initialised.<fields> (31:19): reads writes throws
+    calls 32:11 -> thrower
+    calls 33:12 -> writesArrow
+  Static.<fields> (36:14): pure
+  static (38:3): reads writes throws
+    calls 39:20 -> thrower
+  guarded (44:1): throws
+    calls 46:12 -> viaFunction
+  main (52:8) open: reads writes allocates throws calls-unknown
+    calls 53:20 -> guarded
+    calls 53:32 -> guarded
+    calls 53:44 -> viaBlockArrow
+    calls 53:62 -> writesArrow
+    calls 56:5 -> viaBlockArrow
+    calls 61:5 -> Checked.<fields>
+    calls 61:5 -> Checked.constructor
+    calls 65:32 -> Checked.<fields>
+    calls 65:32 -> Checked.constructor
+    calls 65:54 -> Initialised.<fields>
+classes:
+  Checked (24:1): fields [value] stable
+  Initialised (31:1): fields [first, second] stable
+  Static (36:1): fields [] stable
+nodes:
+  3:5 bind `log`: 0@proven
+  5:10 bind `thrower`: function@proven
+  5:18 bind `n`: number[1, 9] int nonNaN nonNegZero@proven
+  6:7 binary `n > 2`: boolean@proven
+  6:7 ref `n`: number[1, 9] int nonNaN nonNegZero@proven
+  9:10 ref `n`: number[1, 2] int nonNaN nonNegZero@proven
+  12:7 bind `viaArrow`: function@proven
+  12:19 bind `n`: number[1, 5] int nonNaN nonNegZero@proven
+  12:41 call `thrower(n)`: number[1, 2] int nonNaN nonNegZero@proven
+  12:41 ref `thrower`: function@proven
+  12:49 ref `n`: number[1, 5] int nonNaN nonNegZero@proven
+  14:7 bind `viaBlockArrow`: function@proven
+  14:24 bind `n`: number[1, 9] int nonNaN nonNegZero@proven
+  15:10 binary `thrower(n) + 1`: number[2, 3] int nonNaN nonNegZero@proven
+  15:10 call `thrower(n)`: number[1, 2] int nonNaN nonNegZero@proven
+  15:10 ref `thrower`: function@proven
+  15:18 ref `n`: number[1, 9] int nonNaN nonNegZero@proven
+  18:10 bind `viaFunction`: function@proven
+  18:22 bind `n`: number[1, 5] int nonNaN nonNegZero@proven
+  19:10 binary `viaArrow(n) * 2`: number[2, 4] int nonNaN nonNegZero@proven
+  19:10 call `viaArrow(n)`: number[1, 2] int nonNaN nonNegZero@proven
+  19:10 ref `viaArrow`: function@proven
+  19:19 ref `n`: number[1, 5] int nonNaN nonNegZero@proven
+  22:7 bind `writesArrow`: function@proven
+  22:22 bind `n`: number[1, 2] int nonNaN nonNegZero@proven
+  22:45 assign `log += n`: number[1, inf] int nonNaN nonNegZero@proven
+  22:45 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
+  22:52 ref `n`: number[1, 2] int nonNaN nonNegZero@proven
+  24:7 bind `Checked`: function@proven
+  26:15 bind `n`: number[1, 7] int nonNaN nonNegZero@proven
+  27:5 assign `this.value = thrower(n)`: number[1, 2] int nonNaN nonNegZero@proven
+  27:5 member `this.value`: unknown
+  27:5 this `this`: Checked@proven
+  27:18 call `thrower(n)`: number[1, 2] int nonNaN nonNegZero@proven
+  27:18 ref `thrower`: function@proven
+  27:26 ref `n`: number[1, 7] int nonNaN nonNegZero@proven
+  31:7 bind `Initialised`: function@proven
+  32:11 call `thrower(1)`: number[1, 2] int nonNaN nonNegZero@proven
+  32:11 ref `thrower`: function@proven
+  33:12 call `writesArrow(1)`: number[1, inf] int nonNaN nonNegZero@proven
+  33:12 ref `writesArrow`: function@proven
+  36:7 bind `Static`: function@proven
+  39:5 assign `Static.ready = thrower(2)`: number[1, 2] int nonNaN nonNegZero@proven
+  39:5 member `Static.ready`: unknown
+  39:5 ref `Static`: function@proven
+  39:20 call `thrower(2)`: number[1, 2] int nonNaN nonNegZero@proven
+  39:20 ref `thrower`: function@proven
+  40:5 assign `log += 1`: number[1, inf] int nonNaN nonNegZero@proven
+  40:5 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
+  44:10 bind `guarded`: function@proven
+  44:18 bind `n`: number[1, 5] int nonNaN nonNegZero@proven
+  46:12 call `viaFunction(n)`: number[2, 4] int nonNaN nonNegZero@proven
+  46:12 ref `viaFunction`: function@proven
+  46:24 ref `n`: number[1, 5] int nonNaN nonNegZero@proven
+  48:12 unary `-1`: -1@proven
+  52:17 bind `main`: function@proven
+  53:9 bind `results`: unknown[]@proven
+  53:19 array `[guarded(1), guarded(5), viaBlockArro...`: unknown[]@proven escape=unknown
+  53:20 call `guarded(1)`: number[-1, 4] int nonNaN nonNegZero@proven
+  53:20 ref `guarded`: function@proven
+  53:32 call `guarded(5)`: number[-1, 4] int nonNaN nonNegZero@proven
+  53:32 ref `guarded`: function@proven
+  53:44 call `viaBlockArrow(1)`: number[2, 3] int nonNaN nonNegZero@proven
+  53:44 ref `viaBlockArrow`: function@proven
+  53:62 call `writesArrow(2)`: number[1, inf] int nonNaN nonNegZero@proven
+  53:62 ref `writesArrow`: function@proven
+  54:7 bind `caught`: 0@proven
+  56:5 call `viaBlockArrow(9)`: number[2, 3] int nonNaN nonNegZero@proven
+  56:5 ref `viaBlockArrow`: function@proven
+  58:5 assign `caught += 1`: 1@proven
+  58:5 ref `caught`: number[0, 1] int nonNaN nonNegZero@proven
+  61:5 new `new Checked(7)`: Checked@proven escape=known
+  61:9 ref `Checked`: function@proven
+  63:5 assign `caught += 1`: number[1, 2] int nonNaN nonNegZero@proven
+  63:5 ref `caught`: number[0, 2] int nonNaN nonNegZero@proven
+  65:3 call `console.log(results, caught, new Chec...`: unknown
+  65:3 member `console.log`: unknown
+  65:3 ref `console`: unknown
+  65:15 ref `results`: unknown[]@proven
+  65:24 ref `caught`: number[0, 2] int nonNaN nonNegZero@proven
+  65:32 member `new Checked(1).value`: number[1, 2] int nonNaN nonNegZero@proven
+  65:32 new `new Checked(1)`: Checked@proven escape=known
+  65:36 ref `Checked`: function@proven
+  65:54 member `new Initialised().second`: number[1, inf] int nonNaN nonNegZero@proven
+  65:54 new `new Initialised()`: Initialised@proven escape=none
+  65:58 ref `Initialised`: function@proven
+  65:80 member `Static.ready`: number[0, 2] int nonNaN nonNegZero@proven
+  65:80 ref `Static`: function@proven
+  65:94 ref `log`: number[0, inf] int nonNaN nonNegZero@proven

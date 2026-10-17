@@ -19,7 +19,7 @@ functions:
   cb (44:1): reads writes allocates throws
     calls 46:40 -> <anonymous>
   <anonymous> (46:52): reads writes
-  str (49:1): reads throws calls-unknown (declared: reads throws)
+  str (49:1): reads writes throws calls-unknown (declared: reads throws)
   detach (54:1): reads writes allocates throws calls-unknown
   sub (59:1): reads allocates
   whileLoop (65:1): reads writes

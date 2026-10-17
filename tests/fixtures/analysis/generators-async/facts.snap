@@ -6,8 +6,8 @@ input_file: tests/fixtures/analysis/generators-async/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  range (3:1): throws calls-unknown
-  delayed (7:1): throws calls-unknown (declared: pure)
+  range (3:1): reads writes throws calls-unknown
+  delayed (7:1): reads writes throws calls-unknown (declared: pure)
   main (12:8) open: reads writes allocates throws calls-unknown
     calls 14:23 -> range
     calls 17:24 -> delayed

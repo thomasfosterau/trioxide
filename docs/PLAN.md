@@ -214,9 +214,50 @@ back to TS where it knows nothing:
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
   `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged.
 
+Beyond types, the `Facts` API answers per call site (callees and whether that is all that
+can run there), per expression (effects including callees and implicit calls, `is_pure`,
+points-to sites), per loop (effects, written locals, arrays whose length the body may change,
+induction ranges, invariant expressions), per unit (callers, reachability distinct from
+`never`).
+
+**Refreshing facts.** Facts are keyed by `NodeId`s, which a rewrite invalidates. For v1 the
+facade's `FactRefresher` (the `trioxide_js::FactSource` the pipeline runs passes with)
+refreshes them for a module that a pass group changed, when the next group (or fixpoint
+iteration) reads them, so never after the last change: it prints the module back out (passes
+run before the TS strip, so it is still TypeScript), reloads the oracle and re-runs the whole
+analysis with that text, without TypeScript's diagnostics. A semantic build numbers nodes in
+traversal order, so the reparsed text and the rewritten AST line up node for node except where
+printing changed the tree: parentheses added or dropped, and folded numbers (`-1`, `-0`, `NaN`,
+`Infinity`) printed as `-` and a literal or as a name. The refresher walks both trees in step
+across those differences and maps the new facts back to the rewritten AST's ids (a
+parenthesized expression gets its contents' facts, and units keep the rewritten AST's spans);
+any other difference drops that module's facts to `Unknown`, and opens the sites elsewhere
+that called into it. After the module is compiled the program's own facts (and stats) come
+back for the others.
+
+Cost: each refresh is one whole-program analysis plus an oracle load, about 1.1× the build's
+first analysis. A build costs `A × (1 + Σ_m r_m)`, where `A` is one analysis and `r_m` is the
+number of pass-group iterations that changed module `m` and were followed by another
+iteration (up to `max_iterations` per fixpoint group): quadratic in program size when every
+module changes. Pass groups must stay few until NodeId-stable incremental analysis
+(re-interpreting only the units a rewrite touched) replaces this inside
+`FactRefresher::refresh`, keeping the `FactSource` interface. Refreshing once per group across
+all modules, instead of per module, would need the pipeline to run groups program-wide.
+
+`Project::reanalyse` analyses given sources the same way, and leaves those facts in place
+until the next build, `facts` or `transform`. On the dev/HMR path `Project::update` marks the
+facts stale; the next `transform` re-analyses the whole program (a new entry does too), so
+passes never see facts about other text. Per-update incremental analysis will replace that
+re-run.
+
 Correctness is tested two ways: `/*@trust …*/` annotations in the analysis fixtures state the
-expected trust of particular expressions, and a runtime checker instruments every `Proven`
-fact of every fixture and runs it under node, failing on any violation.
+expected trust of particular expressions, and a runtime checker instruments every fixture and
+runs it under node, failing on any violation (the exact list is in `tests/runtime.rs`): proven
+types of expressions, parameters, bindings and symbols (instances with `instanceof`,
+functions by identity), in-bounds accesses, units and expressions proven not to throw or not
+to write, the callee that runs at sites proven complete, loop invariants, stable object and
+class shapes, and proven-unreachable code. Escape levels, points-to sets and the other loop
+facts are not checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
 The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work

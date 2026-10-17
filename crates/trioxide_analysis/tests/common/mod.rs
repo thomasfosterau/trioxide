@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use trioxide_analysis::{Analysis, AnalysisOptions, ModuleInput, analyze};
-use trioxide_project::{GraphOptions, ImportTarget, ModuleGraph, find_tsconfig};
+use trioxide_project::{GraphOptions, ModuleGraph, find_tsconfig};
 use trioxide_types::{OracleInput, SourceText, TsrsOracle, TypeOracle};
 
 /// The analysis fixtures, sorted.
@@ -70,27 +70,7 @@ impl Loaded {
 }
 
 fn inputs(graph: &ModuleGraph) -> Vec<ModuleInput<'_>> {
-    graph
-        .modules()
-        .iter()
-        .map(|module| ModuleInput {
-            id: module.id,
-            path: &module.path,
-            source: &module.source,
-            source_type: module.source_type,
-            imports: module
-                .imports
-                .iter()
-                .map(|import| {
-                    let target = match import.target {
-                        ImportTarget::Module(id) => Some(id),
-                        _ => None,
-                    };
-                    (import.specifier.clone(), target)
-                })
-                .collect(),
-        })
-        .collect()
+    trioxide::analysis_inputs(graph)
 }
 
 /// Loads and analyses the fixture at `entry`. A first line `// world: library` selects the
@@ -103,18 +83,9 @@ pub fn load(entry: &Path) -> Loaded {
     let settings = tsconfig
         .as_deref()
         .map(|path| trioxide_project::CompilerSettings::load(path).unwrap());
-    let jsx = settings
-        .filter(|settings| settings.jsx == trioxide_project::JsxMode::Classic)
-        .map(|settings| {
-            (
-                settings
-                    .jsx_factory
-                    .unwrap_or_else(|| "React.createElement".into()),
-                settings
-                    .jsx_fragment_factory
-                    .unwrap_or_else(|| "React.Fragment".into()),
-            )
-        });
+    let (jsx_factory, jsx_fragment_factory) = settings
+        .as_ref()
+        .map_or((None, None), trioxide::jsx_factories);
     let mut graph = ModuleGraph::new(GraphOptions {
         root: dir.to_path_buf(),
         tsconfig: tsconfig.clone(),
@@ -142,8 +113,8 @@ pub fn load(entry: &Path) -> Loaded {
         AnalysisOptions {
             closed_world,
             trust_types: false,
-            jsx_factory: jsx.as_ref().map(|(factory, _)| factory.clone()),
-            jsx_fragment_factory: jsx.map(|(_, fragment)| fragment),
+            jsx_factory,
+            jsx_fragment_factory,
             entries: graph.entries().to_vec(),
         },
     );

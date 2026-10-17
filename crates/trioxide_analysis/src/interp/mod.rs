@@ -240,6 +240,146 @@ pub struct UnitRecord {
     pub edges: Vec<Edge>,
     /// Allocation sites the unit evaluated.
     pub allocations: Vec<AllocId>,
+    /// Call sites (and implicit-call sites) where code trioxide doesn't see may run.
+    pub open_sites: FxHashSet<NodeRef>,
+    /// Each visit of an expression with effects or calls: its node, its own effects and the
+    /// range of `edges` it made (merged per node by the summary).
+    pub expr_effects: Vec<ExprVisit>,
+    /// What each loop does.
+    pub loops: FxHashMap<NodeRef, LoopRecord>,
+    /// Statements reached with a reachable environment.
+    pub reached: FxHashSet<NodeRef>,
+    /// Statements interpreted (or skipped) with an unreachable one.
+    pub skipped: FxHashSet<NodeRef>,
+    /// Arrays whose length the unit may change.
+    pub resized: FxHashSet<AllocId>,
+    /// It may change the length of an array it doesn't track.
+    pub resizes_untracked: bool,
+}
+
+/// One evaluation of an expression: its own effects (without its callees') and the edges
+/// (calls, implicit ones included) it made.
+#[derive(Debug, Clone, Copy)]
+pub struct ExprVisit {
+    /// The expression.
+    pub node: NodeId,
+    /// Counting only proven facts.
+    pub proven: Effects,
+    /// Counting declared facts as proof.
+    pub declared: Effects,
+    /// It writes something, the unit's own locals and objects included.
+    pub local_writes: bool,
+    /// It reads a clock or a random number: its value can differ between evaluations.
+    pub volatile: bool,
+    /// It reads an object, or a local other code can write.
+    pub shared_reads: bool,
+    /// Its edges: `edges[start..end]` of the unit's record.
+    pub edges: (u32, u32),
+}
+
+/// What a loop (its test, body and update) does.
+#[derive(Debug, Clone, Default)]
+pub struct LoopRecord {
+    /// Its own effects, counting only proven facts.
+    pub proven: Effects,
+    /// Counting declared facts as proof.
+    pub declared: Effects,
+    /// Units it calls.
+    pub callees: Vec<NodeRef>,
+    /// Tracked locals it assigns.
+    pub written: Vec<SymbolId>,
+    /// Arrays whose length relations (`i < a.length`) it broke.
+    pub length_changed: Vec<SymbolId>,
+    /// Numeric locals it assigns, with their values at the loop head.
+    pub induction: Vec<(SymbolId, Val)>,
+    /// It writes an object or a local a closure can see (writes to tracked locals are in
+    /// `written`).
+    pub shared_writes: bool,
+    /// Arrays whose length it may change (not counting callees).
+    pub resized: Vec<AllocId>,
+    /// It may change the length of an array it doesn't track.
+    pub resizes_untracked: bool,
+}
+
+impl LoopRecord {
+    fn join(&mut self, other: &Self) {
+        self.proven = union(self.proven, other.proven);
+        self.declared = union(self.declared, other.declared);
+        self.shared_writes |= other.shared_writes;
+        self.resizes_untracked |= other.resizes_untracked;
+        for site in &other.resized {
+            if !self.resized.contains(site) {
+                self.resized.push(*site);
+            }
+        }
+        for (into, from) in [(&mut self.callees, &other.callees)] {
+            for item in from {
+                if !into.contains(item) {
+                    into.push(*item);
+                }
+            }
+        }
+        for (into, from) in [
+            (&mut self.written, &other.written),
+            (&mut self.length_changed, &other.length_changed),
+        ] {
+            for item in from {
+                if !into.contains(item) {
+                    into.push(*item);
+                }
+            }
+        }
+        for (symbol, value) in &other.induction {
+            match self.induction.iter_mut().find(|(own, _)| own == symbol) {
+                Some((_, own)) => *own = own.join(value),
+                None => self.induction.push((*symbol, value.clone())),
+            }
+        }
+    }
+}
+
+/// Either effect set.
+fn union(a: Effects, b: Effects) -> Effects {
+    Effects {
+        reads: a.reads || b.reads,
+        writes: a.writes || b.writes,
+        allocates: a.allocates || b.allocates,
+        throws: a.throws || b.throws,
+        calls_unknown: a.calls_unknown || b.calls_unknown,
+    }
+}
+
+/// Effects being collected for an expression or loop under interpretation.
+pub struct Frame {
+    /// Counting only proven facts.
+    pub proven: Effects,
+    /// Counting declared facts as proof.
+    pub declared: Effects,
+    /// Where its edges start in the unit's record.
+    pub edges: usize,
+    /// Something is written, the unit's own locals and objects included.
+    pub local_writes: bool,
+    /// An object or a local other code can see is written.
+    pub shared_writes: bool,
+    /// A clock or a random number is read.
+    pub volatile: bool,
+    /// An object, or a local other code can write, is read.
+    pub shared_reads: bool,
+}
+
+impl Frame {
+    /// A frame whose edges start at `edges`.
+    pub fn new(edges: usize) -> Self {
+        Self {
+            proven: Effects::PURE,
+            declared: Effects::PURE,
+            edges,
+            local_writes: false,
+            shared_writes: false,
+            volatile: false,
+            shared_reads: false,
+        }
+    }
 }
 
 /// What interpretation recorded (for one unit, or merged for all).
@@ -851,6 +991,15 @@ pub(crate) struct Cx<'c, 'w, 'a> {
     pub record: UnitRecord,
     /// Where interpretation is (the start of the expression last entered).
     pub position: u32,
+    /// Effects of the expressions and loops being interpreted, innermost last.
+    pub frames: Vec<Frame>,
+    /// Locals assigned in each loop being interpreted.
+    pub loop_writes: Vec<FxHashSet<SymbolId>>,
+    /// For each loop being interpreted: the arrays it resizes, and whether it resizes one
+    /// trioxide doesn't track.
+    pub loop_resized: Vec<(FxHashSet<AllocId>, bool)>,
+    /// Arrays whose length relations were dropped, in order.
+    pub dropped: Vec<SymbolId>,
 }
 
 impl<'w, 'a> Analyzer<'w, 'a> {
@@ -883,6 +1032,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             pending_length: None,
             record: UnitRecord::default(),
             position: 0,
+            frames: Vec::new(),
+            loop_writes: Vec::new(),
+            loop_resized: Vec::new(),
+            dropped: Vec::new(),
         };
         cx.enter();
         match unit.body {
@@ -1445,9 +1598,23 @@ impl Cx<'_, '_, '_> {
             EffectKind::Reads => effects.reads = true,
             EffectKind::Writes => effects.writes = true,
             EffectKind::Throws => effects.throws = true,
-            EffectKind::CallsUnknown => effects.calls_unknown = true,
+            // Code trioxide doesn't see may read and write anything.
+            EffectKind::CallsUnknown => {
+                effects.calls_unknown = true;
+                effects.reads = true;
+                effects.writes = true;
+            }
             EffectKind::Allocates => effects.allocates = true,
         };
+        // An expression's own effects count whether or not a `try` catches them.
+        for frame in &mut self.frames {
+            if !proven_free {
+                set(&mut frame.proven);
+            }
+            if !declared_free {
+                set(&mut frame.declared);
+            }
+        }
         if kind == EffectKind::Throws && self.catching > 0 {
             return;
         }
@@ -1457,6 +1624,55 @@ impl Cx<'_, '_, '_> {
         if !declared_free {
             set(&mut self.record.declared);
         }
+    }
+
+    /// Notes a write for the expressions and loops being interpreted: `shared` when it is
+    /// to an object or a local other code can see.
+    pub fn note_write(&mut self, shared: bool) {
+        for frame in &mut self.frames {
+            frame.local_writes = true;
+            frame.shared_writes |= shared;
+        }
+    }
+
+    /// Notes that the length of the arrays `object` may be can change.
+    pub fn note_resize(&mut self, object: &Val) {
+        if let Some(sites) = object.pts.sites() {
+            self.record.resized.extend(sites.iter().copied());
+            for (resized, _) in &mut self.loop_resized {
+                resized.extend(sites.iter().copied());
+            }
+        } else {
+            self.record.resizes_untracked = true;
+            for (_, untracked) in &mut self.loop_resized {
+                *untracked = true;
+            }
+        }
+    }
+
+    /// Notes a read of an object, or of a local other code can write.
+    pub fn note_shared_read(&mut self) {
+        for frame in &mut self.frames {
+            frame.shared_reads = true;
+        }
+    }
+
+    /// Notes that a clock or a random number was read.
+    pub fn note_volatile(&mut self) {
+        for frame in &mut self.frames {
+            frame.volatile = true;
+        }
+    }
+
+    /// The units called since edge `start` of this unit's record.
+    pub fn callees_since(&self, start: usize) -> Vec<NodeRef> {
+        let mut callees: Vec<NodeRef> = self.record.edges[start..]
+            .iter()
+            .map(|edge| edge.callee)
+            .collect();
+        callees.sort_unstable();
+        callees.dedup();
+        callees
     }
 
     /// Notes an effect that happens regardless of what types say.
@@ -1519,6 +1735,7 @@ impl Cx<'_, '_, '_> {
         ) || scoping.symbol_is_mutated(symbol);
         if mutable {
             self.always(EffectKind::Reads);
+            self.note_shared_read();
         }
         self.an
             .symbol_value(self.module.symbol(symbol))
@@ -1622,6 +1839,21 @@ impl Cx<'_, '_, '_> {
             writes.insert(symbol);
         }
         let own = info.unit == Some(self.unit.id);
+        if own {
+            for writes in &mut self.loop_writes {
+                writes.insert(symbol);
+            }
+        }
+        // An assignment (a declaration initialises instead).
+        if node.is_some_and(|node| {
+            matches!(
+                self.module.semantic.nodes().kind(node),
+                oxc_ast::AstKind::IdentifierReference(_)
+            )
+        }) {
+            // A local a closure reads is state other code can see.
+            self.note_write(!(own && info.tracked && !info.nested_reads));
+        }
         if info.tracked && own {
             self.env.vars.insert(symbol, value.clone());
             self.env.forget(symbol);

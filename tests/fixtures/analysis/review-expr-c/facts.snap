@@ -14,7 +14,7 @@ functions:
   SetOnly.v (31:8): reads writes allocates throws calls-unknown
   Box.<fields> (38:11): writes
   Box.constructor (40:14): pure
-  plus (46:1) open: throws calls-unknown (declared: pure)
+  plus (46:1) open: reads writes throws calls-unknown (declared: pure)
   main (51:8) open: reads writes allocates throws calls-unknown
     calls 52:3 -> pollute
     calls 53:3 -> readExtra

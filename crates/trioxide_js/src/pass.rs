@@ -29,9 +29,9 @@ impl PassOptions {
 /// Supplies analysis facts to passes, and refreshes them after the AST changes.
 ///
 /// Facts are keyed by `NodeId`s, which a rewrite invalidates. After any pass group changes a
-/// module, the pass manager rebuilds the module's semantic data and calls
-/// [`refresh`](Self::refresh) so the module's tables match the new AST (PLAN §2: "Analyses
-/// must be cheap to recompute per module").
+/// module, the pass manager rebuilds the module's semantic data and, before the next group or
+/// iteration reads facts, calls [`refresh`](Self::refresh) so the module's tables match the
+/// new AST (PLAN §2: "Analyses must be cheap to recompute per module").
 pub trait FactSource {
     /// The current facts.
     fn facts(&self) -> &Facts;
@@ -132,8 +132,9 @@ pub struct PassGroup {
 ///
 /// Within a group, passes share one [`Scoping`] that they keep up to date (`oxc_traverse`
 /// does this). Between groups, and between fixpoint iterations, if anything changed the
-/// manager rebuilds the semantic data from scratch and refreshes the module's facts, so every
-/// group starts from consistent tables.
+/// manager rebuilds the semantic data from scratch and refreshes the module's facts before
+/// the next iteration reads them (not after the last), so every group starts from consistent
+/// tables.
 pub struct PassManager {
     groups: Vec<PassGroup>,
     options: PassOptions,
@@ -187,6 +188,8 @@ impl PassManager {
         log: &mut ModuleLog,
     ) -> Scoping {
         let mut scoping = scoping;
+        // Facts are refreshed when next read, so never after the last change.
+        let mut stale = false;
         for group in &mut self.groups {
             let iterations = if group.fixpoint {
                 self.max_iterations
@@ -194,6 +197,10 @@ impl PassManager {
                 1
             };
             for _ in 0..iterations {
+                if stale {
+                    facts.refresh(module, program, &scoping);
+                    stale = false;
+                }
                 let mut ctx = PassContext {
                     allocator,
                     module,
@@ -213,7 +220,7 @@ impl PassManager {
                     break;
                 }
                 scoping = rebuild_scoping(program);
-                facts.refresh(module, program, &scoping);
+                stale = true;
             }
         }
         scoping

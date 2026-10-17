@@ -1,0 +1,85 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/array-fill
+input_file: tests/fixtures/analysis/array-fill/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  full (3:1): allocates (declared: allocates throws)
+  partial (12:1): allocates (declared: allocates throws)
+  refill (21:1): reads writes
+  main (25:8) open: reads writes allocates throws calls-unknown
+    calls 26:15 -> full
+    calls 26:24 -> full
+    calls 26:33 -> partial
+    calls 26:45 -> partial
+    calls 26:57 -> refill
+nodes:
+  3:10 bind `full`: function@proven
+  3:15 bind `n`: number[0, 3] int nonNaN nonNegZero@proven
+  4:9 bind `a`: 1[]@proven
+  4:13 call `new Array(n).fill(1)`: 1[]@proven
+  4:13 member `new Array(n).fill`: unknown
+  4:13 new `new Array(n)`: 1[]@proven escape=none stable-shape
+  4:17 ref `Array`: unknown
+  4:23 ref `n`: number[0, 3] int nonNaN nonNegZero@proven
+  5:7 bind `total`: 0@proven
+  6:12 bind `i`: 0@proven
+  6:19 binary `i < a.length`: boolean@proven
+  6:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  6:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  6:23 ref `a`: 1[]@proven
+  6:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  6:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  7:5 assign `total += (a[i] /*@proven number int i...`: number[1, inf] int nonNaN nonNegZero@proven
+  7:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  7:15 member `a[i]`: 1@proven in-bounds@proven
+  7:15 ref `a`: 1[]@proven
+  7:17 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  9:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  12:10 bind `partial`: function@proven
+  12:18 bind `n`: number[0, 3] int nonNaN nonNegZero@proven
+  13:9 bind `a`: unknown[]@proven
+  13:23 call `new Array(n).fill(2, 1)`: unknown[]@proven
+  13:23 member `new Array(n).fill`: unknown
+  13:23 new `new Array(n)`: unknown[]@proven escape=none stable-shape
+  13:27 ref `Array`: unknown
+  13:33 ref `n`: number[0, 3] int nonNaN nonNegZero@proven
+  14:7 bind `total`: 0@proven
+  15:12 bind `i`: 0@proven
+  15:19 binary `i < a.length`: boolean@proven
+  15:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  15:23 member `a.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  15:23 ref `a`: unknown[]@proven
+  15:33 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  15:33 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  16:5 assign `total += a[i] ?? 100`: number[2, inf] int nonNaN nonNegZero@proven
+  16:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  16:14 binary `a[i] ?? 100`: number[2, 100] int nonNaN nonNegZero@proven
+  16:14 member `a[i]`: undefined | 2@proven
+  16:14 ref `a`: unknown[]@proven
+  16:16 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  18:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  21:10 bind `refill`: function@proven
+  21:17 bind `values`: (number[1, 7] int nonNaN nonNegZero)[]@proven
+  22:10 call `values.fill(7, 0, 2)`: (number[1, 7] int nonNaN nonNegZero)[]@proven
+  22:10 member `values.fill`: unknown
+  22:10 ref `values`: (number[1, 7] int nonNaN nonNegZero)[]@proven
+  25:17 bind `main`: function@proven
+  26:3 call `console.log(full(0), full(3), partial...`: unknown
+  26:3 member `console.log`: unknown
+  26:3 ref `console`: unknown
+  26:15 call `full(0)`: number[0, inf] int nonNaN nonNegZero@proven
+  26:15 ref `full`: function@proven
+  26:24 call `full(3)`: number[0, inf] int nonNaN nonNegZero@proven
+  26:24 ref `full`: function@proven
+  26:33 call `partial(0)`: number[0, inf] int nonNaN nonNegZero@proven
+  26:33 ref `partial`: function@proven
+  26:45 call `partial(3)`: number[0, inf] int nonNaN nonNegZero@proven
+  26:45 ref `partial`: function@proven
+  26:57 call `refill([1, 2, 3]).join(",")`: string@proven
+  26:57 member `refill([1, 2, 3]).join`: unknown
+  26:57 call `refill([1, 2, 3])`: (number[1, 7] int nonNaN nonNegZero)[]@proven
+  26:57 ref `refill`: function@proven
+  26:64 array `[1, 2, 3]`: (number[1, 7] int nonNaN nonNegZero)[]@proven escape=known stable-shape

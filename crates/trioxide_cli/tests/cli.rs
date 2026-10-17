@@ -175,11 +175,19 @@ fn unimplemented_features_say_so() {
             stderr(&out)
         );
     }
-    for flag in ["--mode=wasm-preferred", "--world=app", "--trust-types"] {
+    let out = trioxide(&["--mode=wasm-preferred", "transform", input]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("not yet implemented"),
+        "{}",
+        stderr(&out)
+    );
+    // The analysis uses these.
+    for flag in ["--world=app", "--trust-types"] {
         let out = trioxide(&[flag, "transform", input]);
         assert!(out.status.success(), "{flag}: {}", stderr(&out));
         assert!(
-            stderr(&out).contains("not yet implemented"),
+            !stderr(&out).contains("not yet implemented"),
             "{flag}: {}",
             stderr(&out)
         );

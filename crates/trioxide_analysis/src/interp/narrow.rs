@@ -314,6 +314,10 @@ fn narrow_typeof(value: &Val, tag: &str, equal: bool) -> Val {
         _ => None,
     };
     let matches = |member: &Type| -> Option<bool> {
+        if *member == Type::Unknown {
+            // Anything: the test can go either way.
+            return None;
+        }
         Some(match tag {
             "number" => matches!(member, Type::Number(_)),
             "string" => matches!(member, Type::String),

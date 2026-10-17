@@ -55,6 +55,40 @@ pub enum Type {
 }
 
 impl Type {
+    /// The type with every class and function id it names passed through `map`, or `None` if
+    /// `map` has no answer for one of them.
+    pub fn try_map_ids(&self, map: &impl Fn(NodeRef) -> Option<NodeRef>) -> Option<Self> {
+        let all = |types: &[Self]| -> Option<Vec<Self>> {
+            types.iter().map(|ty| ty.try_map_ids(map)).collect()
+        };
+        Some(match self {
+            Self::Array(element) => Self::Array(Arc::new(element.try_map_ids(map)?)),
+            Self::Tuple(items) => Self::Tuple(all(items)?.into()),
+            Self::Union(members) => Self::Union(all(members)?.into()),
+            Self::Object(shape) => Self::Object(Arc::new(Shape {
+                properties: shape
+                    .properties
+                    .iter()
+                    .map(|(key, ty)| Some((key.clone(), ty.try_map_ids(map)?)))
+                    .collect::<Option<_>>()?,
+                exact: shape.exact,
+            })),
+            Self::Instance(class) => Self::Instance(map(*class)?),
+            Self::Function(signature, id) => Self::Function(
+                Arc::new(Signature {
+                    params: all(&signature.params)?,
+                    rest: signature.rest,
+                    ret: signature.ret.try_map_ids(map)?,
+                }),
+                match id {
+                    Some(id) => Some(map(*id)?),
+                    None => None,
+                },
+            ),
+            other => other.clone(),
+        })
+    }
+
     /// A function with nothing known about its signature, known to be `id` if given.
     pub fn opaque_function(id: Option<FunctionId>) -> Self {
         static UNKNOWN: std::sync::LazyLock<Arc<Signature>> =
@@ -261,8 +295,9 @@ impl Type {
         }
     }
 
-    /// A total order on types that agrees with `==`: primitives first, in a fixed order, then
-    /// structured types by variant and contents.
+    /// A total order on types: primitives first, in a fixed order, then structured types by
+    /// variant and contents. It agrees with `==` except on number bounds, which it compares
+    /// with `f64::total_cmp` (so `-0` sorts before `0`, which `==` treats as equal).
     fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         fn number(a: &NumberType, b: &NumberType) -> Ordering {
