@@ -263,6 +263,12 @@ pub struct ExprVisit {
     pub proven: Effects,
     /// Counting declared facts as proof.
     pub declared: Effects,
+    /// It writes something, the unit's own locals and objects included.
+    pub local_writes: bool,
+    /// It reads a clock or a random number: its value can differ between evaluations.
+    pub volatile: bool,
+    /// It reads an object, or a local other code can write.
+    pub shared_reads: bool,
     /// Its edges: `edges[start..end]` of the unit's record.
     pub edges: (u32, u32),
 }
@@ -282,12 +288,16 @@ pub struct LoopRecord {
     pub length_changed: Vec<SymbolId>,
     /// Numeric locals it assigns, with their values at the loop head.
     pub induction: Vec<(SymbolId, Val)>,
+    /// It writes an object or a local a closure can see (writes to tracked locals are in
+    /// `written`).
+    pub shared_writes: bool,
 }
 
 impl LoopRecord {
     fn join(&mut self, other: &Self) {
         self.proven = union(self.proven, other.proven);
         self.declared = union(self.declared, other.declared);
+        self.shared_writes |= other.shared_writes;
         for (into, from) in [(&mut self.callees, &other.callees)] {
             for item in from {
                 if !into.contains(item) {
@@ -333,6 +343,14 @@ pub struct Frame {
     pub declared: Effects,
     /// Where its edges start in the unit's record.
     pub edges: usize,
+    /// Something is written, the unit's own locals and objects included.
+    pub local_writes: bool,
+    /// An object or a local other code can see is written.
+    pub shared_writes: bool,
+    /// A clock or a random number is read.
+    pub volatile: bool,
+    /// An object, or a local other code can write, is read.
+    pub shared_reads: bool,
 }
 
 impl Frame {
@@ -342,6 +360,10 @@ impl Frame {
             proven: Effects::PURE,
             declared: Effects::PURE,
             edges,
+            local_writes: false,
+            shared_writes: false,
+            volatile: false,
+            shared_reads: false,
         }
     }
 }
@@ -1558,7 +1580,12 @@ impl Cx<'_, '_, '_> {
             EffectKind::Reads => effects.reads = true,
             EffectKind::Writes => effects.writes = true,
             EffectKind::Throws => effects.throws = true,
-            EffectKind::CallsUnknown => effects.calls_unknown = true,
+            // Code trioxide doesn't see may read and write anything.
+            EffectKind::CallsUnknown => {
+                effects.calls_unknown = true;
+                effects.reads = true;
+                effects.writes = true;
+            }
             EffectKind::Allocates => effects.allocates = true,
         };
         // An expression's own effects count whether or not a `try` catches them.
@@ -1578,6 +1605,29 @@ impl Cx<'_, '_, '_> {
         }
         if !declared_free {
             set(&mut self.record.declared);
+        }
+    }
+
+    /// Notes a write for the expressions and loops being interpreted: `shared` when it is
+    /// to an object or a local other code can see.
+    pub fn note_write(&mut self, shared: bool) {
+        for frame in &mut self.frames {
+            frame.local_writes = true;
+            frame.shared_writes |= shared;
+        }
+    }
+
+    /// Notes a read of an object, or of a local other code can write.
+    pub fn note_shared_read(&mut self) {
+        for frame in &mut self.frames {
+            frame.shared_reads = true;
+        }
+    }
+
+    /// Notes that a clock or a random number was read.
+    pub fn note_volatile(&mut self) {
+        for frame in &mut self.frames {
+            frame.volatile = true;
         }
     }
 
@@ -1652,6 +1702,7 @@ impl Cx<'_, '_, '_> {
         ) || scoping.symbol_is_mutated(symbol);
         if mutable {
             self.always(EffectKind::Reads);
+            self.note_shared_read();
         }
         self.an
             .symbol_value(self.module.symbol(symbol))
@@ -1759,6 +1810,16 @@ impl Cx<'_, '_, '_> {
             for writes in &mut self.loop_writes {
                 writes.insert(symbol);
             }
+        }
+        // An assignment (a declaration initialises instead).
+        if node.is_some_and(|node| {
+            matches!(
+                self.module.semantic.nodes().kind(node),
+                oxc_ast::AstKind::IdentifierReference(_)
+            )
+        }) {
+            // A local a closure reads is state other code can see.
+            self.note_write(!(own && info.tracked && !info.nested_reads));
         }
         if info.tracked && own {
             self.env.vars.insert(symbol, value.clone());

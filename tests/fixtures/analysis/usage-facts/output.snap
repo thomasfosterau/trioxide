@@ -4,7 +4,6 @@ description: tests/fixtures/analysis/usage-facts
 input_file: tests/fixtures/analysis/usage-facts/input.ts
 ---
 //- input.ts
-// Call-site completeness, expression and loop effects, points-to and reachability.
 let log = 0;
 function bump(n) {
 	log += n;
@@ -45,11 +44,71 @@ function invariant(values, k) {
 	}
 	return total;
 }
+function guarded(values, o) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		if (o !== null) {
+			total += o.x * 2;
+		}
+	}
+	return total;
+}
+function clock(values) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		total += Date.now() * 0;
+	}
+	return total;
+}
+function boxed(values) {
+	const box = { v: 1 };
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		total += box.v * 2;
+		box.v++;
+	}
+	return total;
+}
+function captured(values) {
+	let c = 1;
+	const inc = () => {
+		c++;
+	};
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		total += c * 2;
+		inc();
+	}
+	return total;
+}
+class Scale {
+	factor = 2;
+	apply(x) {
+		return x * this.factor;
+	}
+}
+function method(values, scale) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		total += scale.apply(i);
+	}
+	return total;
+}
+function exits(values, k) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		if (i > 3) {
+			break;
+		}
+		total += k * 5;
+	}
+	return total;
+}
 export function main() {
 	const point = { x: 1 };
 	const pure = square(3);
 	const effect = bump(2);
-	const outside = globalThis.unknown?.(1);
+	const outside = external.unknown?.(1);
 	console.log(point.x, pure, effect, outside, early(true), early(false));
 	console.log(loop([
 		1,
@@ -60,4 +119,21 @@ export function main() {
 		2,
 		3
 	]), invariant([1, 2], 4), invariant([], 5));
+	console.log(guarded([1, 2], { x: 3 }), guarded([1], null), clock([1, 2]), boxed([
+		1,
+		2,
+		3
+	]));
+	console.log(captured([
+		1,
+		2,
+		3
+	]), method([1, 2], new Scale()), exits([
+		1,
+		2,
+		3,
+		4,
+		5,
+		6
+	], 2));
 }

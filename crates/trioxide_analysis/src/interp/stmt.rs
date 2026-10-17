@@ -682,6 +682,7 @@ impl<'a> Cx<'_, '_, 'a> {
             written,
             length_changed,
             induction,
+            shared_writes: frame.shared_writes,
         };
         let key = self.node(node);
         self.record

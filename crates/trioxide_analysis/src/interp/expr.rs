@@ -76,19 +76,19 @@ impl<'a> Cx<'_, '_, 'a> {
         self.frames.push(super::Frame::new(self.record.edges.len()));
         let value = self.expr_inner(expression);
         let frame = self.frames.pop().expect("the expression's frame");
-        if frame.proven != crate::facts::Effects::PURE
-            || frame.declared != crate::facts::Effects::PURE
-            || frame.edges < self.record.edges.len()
-        {
-            #[expect(clippy::cast_possible_truncation, reason = "edges of one unit")]
-            let visit = super::ExprVisit {
-                node: expression.node_id(),
-                proven: frame.proven,
-                declared: frame.declared,
-                edges: (frame.edges as u32, self.record.edges.len() as u32),
-            };
-            self.record.expr_effects.push(visit);
-        }
+        // Every evaluation is recorded, pure ones too: an expression with no record (a
+        // callee member, a part of a `?.` chain) has unknown effects, not none.
+        #[expect(clippy::cast_possible_truncation, reason = "edges of one unit")]
+        let visit = super::ExprVisit {
+            node: expression.node_id(),
+            proven: frame.proven,
+            declared: frame.declared,
+            local_writes: frame.local_writes,
+            volatile: frame.volatile,
+            shared_reads: frame.shared_reads,
+            edges: (frame.edges as u32, self.record.edges.len() as u32),
+        };
+        self.record.expr_effects.push(visit);
         self.record_node(expression.node_id(), &value);
         value
     }
@@ -189,11 +189,12 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             Expression::AwaitExpression(await_expression) => {
                 let value = self.expr(&await_expression.argument);
-                self.escape_value(&value, Escape::Known);
-                // Awaiting a primitive gives it back; anything else may be a thenable.
+                // Awaiting a primitive gives it back; anything else may be a thenable whose
+                // `then` the engine calls with its own resolve and reject: its methods are open.
                 if value.is_primitive(false) {
                     value
                 } else {
+                    self.escape_value(&value, Escape::Unknown);
                     self.effect(EffectKind::CallsUnknown, false, value.is_primitive(true));
                     self.always(EffectKind::Throws);
                     let value = Val::unknown();
@@ -478,8 +479,9 @@ impl<'a> Cx<'_, '_, 'a> {
         let (proven_free, declared_free) = (no_throw(false), no_throw(true));
         self.effect(EffectKind::Throws, proven_free, declared_free);
         if !proven {
-            self.escape_value(value, Escape::Known);
-            // `valueOf`, `toString` or `Symbol.toPrimitive` may run and change anything.
+            // `valueOf`, `toString` or `Symbol.toPrimitive` may run, called by the engine (so
+            // they are open), and change anything.
+            self.escape_value(value, Escape::Unknown);
             self.after_call(false);
             self.note_call();
         }
@@ -1531,6 +1533,7 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// Reads property `key` of `object`.
     pub fn read_prop(&mut self, object: &Val, key: &Key, node: oxc_syntax::node::NodeId) -> Val {
+        self.note_shared_read();
         if is_never(object) {
             return Val::never();
         }
@@ -1619,6 +1622,7 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// The elements of an array value (`in_bounds`: no `undefined` for out-of-range reads).
     pub fn element(&mut self, object: &Val, in_bounds: bool) -> Val {
+        self.note_shared_read();
         if is_never(object) {
             return Val::never();
         }
@@ -2015,6 +2019,7 @@ impl<'a> Cx<'_, '_, 'a> {
         node: oxc_syntax::node::NodeId,
         defining: bool,
     ) {
+        self.note_write(true);
         self.require_object(object);
         if matches!(key, Key::Unknown) || key.name() == Some("length") {
             self.forget_bounds_of(object);
@@ -2130,6 +2135,7 @@ impl<'a> Cx<'_, '_, 'a> {
     }
 
     fn delete(&mut self, object: &Val, key: &Key) {
+        self.note_write(true);
         if let Some(sites) = object.pts.sites().filter(|sites| !sites.is_empty()) {
             for &site in sites {
                 let name = key.name().map(str::to_string);

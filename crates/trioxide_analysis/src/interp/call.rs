@@ -800,6 +800,9 @@ impl<'a> Cx<'_, '_, 'a> {
     fn unknown_construct(&mut self, args: &Args, site: NodeId) -> Val {
         // A builtin or host constructor: a fresh object, but what it does with its arguments
         // is unknown (Promise calls its executor, Map iterates, Proxy wraps).
+        self.note_call();
+        let site_ref = self.node(site);
+        self.record.open_sites.insert(site_ref);
         let object = self.alloc(site, ObjKind::Opaque);
         for value in &args.values {
             self.escape_value(value, Escape::Unknown);
@@ -873,6 +876,13 @@ impl<'a> Cx<'_, '_, 'a> {
     ) -> Val {
         let effects = builtin.effects;
         let declared_only = trust != Trust::Proven;
+        if effects.writes_receiver || effects.writes_other {
+            self.note_write(true);
+        }
+        // A clock or the PRNG: two calls can differ.
+        if effects.writes_other || builtin.name == "Date.now" {
+            self.note_volatile();
+        }
         // Arguments are coerced to primitives by most builtins (Math.floor(x) runs valueOf).
         let coerces = matches!(builtin.ret, Ret::Number(_)) && receiver.is_none()
             || matches!(
@@ -897,11 +907,22 @@ impl<'a> Cx<'_, '_, 'a> {
                         Ret::Number(NumberModel::Math(_) | NumberModel::Int32)
                     ),
                 );
+            } else if runs_argument_code(builtin) {
+                // Converted (`"a".padStart(n, o)`) or read through getters (`Object.values`),
+                // with the engine as caller.
+                self.coerce(value, false);
             } else if !builtin.effects.calls_args && !value.is_primitive(false) {
-                // A non-primitive argument may be converted (e.g. `includes`, `indexOf` don't, but
-                // `join` and `padStart` do); keep it simple and treat it as seen by the builtin.
+                // Seen by the builtin but not converted (`includes`, `push`).
                 self.escape_value(value, Escape::Known);
             }
+        }
+        // `join` and a comparator-less `sort` convert the elements.
+        if let Some(receiver) = receiver
+            && builtin.receiver == Receiver::Array
+            && (builtin.name == "join" || (builtin.name == "sort" && args.values.is_empty()))
+        {
+            let element = self.element(receiver, true);
+            self.coerce(&element, false);
         }
         let own_receiver = receiver.is_some_and(|receiver| self.owns(receiver));
         let free = |flag: bool| !flag;
@@ -1439,4 +1460,20 @@ pub enum Accessor {
     Missing,
     /// The getter or setter.
     Unit(NodeRef),
+}
+
+/// Whether `builtin` converts its arguments to primitives or reads them through getters, so
+/// user code (`valueOf`, `toString`, a getter) may run.
+fn runs_argument_code(builtin: &Builtin) -> bool {
+    matches!(builtin.receiver, Receiver::String | Receiver::Number)
+        || matches!(
+            (builtin.receiver, builtin.name),
+            (
+                Receiver::Global,
+                "encodeURIComponent" | "decodeURIComponent" | "Object.values" | "Object.entries"
+            ) | (
+                Receiver::TypedArray,
+                "fill" | "set" | "indexOf" | "lastIndexOf" | "includes"
+            )
+        )
 }

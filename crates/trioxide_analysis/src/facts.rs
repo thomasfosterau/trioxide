@@ -346,9 +346,11 @@ pub struct SiteResolution {
 /// What a loop (its test, body and update, every iteration) does.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoopFacts {
-    /// Its effects, including what it calls: `(proven, declared)`.
+    /// Its effects, including what it calls: `(proven, declared)`. `writes` counts every
+    /// write except assignments to the function's own tracked locals (those are `written`):
+    /// writes to objects, local ones included, and to locals a closure can see.
     pub effects: (Effects, Effects),
-    /// The function's own locals it assigns. Anything else it writes shows in `effects`.
+    /// The function's own locals it assigns.
     pub written: Vec<SymbolRef>,
     /// Arrays whose length the loop condition bounds and the loop may change (so `a[i]` is
     /// not in bounds through them).
@@ -357,9 +359,14 @@ pub struct LoopFacts {
     /// them).
     pub induction: Vec<(SymbolRef, Fact<NumberType>)>,
     /// The largest expressions inside it whose value is the same on every iteration and that
-    /// can be evaluated once before it: proven pure, allocating nothing, reading none of
-    /// `written`, and reading no outside state when the loop writes any. (Identifiers and
-    /// literals are left out.)
+    /// can be evaluated once, before the first iteration's body, after the loop's first test
+    /// passes. Each is in the test or the body (not a `for` loop's update, nor a `for-in`/`of`
+    /// head), runs on every iteration that gets that far (no `if`, `?:`, `&&`, `switch`,
+    /// `try`, nested loop or function around it, and the loop has no `break`, `continue`,
+    /// `return`, `throw`, `await` or `yield`), is `Proven` free of writes, throws, unknown
+    /// calls and allocation, reads no clock or random number, reads none of `written`, reads
+    /// no object or shared local when the loop writes any, and is not a callee, a write
+    /// target or a `delete` operand. Identifiers and literals are left out.
     pub invariant: Vec<NodeRef>,
 }
 
@@ -512,15 +519,13 @@ impl Facts {
 
     /// What evaluating `node` may do, including its subexpressions, the units it calls and
     /// implicit calls (getters, `valueOf`, …). With `trustTypes` the summary that takes
-    /// declared types as proof (`Declared` unless it agrees with the proven one). A node never
-    /// evaluated is `Unknown`.
+    /// declared types as proof (`Declared` unless it agrees with the proven one). Unlike a
+    /// unit's [`Facts::effects`], `writes` and `reads` count the function's own locals and
+    /// objects too (`i++` writes). A node with no recorded evaluation (never evaluated, or a
+    /// callee or optional-chain part evaluated as part of its call) is `Unknown`.
     pub fn expr_effects(&self, node: NodeRef) -> Fact<Effects> {
         let Some(&(proven, declared)) = self.expr_effects.get(&node) else {
-            return if self.node_types.contains_key(&node) {
-                Fact::proven(Effects::PURE)
-            } else {
-                Fact::unknown()
-            };
+            return Fact::unknown();
         };
         if self.trust_types && declared != proven {
             Fact::declared(declared)
@@ -567,16 +572,25 @@ impl Facts {
         }
     }
 
-    /// Drops every node-keyed fact of `module` (so they all read as `Unknown`), e.g. when its
-    /// AST changed in a way the facts can't follow.
+    /// Drops every node-keyed fact of `module` (so they all read as `Unknown`), e.g. when a
+    /// pass rewrote it in a way its node ids can't follow. The rewrite must keep its meaning:
+    /// facts elsewhere about values and effects stay. Facts elsewhere that name its nodes go:
+    /// call sites that called into it become open (their callees are gone) and points-to sets
+    /// that include its allocation sites read as `Unknown`.
     pub fn forget_module(&mut self, module: ModuleId) {
         let other = |node: &NodeRef| node.module != module;
+        for edge in &self.call_graph.edges {
+            if other(&edge.site) && !other(&edge.callee) {
+                self.open_sites.insert(edge.site);
+            }
+        }
+        self.points_to
+            .retain(|node, sites| other(node) && sites.iter().all(other));
         self.node_types.retain(|node, _| other(node));
         self.in_bounds.retain(|node, _| other(node));
         self.allocations.retain(|node, _| other(node));
         self.expr_effects.retain(|node, _| other(node));
         self.loops.retain(|node, _| other(node));
-        self.points_to.retain(|node, _| other(node));
         self.open_sites.retain(other);
         // Unknown reachability is "may run".
         self.unreachable.retain(other);

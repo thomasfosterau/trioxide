@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/open-world/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  scale (4:8) open: throws calls-unknown (declared: pure)
+  scale (4:8) open: reads writes throws calls-unknown (declared: pure)
   helper (9:1): pure
   bump (16:8) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
   main (22:8) open: reads writes allocates throws calls-unknown

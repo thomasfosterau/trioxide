@@ -5,137 +5,418 @@ input_file: tests/fixtures/analysis/usage-facts/input.ts
 ---
 //- input.ts
 functions:
-  <module> (1:1): allocates
-  bump (5:1): reads writes
-  square (10:1): pure
-  never (14:1): pure
-  early (18:1): pure
-  loop (26:1): reads
-  popping (34:1): reads writes allocates throws calls-unknown
-  invariant (43:1): reads
-  main (51:8) open: reads writes allocates throws calls-unknown
-    calls 53:16 -> square
-    calls 54:18 -> bump
-    calls 56:47 -> early
-    calls 56:60 -> early
-    calls 57:15 -> loop
-    calls 57:32 -> popping
-    calls 57:52 -> invariant
-    calls 57:74 -> invariant
+  <module> (1:1): reads writes allocates throws calls-unknown
+  bump (7:1): reads writes throws
+  square (12:1): pure
+  never (16:1): pure
+  early (20:1): pure
+  loop (28:1): reads
+  popping (36:1): reads writes
+  invariant (45:1): reads
+  guarded (53:1): reads
+  clock (63:1): reads
+  boxed (71:1): reads
+  captured (81:1): reads writes
+    calls 89:5 -> inc
+  inc (83:15): reads writes
+  Scale.<fields> (94:13): writes
+  Scale.apply (96:8): reads
+  method (101:1): reads
+    calls 104:14 -> Scale.apply
+  exits (109:1): reads
+  locals (120:1): throws
+  getter (131:1): reads
+    calls 136:10 -> getK
+  getK (133:16): reads
+  thenable (143:1): reads writes allocates throws calls-unknown
+  then (145:9) open: reads writes allocates throws calls-unknown
+  coerced (153:1): reads writes allocates throws calls-unknown
+  toString (155:13) open: reads writes allocates throws calls-unknown
+  k (159:6) open: reads writes throws
+  promised (166:1): reads writes allocates throws calls-unknown
+  <anonymous> (167:22) open: reads writes allocates throws calls-unknown
+  main (173:8) open: reads writes allocates throws calls-unknown
+    calls 175:16 -> square
+    calls 176:18 -> bump
+    calls 178:47 -> early
+    calls 178:60 -> early
+    calls 179:15 -> loop
+    calls 179:32 -> popping
+    calls 179:52 -> invariant
+    calls 179:74 -> invariant
+    calls 180:15 -> guarded
+    calls 180:42 -> guarded
+    calls 180:62 -> clock
+    calls 180:77 -> boxed
+    calls 181:8 -> thenable
+    calls 182:8 -> promised
+    calls 183:15 -> coerced
+    calls 183:31 -> locals
+    calls 183:41 -> getter
+    calls 184:15 -> captured
+    calls 184:36 -> method
+    calls 184:51 -> Scale.<fields>
+    calls 184:65 -> exits
+classes:
+  Scale (94:1): fields [factor] stable
 nodes:
-  3:5 bind `log`: 0@proven
-  5:10 bind `bump`: function@proven
-  5:15 bind `n`: 2@proven
-  6:3 assign `log += n`: number[2, inf] int nonNaN nonNegZero@proven
-  6:3 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
-  6:10 ref `n`: 2@proven
-  7:10 ref `n`: 2@proven
-  10:10 bind `square`: function@proven
-  10:17 bind `x`: 3@proven
-  11:10 binary `x * x`: 9@proven
-  11:10 ref `x`: 3@proven
-  11:14 ref `x`: 3@proven
-  14:10 bind `never`: function@proven
-  18:10 bind `early`: function@proven
-  18:16 bind `flag`: boolean@proven
-  19:7 ref `flag`: boolean@proven
-  23:3 assign `log = 99`: unknown
-  23:3 ref `log`: unknown
-  26:10 bind `loop`: function@proven
-  26:15 bind `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
-  27:7 bind `total`: 0@proven
-  28:12 bind `i`: 0@proven
-  28:19 binary `i < values.length`: boolean@proven
-  28:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
-  28:23 member `values.length`: 3@proven
-  28:23 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
-  28:38 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
-  28:38 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
-  29:5 assign `total += values[i] * values[i]`: number[1, inf] int nonNaN nonNegZero@proven
-  29:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
-  29:14 binary `values[i] * values[i]`: number[1, 9] int nonNaN nonNegZero@proven
-  29:14 member `values[i]`: number[1, 3] int nonNaN nonNegZero@proven in-bounds@proven
-  29:14 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
-  29:21 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
-  29:26 member `values[i]`: number[1, 3] int nonNaN nonNegZero@proven in-bounds@proven
-  29:26 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
-  29:33 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
-  31:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
-  34:10 bind `popping`: function@proven
-  34:18 bind `values`: unknown[]@proven
-  35:7 bind `total`: 0@proven
-  36:12 bind `i`: 0@proven
-  36:19 binary `i < values.length`: boolean@proven
-  36:19 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
-  36:23 member `values.length`: number@declared
-  36:23 ref `values`: unknown[]@proven
-  36:38 unary `i++`: number[0, inf] int nonNaN nonNegZero@declared
-  36:38 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
-  37:5 call `values.pop()`: unknown
-  37:5 member `values.pop`: unknown
-  37:5 ref `values`: unknown[]@proven
-  38:5 assign `total += i`: number[0, inf] int nonNaN nonNegZero@declared
-  38:5 ref `total`: number[0, inf] int nonNaN nonNegZero@declared
-  38:14 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
-  40:10 ref `total`: number[0, inf] int nonNaN nonNegZero@declared
-  43:10 bind `invariant`: function@proven
-  43:20 bind `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
-  43:38 bind `k`: number[4, 5] int nonNaN nonNegZero@proven
-  44:7 bind `total`: 0@proven
-  45:12 bind `i`: 0@proven
-  45:19 binary `i < values.length`: boolean@proven
-  45:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
-  45:23 member `values.length`: number[0, 2] int nonNaN nonNegZero@proven
-  45:23 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
-  45:38 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
-  45:38 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
-  46:5 assign `total += values[i] + k * 3`: number[13, inf] int nonNaN nonNegZero@proven
-  46:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
-  46:14 binary `values[i] + k * 3`: number[13, 17] int nonNaN nonNegZero@proven
-  46:14 member `values[i]`: number[1, 2] int nonNaN nonNegZero@proven in-bounds@proven
-  46:14 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
-  46:21 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
-  46:26 binary `k * 3`: number[12, 15] int nonNaN nonNegZero@proven
-  46:26 ref `k`: number[4, 5] int nonNaN nonNegZero@proven
-  48:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
-  51:17 bind `main`: function@proven
-  52:9 bind `point`: {| x: 1 |}@proven
-  52:17 object `{ x: 1 }`: {| x: 1 |}@proven escape=none stable-shape
-  53:9 bind `pure`: 9@proven
-  53:16 call `square(3)`: 9@proven
-  53:16 ref `square`: function@proven
-  54:9 bind `effect`: 2@proven
-  54:18 call `bump(2)`: 2@proven
-  54:18 ref `bump`: function@proven
-  55:9 bind `outside`: unknown
-  55:19 call `(globalThis as any).unknown?.(1)`: unknown
-  55:19 member `(globalThis as any).unknown`: unknown
-  55:20 cast `globalThis as any`: unknown
-  55:20 ref `globalThis`: unknown
-  56:3 call `console.log(point.x, pure, effect, ou...`: unknown
-  56:3 member `console.log`: unknown
-  56:3 ref `console`: unknown
-  56:15 member `point.x`: 1@proven
-  56:15 ref `point`: {| x: 1 |}@proven
-  56:24 ref `pure`: 9@proven
-  56:30 ref `effect`: 2@proven
-  56:38 ref `outside`: unknown
-  56:47 call `early(true)`: number[1, 2] int nonNaN nonNegZero@proven
-  56:47 ref `early`: function@proven
-  56:60 call `early(false)`: number[1, 2] int nonNaN nonNegZero@proven
-  56:60 ref `early`: function@proven
-  57:3 call `console.log(loop([1, 2, 3]), popping(...`: unknown
-  57:3 member `console.log`: unknown
-  57:3 ref `console`: unknown
-  57:15 call `loop([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
-  57:15 ref `loop`: function@proven
-  57:20 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
-  57:32 call `popping([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@declared
-  57:32 ref `popping`: function@proven
-  57:40 array `[1, 2, 3]`: unknown[]@proven escape=unknown
-  57:52 call `invariant([1, 2], 4)`: number[0, inf] int nonNaN nonNegZero@proven
-  57:52 ref `invariant`: function@proven
-  57:62 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
-  57:74 call `invariant([], 5)`: number[0, inf] int nonNaN nonNegZero@proven
-  57:74 ref `invariant`: function@proven
-  57:84 array `[]`: never[]@proven escape=known stable-shape
+  3:7 bind `external`: { unknown: undefined | function }@declared
+  3:18 cast `JSON.parse('{}') as { unknown?: (n: n...`: { unknown: undefined | function }@declared
+  3:18 call `JSON.parse('{}')`: unknown
+  3:18 member `JSON.parse`: unknown
+  3:18 ref `JSON`: unknown
+  3:51 bind `n`: unknown
+  5:5 bind `log`: 0@proven
+  7:10 bind `bump`: function@proven
+  7:15 bind `n`: 2@proven
+  8:3 assign `log += n`: number[2, inf] int nonNaN nonNegZero@proven
+  8:3 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
+  8:10 ref `n`: 2@proven
+  9:10 ref `n`: 2@proven
+  12:10 bind `square`: function@proven
+  12:17 bind `x`: 3@proven
+  13:10 binary `x * x`: 9@proven
+  13:10 ref `x`: 3@proven
+  13:14 ref `x`: 3@proven
+  16:10 bind `never`: function@proven
+  20:10 bind `early`: function@proven
+  20:16 bind `flag`: boolean@proven
+  21:7 ref `flag`: boolean@proven
+  25:3 assign `log = 99`: unknown
+  25:3 ref `log`: unknown
+  28:10 bind `loop`: function@proven
+  28:15 bind `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  29:7 bind `total`: 0@proven
+  30:12 bind `i`: 0@proven
+  30:19 binary `i < values.length`: boolean@proven
+  30:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  30:23 member `values.length`: 3@proven
+  30:23 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  30:38 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  30:38 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  31:5 assign `total += values[i] * values[i]`: number[1, inf] int nonNaN nonNegZero@proven
+  31:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  31:14 binary `values[i] * values[i]`: number[1, 9] int nonNaN nonNegZero@proven
+  31:14 member `values[i]`: number[1, 3] int nonNaN nonNegZero@proven in-bounds@proven
+  31:14 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  31:21 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  31:26 member `values[i]`: number[1, 3] int nonNaN nonNegZero@proven in-bounds@proven
+  31:26 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  31:33 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  33:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  36:10 bind `popping`: function@proven
+  36:18 bind `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  37:7 bind `total`: 0@proven
+  38:12 bind `i`: 0@proven
+  38:19 binary `i < values.length`: boolean@proven
+  38:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  38:23 member `values.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  38:23 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  38:38 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  38:38 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  39:5 call `values.pop()`: undefined | (number[1, 3] int nonNaN nonNegZero)@proven
+  39:5 member `values.pop`: unknown
+  39:5 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  40:5 assign `total += i`: number[0, inf] int nonNaN nonNegZero@proven
+  40:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  40:14 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  42:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  45:10 bind `invariant`: function@proven
+  45:20 bind `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  45:38 bind `k`: number[4, 5] int nonNaN nonNegZero@proven
+  46:7 bind `total`: 0@proven
+  47:12 bind `i`: 0@proven
+  47:19 binary `i < values.length`: boolean@proven
+  47:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  47:23 member `values.length`: number[0, 2] int nonNaN nonNegZero@proven
+  47:23 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  47:38 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  47:38 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  48:5 assign `total += values[i] + k * 3`: number[13, inf] int nonNaN nonNegZero@proven
+  48:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  48:14 binary `values[i] + k * 3`: number[13, 17] int nonNaN nonNegZero@proven
+  48:14 member `values[i]`: number[1, 2] int nonNaN nonNegZero@proven in-bounds@proven
+  48:14 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  48:21 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  48:26 binary `k * 3`: number[12, 15] int nonNaN nonNegZero@proven
+  48:26 ref `k`: number[4, 5] int nonNaN nonNegZero@proven
+  50:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  53:10 bind `guarded`: function@proven
+  53:18 bind `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  53:36 bind `o`: null | {| x: 3 |}@proven
+  54:7 bind `total`: 0@proven
+  55:12 bind `i`: 0@proven
+  55:19 binary `i < values.length`: boolean@proven
+  55:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  55:23 member `values.length`: number[1, 2] int nonNaN nonNegZero@proven
+  55:23 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  55:38 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  55:38 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  56:9 binary `o !== null`: boolean@proven
+  56:9 ref `o`: null | {| x: 3 |}@proven
+  57:7 assign `total += o.x * 2`: number[6, inf] int nonNaN nonNegZero@proven
+  57:7 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  57:16 binary `o.x * 2`: 6@proven
+  57:16 member `o.x`: 3@proven
+  57:16 ref `o`: {| x: 3 |}@proven
+  60:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  63:10 bind `clock`: function@proven
+  63:16 bind `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  64:7 bind `total`: 0@proven
+  65:12 bind `i`: 0@proven
+  65:19 binary `i < values.length`: boolean@proven
+  65:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  65:23 member `values.length`: 2@proven
+  65:23 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  65:38 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  65:38 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  66:5 assign `total += Date.now() * 0`: number nonNegZero@proven
+  66:5 ref `total`: number nonNegZero@proven
+  66:14 binary `Date.now() * 0`: number@proven
+  66:14 call `Date.now()`: number nonNaN@proven
+  66:14 member `Date.now`: unknown
+  66:14 ref `Date`: unknown
+  68:10 ref `total`: number nonNegZero@proven
+  71:10 bind `boxed`: function@proven
+  71:16 bind `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  72:9 bind `box`: {| v: number[1, inf] int nonNaN nonNegZero |}@proven
+  72:15 object `{ v: 1 }`: {| v: number[1, inf] int nonNaN nonNegZero |}@proven escape=none stable-shape
+  73:7 bind `total`: 0@proven
+  74:12 bind `i`: 0@proven
+  74:19 binary `i < values.length`: boolean@proven
+  74:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  74:23 member `values.length`: 3@proven
+  74:23 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  74:38 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  74:38 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  75:5 assign `total += box.v * 2`: number[2, inf] int nonNaN nonNegZero@proven
+  75:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  75:14 binary `box.v * 2`: number[2, inf] int nonNaN nonNegZero@proven
+  75:14 member `box.v`: number[1, inf] int nonNaN nonNegZero@proven
+  75:14 ref `box`: {| v: number[1, inf] int nonNaN nonNegZero |}@proven
+  76:5 unary `box.v++`: number[1, inf] int nonNaN nonNegZero@proven
+  76:5 member `box.v`: unknown
+  76:5 ref `box`: {| v: number[1, inf] int nonNaN nonNegZero |}@proven
+  78:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  81:10 bind `captured`: function@proven
+  81:19 bind `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  82:7 bind `c`: 1@proven
+  83:9 bind `inc`: function@proven
+  84:5 unary `c++`: number[1, inf] int nonNaN nonNegZero@proven
+  84:5 ref `c`: number[1, inf] int nonNaN nonNegZero@proven
+  86:7 bind `total`: 0@proven
+  87:12 bind `i`: 0@proven
+  87:19 binary `i < values.length`: boolean@proven
+  87:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  87:23 member `values.length`: 3@proven
+  87:23 ref `values`: (number[1, 3] int nonNaN nonNegZero)[]@proven
+  87:38 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  87:38 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  88:5 assign `total += c * 2`: number[2, inf] int nonNaN nonNegZero@proven
+  88:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  88:14 binary `c * 2`: number[2, inf] int nonNaN nonNegZero@proven
+  88:14 ref `c`: number[1, inf] int nonNaN nonNegZero@proven
+  89:5 call `inc()`: undefined@proven
+  89:5 ref `inc`: function@proven
+  91:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  94:7 bind `Scale`: function@proven
+  96:9 bind `x`: number[0, 1] int nonNaN nonNegZero@proven
+  97:12 binary `x * this.factor`: number[0, 2] int nonNaN nonNegZero@proven
+  97:12 ref `x`: number[0, 1] int nonNaN nonNegZero@proven
+  97:16 member `this.factor`: 2@proven
+  97:16 this `this`: Scale@proven
+  101:10 bind `method`: function@proven
+  101:17 bind `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  101:35 bind `scale`: Scale@proven
+  101:42 ref `Scale`: unknown
+  102:7 bind `total`: 0@proven
+  103:12 bind `i`: 0@proven
+  103:19 binary `i < values.length`: boolean@proven
+  103:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  103:23 member `values.length`: 2@proven
+  103:23 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  103:38 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  103:38 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  104:5 assign `total += scale.apply(i)`: number[0, inf] int nonNaN nonNegZero@proven
+  104:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  104:14 call `scale.apply(i)`: number[0, 2] int nonNaN nonNegZero@proven
+  104:14 member `scale.apply`: function@proven
+  104:14 ref `scale`: Scale@proven
+  104:26 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  106:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  109:10 bind `exits`: function@proven
+  109:16 bind `values`: (number[1, 6] int nonNaN nonNegZero)[]@proven
+  109:34 bind `k`: 2@proven
+  110:7 bind `total`: 0@proven
+  111:12 bind `i`: 0@proven
+  111:19 binary `i < values.length`: boolean@proven
+  111:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  111:23 member `values.length`: 6@proven
+  111:23 ref `values`: (number[1, 6] int nonNaN nonNegZero)[]@proven
+  111:38 unary `i++`: number[0, 3] int nonNaN nonNegZero@proven
+  111:38 ref `i`: number[0, 4] int nonNaN nonNegZero@proven
+  112:9 binary `i > 3`: boolean@proven
+  112:9 ref `i`: number[0, 5] int nonNaN nonNegZero@proven
+  115:5 assign `total += k * 5`: number[10, inf] int nonNaN nonNegZero@proven
+  115:5 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  115:14 binary `k * 5`: 10@proven
+  115:14 ref `k`: 2@proven
+  117:10 ref `total`: number[0, inf] int nonNaN nonNegZero@proven
+  120:10 bind `locals`: function@proven
+  121:9 bind `arr`: unknown[]@proven
+  121:15 array `[1, 2, 3]`: unknown[]@proven escape=none stable-shape
+  122:7 bind `t`: 0@proven
+  123:12 bind `i`: 0@proven
+  123:19 binary `i < 3`: boolean@proven
+  123:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  123:26 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  123:26 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  124:5 assign `t += arr[0] * 2`: number nonNegZero@proven
+  124:5 ref `t`: number nonNegZero@proven
+  124:10 binary `arr[0] * 2`: number@proven
+  124:10 member `arr[0]`: undefined | (number[0, 12] int nonNaN nonNegZero)@proven
+  124:10 ref `arr`: unknown[]@proven
+  125:5 assign `arr[0] = i + 10`: number[10, 12] int nonNaN nonNegZero@proven
+  125:5 member `arr[0]`: unknown
+  125:5 ref `arr`: unknown[]@proven
+  125:14 binary `i + 10`: number[10, 12] int nonNaN nonNegZero@proven
+  125:14 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  126:5 call `arr.push(i)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  126:5 member `arr.push`: unknown
+  126:5 ref `arr`: unknown[]@proven
+  126:14 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  128:10 ref `t`: number nonNegZero@proven
+  131:10 bind `getter`: function@proven
+  132:7 bind `k`: 0@proven
+  133:9 bind `getK`: function@proven
+  133:30 ref `k`: number[0, inf] int nonNaN nonNegZero@proven
+  134:7 bind `t`: 0@proven
+  135:12 bind `i`: 0@proven
+  135:19 binary `i < 3`: boolean@proven
+  135:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  135:26 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  135:26 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  136:5 assign `t += getK() * 1`: number[0, inf] int nonNaN nonNegZero@proven
+  136:5 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  136:10 binary `getK() * 1`: number[0, inf] int nonNaN nonNegZero@proven
+  136:10 call `getK()`: number[0, inf] int nonNaN nonNegZero@proven
+  136:10 ref `getK`: function@proven
+  137:5 unary `k++`: number[0, inf] int nonNaN nonNegZero@proven
+  137:5 ref `k`: number[0, inf] int nonNaN nonNegZero@proven
+  139:10 ref `t`: number[0, inf] int nonNaN nonNegZero@proven
+  143:16 bind `thenable`: function@proven
+  143:28 ref `Promise`: unknown
+  144:9 bind `t`: object@proven
+  144:13 object `{ then(r: (v: number) => void): void ...`: object@proven escape=unknown
+  145:10 bind `r`: function@declared
+  145:14 bind `v`: unknown
+  146:7 assign `log += 3`: number[3, inf] int nonNaN nonNegZero@proven
+  146:7 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
+  147:7 call `r(1)`: unknown
+  147:7 ref `r`: function@declared
+  150:10 await `await t`: number@declared
+  150:16 ref `t`: object@proven
+  153:10 bind `coerced`: function@proven
+  154:9 bind `o`: object@proven
+  154:13 object `{ toString(this: { k(): void }): stri...`: object@proven escape=unknown
+  156:7 call `this.k()`: unknown
+  156:7 member `this.k`: unknown
+  156:7 this `this`: unknown
+  160:7 assign `log += 1`: number[1, inf] int nonNaN nonNegZero@proven
+  160:7 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
+  163:13 ref `o`: object@proven
+  166:10 bind `promised`: function@proven
+  166:22 ref `Promise`: unknown
+  167:10 new `new Promise((resolve) => { log += 1; ...`: unknown escape=known
+  167:14 ref `Promise`: unknown
+  167:23 bind `resolve`: function@declared
+  168:5 assign `log += 1`: number[1, inf] int nonNaN nonNegZero@proven
+  168:5 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
+  169:5 call `resolve(1)`: unknown
+  169:5 ref `resolve`: function@declared
+  173:17 bind `main`: function@proven
+  174:9 bind `point`: {| x: 1 |}@proven
+  174:17 object `{ x: 1 }`: {| x: 1 |}@proven escape=none stable-shape
+  175:9 bind `pure`: 9@proven
+  175:16 call `square(3)`: 9@proven
+  175:16 ref `square`: function@proven
+  176:9 bind `effect`: 2@proven
+  176:18 call `bump(2)`: 2@proven
+  176:18 ref `bump`: function@proven
+  177:9 bind `outside`: undefined | number@declared
+  177:19 call `external.unknown?.(1)`: undefined | number@declared
+  177:19 member `external.unknown`: unknown
+  177:19 ref `external`: { unknown: undefined | function }@declared
+  178:3 call `console.log(point.x, pure, effect, ou...`: unknown
+  178:3 member `console.log`: unknown
+  178:3 ref `console`: unknown
+  178:15 member `point.x`: 1@proven
+  178:15 ref `point`: {| x: 1 |}@proven
+  178:24 ref `pure`: 9@proven
+  178:30 ref `effect`: 2@proven
+  178:38 ref `outside`: undefined | number@declared
+  178:47 call `early(true)`: number[1, 2] int nonNaN nonNegZero@proven
+  178:47 ref `early`: function@proven
+  178:60 call `early(false)`: number[1, 2] int nonNaN nonNegZero@proven
+  178:60 ref `early`: function@proven
+  179:3 call `console.log(loop([1, 2, 3]), popping(...`: unknown
+  179:3 member `console.log`: unknown
+  179:3 ref `console`: unknown
+  179:15 call `loop([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  179:15 ref `loop`: function@proven
+  179:20 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  179:32 call `popping([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  179:32 ref `popping`: function@proven
+  179:40 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  179:52 call `invariant([1, 2], 4)`: number[0, inf] int nonNaN nonNegZero@proven
+  179:52 ref `invariant`: function@proven
+  179:62 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  179:74 call `invariant([], 5)`: number[0, inf] int nonNaN nonNegZero@proven
+  179:74 ref `invariant`: function@proven
+  179:84 array `[]`: never[]@proven escape=known stable-shape
+  180:3 call `console.log(guarded([1, 2], { x: 3 })...`: unknown
+  180:3 member `console.log`: unknown
+  180:3 ref `console`: unknown
+  180:15 call `guarded([1, 2], { x: 3 })`: number[0, inf] int nonNaN nonNegZero@proven
+  180:15 ref `guarded`: function@proven
+  180:23 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  180:31 object `{ x: 3 }`: {| x: 3 |}@proven escape=known stable-shape
+  180:42 call `guarded([1], null)`: number[0, inf] int nonNaN nonNegZero@proven
+  180:42 ref `guarded`: function@proven
+  180:50 array `[1]`: 1[]@proven escape=known stable-shape
+  180:62 call `clock([1, 2])`: number nonNegZero@proven
+  180:62 ref `clock`: function@proven
+  180:68 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  180:77 call `boxed([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  180:77 ref `boxed`: function@proven
+  180:83 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  181:3 unary `void thenable()`: undefined@proven
+  181:8 call `thenable()`: unknown
+  181:8 ref `thenable`: function@proven
+  182:3 unary `void promised()`: undefined@proven
+  182:8 call `promised()`: unknown
+  182:8 ref `promised`: function@proven
+  183:3 call `console.log(coerced(), log, locals(),...`: unknown
+  183:3 member `console.log`: unknown
+  183:3 ref `console`: unknown
+  183:15 call `coerced()`: string@proven
+  183:15 ref `coerced`: function@proven
+  183:26 ref `log`: number[0, inf] int nonNaN nonNegZero@proven
+  183:31 call `locals()`: number nonNegZero@proven
+  183:31 ref `locals`: function@proven
+  183:41 call `getter()`: number[0, inf] int nonNaN nonNegZero@proven
+  183:41 ref `getter`: function@proven
+  184:3 call `console.log(captured([1, 2, 3]), meth...`: unknown
+  184:3 member `console.log`: unknown
+  184:3 ref `console`: unknown
+  184:15 call `captured([1, 2, 3])`: number[0, inf] int nonNaN nonNegZero@proven
+  184:15 ref `captured`: function@proven
+  184:24 array `[1, 2, 3]`: (number[1, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  184:36 call `method([1, 2], new Scale())`: number[0, inf] int nonNaN nonNegZero@proven
+  184:36 ref `method`: function@proven
+  184:43 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  184:51 new `new Scale()`: Scale@proven escape=known
+  184:55 ref `Scale`: function@proven
+  184:65 call `exits([1, 2, 3, 4, 5, 6], 2)`: number[0, inf] int nonNaN nonNegZero@proven
+  184:65 ref `exits`: function@proven
+  184:71 array `[1, 2, 3, 4, 5, 6]`: (number[1, 6] int nonNaN nonNegZero)[]@proven escape=known stable-shape

@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/this-binding/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  Counter.<fields> (3:15) open: writes throws calls-unknown
+  Counter.<fields> (3:15) open: reads writes throws calls-unknown
   Counter.increment (5:12) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
   main (10:8) open: reads writes allocates throws calls-unknown
     calls 11:19 -> Counter.<fields>

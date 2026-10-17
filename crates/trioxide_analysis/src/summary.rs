@@ -280,6 +280,7 @@ fn usage_facts(
     let mut open_sites = FxHashSet::default();
     let mut reached = FxHashSet::default();
     let mut skipped = Vec::new();
+    let mut volatile = FxHashSet::default();
     for (&unit, record) in &results.output.units {
         open_sites.extend(record.open_sites.iter().copied());
         // Visits of one expression are merged (loops revisit them).
@@ -288,10 +289,17 @@ fn usage_facts(
         let mut callees: Vec<NodeRef> = Vec::new();
         for group in visits.chunk_by(|a, b| a.node == b.node) {
             let (mut proven, mut declared) = (Effects::PURE, Effects::PURE);
+            let mut is_volatile = false;
             callees.clear();
             for visit in group {
                 proven = union(proven, visit.proven);
                 declared = union(declared, visit.declared);
+                // At expression level, writes to locals and reads of mutable locals count.
+                proven.writes |= visit.local_writes;
+                declared.writes |= visit.local_writes;
+                proven.reads |= visit.shared_reads;
+                declared.reads |= visit.shared_reads;
+                is_volatile |= visit.volatile;
                 let (start, end) = (visit.edges.0 as usize, visit.edges.1 as usize);
                 callees.extend(record.edges[start..end].iter().map(|edge| edge.callee));
             }
@@ -303,10 +311,16 @@ fn usage_facts(
                 node: group[0].node,
             };
             facts.set_expr_effects(node, proven, declared);
+            if is_volatile {
+                volatile.insert(node);
+            }
         }
         let module = world.module(unit.module);
         for (&node, record) in &record.loops {
-            let effects = with_callees(record.proven, record.declared, &record.callees);
+            let (mut proven, mut declared) = (record.proven, record.declared);
+            proven.writes |= record.shared_writes;
+            declared.writes |= record.shared_writes;
+            let effects = with_callees(proven, declared, &record.callees);
             let symbols = |symbols: &[SymbolId]| -> Vec<SymbolRef> {
                 symbols
                     .iter()
@@ -345,7 +359,7 @@ fn usage_facts(
     }
     // Effects first: invariance needs them.
     for (node, mut loop_facts) in pending_loops {
-        loop_facts.invariant = invariant_expressions(facts, world, node, &loop_facts);
+        loop_facts.invariant = invariant_expressions(facts, world, node, &loop_facts, &volatile);
         facts.set_loop_facts(node, loop_facts);
     }
     facts.set_open_sites(open_sites);
@@ -430,18 +444,37 @@ fn union(a: Effects, b: Effects) -> Effects {
 }
 
 /// The largest loop-invariant expressions of the loop `node` (see [`LoopFacts::invariant`]).
+/// Expressions in the loop `node` that give the same value on every iteration and can be
+/// evaluated once, before the first iteration's body, after the loop's first test passes.
 fn invariant_expressions(
     facts: &Facts,
     world: &World<'_>,
     node: NodeRef,
     loop_facts: &LoopFacts,
+    volatile: &FxHashSet<NodeRef>,
 ) -> Vec<NodeRef> {
     use oxc_ast::AstKind;
     use oxc_span::GetSpan;
     let module = world.module(node.module);
     let nodes = module.semantic.nodes();
     let scoping = module.semantic.scoping();
-    let loop_span = nodes.kind(node.node).span();
+    let loop_kind = nodes.kind(node.node);
+    let loop_span = loop_kind.span();
+    // Only the parts run on every iteration, before anything conditional: the test and the
+    // body (not a `for` loop's init or update, nor a `for-in`/`of` loop's head).
+    let regions: Vec<Span> = match loop_kind {
+        AstKind::ForStatement(stmt) => stmt
+            .test
+            .iter()
+            .map(GetSpan::span)
+            .chain([stmt.body.span()])
+            .collect(),
+        AstKind::WhileStatement(stmt) => vec![stmt.test.span(), stmt.body.span()],
+        AstKind::DoWhileStatement(stmt) => vec![stmt.body.span(), stmt.test.span()],
+        AstKind::ForInStatement(stmt) => vec![stmt.body.span()],
+        AstKind::ForOfStatement(stmt) => vec![stmt.body.span()],
+        _ => return Vec::new(),
+    };
     let loop_writes = loop_facts.effects.0.writes;
     // Node ids are preorder: the loop's descendants follow it.
     let inside: Vec<_> = (node.node.index() + 1..nodes.len())
@@ -451,21 +484,34 @@ fn invariant_expressions(
             loop_span.start <= span.start && span.end <= loop_span.end
         })
         .collect();
-    let variant_reads: Vec<Span> = inside
-        .iter()
-        .filter_map(|&id| match nodes.kind(id) {
+    let mut variant_reads: Vec<Span> = Vec::new();
+    for &id in &inside {
+        match nodes.kind(id) {
             AstKind::IdentifierReference(ident) => {
-                let symbol = scoping
-                    .get_reference(ident.reference_id.get()?)
-                    .symbol_id()?;
-                loop_facts
-                    .written
-                    .contains(&module.symbol(symbol))
-                    .then_some(ident.span)
+                let written = ident
+                    .reference_id
+                    .get()
+                    .and_then(|reference| scoping.get_reference(reference).symbol_id())
+                    .is_some_and(|symbol| loop_facts.written.contains(&module.symbol(symbol)));
+                if written {
+                    variant_reads.push(ident.span);
+                }
             }
-            _ => None,
-        })
-        .collect();
+            // An early exit or a suspension can make what follows conditional (narrowed by
+            // the exit's guard) or let other code run between iterations.
+            AstKind::BreakStatement(_)
+            | AstKind::ContinueStatement(_)
+            | AstKind::ReturnStatement(_)
+            | AstKind::ThrowStatement(_)
+            | AstKind::AwaitExpression(_)
+            | AstKind::YieldExpression(_)
+                if !in_nested_function(nodes, id, node.node) =>
+            {
+                return Vec::new();
+            }
+            _ => {}
+        }
+    }
     let mut found: Vec<(NodeRef, Span)> = Vec::new();
     for &id in &inside {
         let kind = nodes.kind(id);
@@ -483,26 +529,107 @@ fn invariant_expressions(
             continue;
         }
         let span = kind.span();
-        if found
+        if !regions
             .iter()
-            .any(|(_, outer)| outer.start <= span.start && span.end <= outer.end)
+            .any(|region| region.start <= span.start && span.end <= region.end)
+            || found
+                .iter()
+                .any(|(_, outer)| outer.start <= span.start && span.end <= outer.end)
         {
             continue;
         }
         let expression = module.node(id);
         let effects = facts.expr_effects(expression);
-        let pure = facts.is_pure(expression);
         if effects.trust != Trust::Proven
-            || !pure.value
+            || !effects.value.is_side_effect_free()
             || effects.value.allocates
             || (effects.value.reads && loop_writes)
+            || volatile.contains(&expression)
             || variant_reads
                 .iter()
                 .any(|read| span.start <= read.start && read.end <= span.end)
+            || !unconditional(nodes, id, node.node, span)
         {
             continue;
         }
         found.push((expression, span));
     }
     found.into_iter().map(|(node, _)| node).collect()
+}
+
+/// Whether `id` is inside a function nested in `outer`.
+fn in_nested_function(nodes: &oxc_semantic::AstNodes<'_>, id: NodeId, outer: NodeId) -> bool {
+    use oxc_ast::AstKind;
+    nodes
+        .ancestor_ids(id)
+        .take_while(|&ancestor| ancestor != outer)
+        .any(|ancestor| {
+            matches!(
+                nodes.kind(ancestor),
+                AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) | AstKind::Class(_)
+            )
+        })
+}
+
+/// Whether the expression `id` (spanning `span`) runs whenever its loop `outer`'s iteration
+/// gets that far, in a position where its value alone matters: no conditional, nested loop
+/// or function between them, and not a callee (its `this` would be lost) or a write target.
+fn unconditional(
+    nodes: &oxc_semantic::AstNodes<'_>,
+    id: NodeId,
+    outer: NodeId,
+    span: Span,
+) -> bool {
+    use oxc_ast::AstKind;
+    use oxc_span::GetSpan;
+    match nodes.parent_kind(id) {
+        AstKind::CallExpression(call) if call.callee.span() == span => return false,
+        AstKind::NewExpression(call) if call.callee.span() == span => return false,
+        AstKind::TaggedTemplateExpression(tagged) if tagged.tag.span() == span => return false,
+        AstKind::UnaryExpression(unary)
+            if unary.operator == oxc_syntax::operator::UnaryOperator::Delete =>
+        {
+            return false;
+        }
+        _ => {}
+    }
+    let mut child = id;
+    for ancestor in nodes.ancestor_ids(id) {
+        if ancestor == outer {
+            return true;
+        }
+        let kind = nodes.kind(ancestor);
+        let child_span = nodes.kind(child).span();
+        let conditional = match kind {
+            AstKind::LogicalExpression(logical) => logical.right.span() == child_span,
+            AstKind::ConditionalExpression(conditional) => conditional.test.span() != child_span,
+            AstKind::IfStatement(stmt) => stmt.test.span() != child_span,
+            AstKind::SwitchStatement(stmt) => stmt.discriminant.span() != child_span,
+            AstKind::AssignmentExpression(assignment) => {
+                assignment.operator.is_logical() || assignment.left.span() == child_span
+            }
+            AstKind::UpdateExpression(_)
+            | AstKind::ChainExpression(_)
+            | AstKind::TryStatement(_)
+            | AstKind::ForStatement(_)
+            | AstKind::ForInStatement(_)
+            | AstKind::ForOfStatement(_)
+            | AstKind::WhileStatement(_)
+            | AstKind::DoWhileStatement(_)
+            | AstKind::Function(_)
+            | AstKind::ArrowFunctionExpression(_)
+            | AstKind::Class(_)
+            | AstKind::FormalParameter(_)
+            | AstKind::AssignmentPattern(_)
+            | AstKind::AssignmentTargetWithDefault(_)
+            | AstKind::ArrayAssignmentTarget(_)
+            | AstKind::ObjectAssignmentTarget(_) => true,
+            _ => false,
+        };
+        if conditional {
+            return false;
+        }
+        child = ancestor;
+    }
+    false
 }

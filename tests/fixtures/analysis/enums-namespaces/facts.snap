@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/enums-namespaces/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  km (15:10) open: throws calls-unknown (declared: pure)
+  km (15:10) open: reads writes throws calls-unknown (declared: pure)
   main (20:8) open: reads writes allocates throws calls-unknown
 nodes:
   3:6 bind `Direction`: unknown

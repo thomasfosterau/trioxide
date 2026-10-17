@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/review-entry/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  helper (1:8) open: throws calls-unknown (declared: pure)
+  helper (1:8) open: reads writes throws calls-unknown (declared: pure)
   main (5:8) open: reads writes allocates throws calls-unknown
     calls 7:18 -> helper
 nodes:

@@ -70,10 +70,10 @@ fn usage_queries() {
         (resolution.complete.value, resolution.complete.trust),
         (true, Trust::Proven)
     );
-    let outside = fixture.node("(globalThis as any).unknown?.(1)", |kind| {
+    let outside = fixture.node("external.unknown?.(1)", |kind| {
         matches!(kind, AstKind::ChainExpression(_))
     });
-    let outside_call = fixture.node("(globalThis as any).unknown?.(1)", call);
+    let outside_call = fixture.node("external.unknown?.(1)", call);
     assert!(!facts.site_resolution(outside_call).complete.value);
 
     // Expression effects.
@@ -83,6 +83,23 @@ fn usage_queries() {
     assert!(facts.expr_effects(bump_call).value.writes);
     assert!(!facts.is_pure(bump_call).value);
     assert!(facts.expr_effects(outside).value.calls_unknown);
+
+    // Sites in units the engine calls, and `new Promise(executor)`.
+    for site in [
+        fixture.node("r(1)", call),
+        fixture.node("this.k()", call),
+        fixture.node(
+            "new Promise((resolve) => {\n    log += 1;\n    resolve(1);\n  })",
+            |kind| matches!(kind, AstKind::NewExpression(_)),
+        ),
+    ] {
+        let resolution = facts.site_resolution(site);
+        assert!(
+            !(resolution.complete.value && resolution.complete.trust == Trust::Proven),
+            "{resolution:?}"
+        );
+        assert!(!facts.is_pure(site).value || facts.is_pure(site).trust == Trust::Unknown);
+    }
 
     // Callers.
     let square_unit = resolution.callees[0];
@@ -140,6 +157,83 @@ fn usage_queries() {
         "{invariant_loop:?}"
     );
 
+    // Not invariant: guarded, volatile, a written object or captured local, a callee, or in a
+    // loop with an early exit.
+    let for_loop = |text: &str| {
+        let node = fixture.node(text, |kind| matches!(kind, AstKind::ForStatement(_)));
+        facts.loop_facts(node).expect("the loop ran").clone()
+    };
+    let binary =
+        |text: &str| fixture.node(text, |kind| matches!(kind, AstKind::BinaryExpression(_)));
+    let cases = [
+        (
+            "for (let i = 0; i < 3; i++) {\n    t += getK() * 1;\n    k++;\n  }",
+            binary("getK() * 1"),
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) {\n    if (o !== null) {\n      total += o.x * 2;\n    }\n  }",
+            binary("o.x * 2"),
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) {\n    total += Date.now() * 0;\n  }",
+            binary("Date.now() * 0"),
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) {\n    total += box.v * 2;\n    box.v++;\n  }",
+            binary("box.v * 2"),
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) {\n    total += c * 2;\n    inc();\n  }",
+            binary("c * 2"),
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) {\n    total += scale.apply(i);\n  }",
+            fixture.node("scale.apply", |kind| {
+                matches!(kind, AstKind::StaticMemberExpression(_))
+            }),
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) {\n    if (i > 3) {\n      break;\n    }\n    total += k * 5;\n  }",
+            binary("k * 5"),
+        ),
+    ];
+    for (text, expression) in cases {
+        let loop_facts = for_loop(text);
+        assert!(
+            !loop_facts.invariant.contains(&expression),
+            "{text}: {loop_facts:?}"
+        );
+    }
+    let boxed = for_loop(
+        "for (let i = 0; i < values.length; i++) {\n    total += box.v * 2;\n    box.v++;\n  }",
+    );
+    assert!(boxed.effects.0.writes, "{boxed:?}");
+
+    // Writes to locals and local objects are effects of the expression.
+    let assign = |text: &str| {
+        fixture.node(text, |kind| {
+            matches!(
+                kind,
+                AstKind::AssignmentExpression(_) | AstKind::UpdateExpression(_)
+            )
+        })
+    };
+    for expression in [
+        assign("t += arr[0] * 2"),
+        assign("arr[0] = i + 10"),
+        fixture.node("arr.push(i)", call),
+    ] {
+        assert!(!facts.is_pure(expression).value, "{expression:?}");
+    }
+    let locals_loop = for_loop(
+        "for (let i = 0; i < 3; i++) {\n    t += arr[0] * 2;\n    arr[0] = i + 10;\n    arr.push(i);\n  }",
+    );
+    assert!(locals_loop.effects.0.writes, "{locals_loop:?}");
+    assert!(
+        !locals_loop.invariant.contains(&binary("arr[0] * 2")),
+        "{locals_loop:?}"
+    );
+
     // Reachability.
     let never = fixture.node("function never(): number {\n  return 1;\n}", |kind| {
         matches!(kind, AstKind::Function(_))
@@ -159,4 +253,30 @@ fn usage_queries() {
         |kind| matches!(kind, AstKind::Function(_)),
     );
     assert_eq!(facts.reachable(square_fn).trust, Trust::Unknown);
+}
+
+#[test]
+fn forgetting_a_module_opens_the_sites_that_called_into_it() {
+    let entry = common::fixtures()
+        .into_iter()
+        .find(|entry| entry.parent().unwrap().ends_with("module-linking"))
+        .unwrap();
+    let loaded = common::load(&entry);
+    let mut facts = loaded.analysis.facts.clone();
+    let edge = facts
+        .call_graph()
+        .edges()
+        .iter()
+        .find(|edge| edge.site.module != edge.callee.module)
+        .copied()
+        .expect("a cross-module call");
+    let before = facts.site_resolution(edge.site);
+    assert_eq!(
+        (before.complete.value, before.complete.trust),
+        (true, Trust::Proven)
+    );
+    facts.forget_module(edge.callee.module);
+    let after = facts.site_resolution(edge.site);
+    assert_eq!(after.callees, Vec::new());
+    assert!(!after.complete.value, "{after:?}");
 }
