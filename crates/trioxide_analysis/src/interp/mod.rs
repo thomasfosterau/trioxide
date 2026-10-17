@@ -168,6 +168,9 @@ pub struct Obj {
     /// Typed arrays sharing this one's buffer (`subarray` views and what they view): whoever
     /// can detach one detaches them all.
     pub shares_buffer: Vec<AllocId>,
+    /// An object literal with a getter or setter, or a `__proto__` (whose prototype may have
+    /// them): reading, writing or spreading its properties may run user code.
+    pub accessors: bool,
 }
 
 impl Obj {
@@ -187,6 +190,7 @@ impl Obj {
             added: FxHashSet::default(),
             escape: Escape::None,
             shares_buffer: Vec::new(),
+            accessors: false,
         }
     }
 }
@@ -1940,6 +1944,7 @@ impl Cx<'_, '_, '_> {
                 obj.length,
                 obj.present.len(),
                 obj.shares_buffer.len(),
+                obj.accessors,
             );
             update(obj);
             if before
@@ -1950,6 +1955,7 @@ impl Cx<'_, '_, '_> {
                     obj.length,
                     obj.present.len(),
                     obj.shares_buffer.len(),
+                    obj.accessors,
                 )
             {
                 self.an.touch(Dep::Heap(site));

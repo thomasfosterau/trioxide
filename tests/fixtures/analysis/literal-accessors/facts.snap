@@ -1,0 +1,130 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/literal-accessors
+input_file: tests/fixtures/analysis/literal-accessors/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  viaSetter (6:1): reads writes allocates calls-unknown
+  p (8:10) open: reads writes throws calls-unknown (declared: reads writes)
+  viaGetter (16:1): reads writes allocates calls-unknown
+  p (18:10) open: reads writes throws calls-unknown (declared: reads writes)
+  viaProto (26:1): reads writes allocates calls-unknown
+  p (29:12) open: reads writes throws calls-unknown (declared: reads writes)
+  inLoop (38:1): reads writes allocates calls-unknown
+  p (40:10) open: reads writes throws calls-unknown (declared: reads writes)
+  viaSpread (50:1): reads writes allocates calls-unknown
+  x (52:10) open: reads writes throws calls-unknown (declared: reads writes)
+  spreadParam (61:1): reads writes calls-unknown
+  spreadOnly (66:1): reads writes calls-unknown
+  main (71:8) open: reads writes allocates throws calls-unknown
+    calls 72:15 -> viaSetter
+    calls 72:28 -> viaGetter
+    calls 72:41 -> viaProto
+    calls 72:53 -> inLoop
+    calls 72:63 -> viaSpread
+    calls 79:15 -> spreadParam
+    calls 79:36 -> spreadOnly
+  x (74:10) open: reads writes throws calls-unknown (declared: reads writes)
+nodes:
+  4:5 bind `log`: 0@proven
+  6:10 bind `viaSetter`: function@proven
+  7:9 bind `s`: object@proven
+  7:13 object `{ set p(n: number) { log += n; }, }`: object@proven escape=none
+  8:11 bind `n`: number@declared
+  9:7 assign `log += n`: number nonNegZero@declared
+  9:7 ref `log`: number nonNegZero@declared
+  9:14 ref `n`: number@declared
+  12:3 assign `s.p = 3`: 3@proven
+  12:3 member `s.p`: unknown
+  12:3 ref `s`: object@proven
+  16:10 bind `viaGetter`: function@proven
+  17:9 bind `g`: object@proven
+  17:13 object `{ get p(): number { log += 1; return ...`: object@proven escape=none
+  19:7 assign `log += 1`: number nonNegZero@declared
+  19:7 ref `log`: number nonNegZero@declared
+  23:10 member `g.p`: number@declared
+  23:10 ref `g`: object@proven
+  26:10 bind `viaProto`: function@proven
+  27:9 bind `o`: object@proven
+  27:13 cast `{ __proto__: { set p(n: number) { log...`: object@proven
+  27:13 object `{ __proto__: { set p(n: number) { log...`: object@proven escape=none
+  28:16 object `{ set p(n: number) { log += n; }, }`: object@proven escape=unknown
+  29:13 bind `n`: number@declared
+  30:9 assign `log += n`: number nonNegZero@declared
+  30:9 ref `log`: number nonNegZero@declared
+  30:16 ref `n`: number@declared
+  34:3 assign `o.p = 1`: 1@proven
+  34:3 member `o.p`: unknown
+  34:3 ref `o`: object@proven
+  38:10 bind `inLoop`: function@proven
+  39:9 bind `s`: object@proven
+  39:13 object `{ set p(n: number) { log += n; }, }`: object@proven escape=none
+  40:11 bind `n`: number@declared
+  41:7 assign `log += n`: number nonNegZero@declared
+  41:7 ref `log`: number nonNegZero@declared
+  41:14 ref `n`: number@declared
+  44:12 bind `i`: 0@proven
+  44:19 binary `i < 2`: boolean@proven
+  44:19 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  44:26 unary `i++`: number[0, 1] int nonNaN nonNegZero@proven
+  44:26 ref `i`: number[0, 2] int nonNaN nonNegZero@proven
+  45:5 assign `s.p = 1`: 1@proven
+  45:5 member `s.p`: unknown
+  45:5 ref `s`: object@proven
+  50:10 bind `viaSpread`: function@proven
+  51:9 bind `src`: object@proven
+  51:15 object `{ get x(): number { log += 10; return...`: object@proven escape=none
+  53:7 assign `log += 10`: number nonNegZero@declared
+  53:7 ref `log`: number nonNegZero@declared
+  57:9 bind `c`: object@proven
+  57:13 object `{ ...src }`: object@proven escape=none
+  57:18 ref `src`: object@proven
+  58:10 member `c.x`: number@declared
+  58:10 ref `c`: object@proven
+  61:10 bind `spreadParam`: function@proven
+  61:22 bind `s`: object@proven
+  62:9 bind `c`: object@proven
+  62:13 object `{ ...s }`: object@proven escape=none
+  62:18 ref `s`: object@proven
+  63:10 member `c.x`: number@declared
+  63:10 ref `c`: object@proven
+  66:10 bind `spreadOnly`: function@proven
+  66:21 bind `s`: object@proven
+  67:9 bind `c`: object@proven
+  67:13 object `{ ...s }`: object@proven escape=none
+  67:18 ref `s`: object@proven
+  68:10 cond `c === s ? 1 : 0`: number[0, 1] int nonNaN nonNegZero@proven
+  68:10 binary `c === s`: boolean@proven
+  68:10 ref `c`: object@proven
+  68:16 ref `s`: object@proven
+  71:17 bind `main`: function@proven
+  72:3 call `console.log(viaSetter(), viaGetter(),...`: unknown
+  72:3 member `console.log`: unknown
+  72:3 ref `console`: unknown
+  72:15 call `viaSetter()`: 0@proven
+  72:15 ref `viaSetter`: function@proven
+  72:28 call `viaGetter()`: number@declared
+  72:28 ref `viaGetter`: function@proven
+  72:41 call `viaProto()`: 0@proven
+  72:41 ref `viaProto`: function@proven
+  72:53 call `inLoop()`: 0@proven
+  72:53 ref `inLoop`: function@proven
+  72:63 call `viaSpread()`: number@declared
+  72:63 ref `viaSpread`: function@proven
+  72:76 ref `log`: number nonNegZero@declared
+  73:9 bind `getter`: object@proven
+  73:18 object `{ get x(): number { log += 100; retur...`: object@proven escape=known
+  75:7 assign `log += 100`: number nonNegZero@declared
+  75:7 ref `log`: number nonNegZero@declared
+  79:3 call `console.log(spreadParam(getter), spre...`: unknown
+  79:3 member `console.log`: unknown
+  79:3 ref `console`: unknown
+  79:15 call `spreadParam(getter)`: number@declared
+  79:15 ref `spreadParam`: function@proven
+  79:27 ref `getter`: object@proven
+  79:36 call `spreadOnly(getter)`: number[0, 1] int nonNaN nonNegZero@proven
+  79:36 ref `spreadOnly`: function@proven
+  79:47 ref `getter`: object@proven
+  79:56 ref `log`: number nonNegZero@declared

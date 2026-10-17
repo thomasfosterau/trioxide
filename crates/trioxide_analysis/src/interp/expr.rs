@@ -538,6 +538,7 @@ impl<'a> Cx<'_, '_, 'a> {
         let site = self.alloc(object.node_id.get(), ObjKind::Object);
         let mut keys = Vec::new();
         let mut dynamic = false;
+        let mut accessors = false;
         for property in &object.properties {
             match property {
                 ObjectPropertyKind::ObjectProperty(property) => {
@@ -577,16 +578,22 @@ impl<'a> Cx<'_, '_, 'a> {
                             self.escape_value(&value, Escape::Unknown);
                             self.store_prop(site, &key, &Val::unknown(), true);
                             dynamic = true;
+                            accessors = true;
                         }
-                        _ => {
-                            // `__proto__: x` sets the prototype; computed keys are unknown.
-                            let level = if property.kind == PropertyKind::Init {
+                        (key, kind) => {
+                            // `__proto__: x` sets the prototype, whose accessors then run on
+                            // property accesses; a computed key may name an accessor.
+                            let prototype = key.is_some() && kind == PropertyKind::Init;
+                            let level = if prototype {
+                                Escape::Unknown
+                            } else if kind == PropertyKind::Init {
                                 Escape::Known
                             } else {
                                 Escape::Unknown
                             };
                             self.escape_value(&value, level);
                             dynamic = true;
+                            accessors |= prototype || kind != PropertyKind::Init;
                         }
                     }
                 }
@@ -618,6 +625,18 @@ impl<'a> Cx<'_, '_, 'a> {
                                 if !complete {
                                     dynamic = true;
                                 }
+                                // Spreading reads every own property: getters run.
+                                let runs_code = self.an.heap(source).is_none_or(|obj| {
+                                    obj.accessors
+                                        || obj.poisoned
+                                        || obj.escape == Escape::Unknown
+                                        || obj.kind == ObjKind::Opaque
+                                });
+                                if runs_code {
+                                    self.always(EffectKind::CallsUnknown);
+                                    self.note_call();
+                                    self.after_call(false);
+                                }
                                 for (key, value) in copied {
                                     self.store_prop(site, &key, &value, true);
                                 }
@@ -643,6 +662,7 @@ impl<'a> Cx<'_, '_, 'a> {
             .is_some_and(|obj| obj.present.is_empty() && !obj.dynamic && !obj.deleted);
         self.mark(site, |obj| {
             obj.dynamic |= dynamic;
+            obj.accessors |= accessors;
             if first {
                 obj.present.extend(keys);
             } else {
@@ -2117,6 +2137,13 @@ impl<'a> Cx<'_, '_, 'a> {
                     self.always(EffectKind::Throws);
                 }
                 _ => {
+                    if obj.accessors && !defining {
+                        // A setter (its own, or its prototype's) may run.
+                        self.escape_value(value, Escape::Unknown);
+                        self.always(EffectKind::CallsUnknown);
+                        self.note_call();
+                        self.after_call(false);
+                    }
                     let Some(name) = key.name() else {
                         self.mark(site, |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Known);
