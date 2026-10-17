@@ -167,7 +167,7 @@ jobs:
           for dir in staged/trioxide staged/npm/linux-x64-gnu; do (cd "$dir" && npm pack --pack-destination "$GITHUB_WORKSPACE"); done
           mkdir fresh && cd fresh && npm init -y > /dev/null
           npm install --omit=optional --no-audit --no-fund ../trioxide-"$VERSION".tgz ../trioxide-binding-linux-x64-gnu-"$VERSION".tgz
-          printf 'const x: number = 1;\n' > a.ts
+          printf 'export const x: number = 1;\n' > a.ts
           npx trioxide --version | grep -F "$VERSION"
           npx trioxide transform a.ts | grep -F 'const x = 1;'
           node --input-type=module -e "import t from 'trioxide/vite'; if (t().name !== 'trioxide') process.exit(1)"
