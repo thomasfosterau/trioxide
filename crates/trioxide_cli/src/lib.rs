@@ -491,24 +491,8 @@ fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<()
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent).map_err(io_error)?;
     }
-    let mut code = module.code.clone();
-    // Island glue lives at `<out_dir>/_islands/<id>.js`.
     let depth = relative.components().count().saturating_sub(1);
-    for island in &module.islands {
-        let target = format!(
-            "{}{ISLANDS_DIR}/{}.js",
-            if depth == 0 {
-                "./".to_string()
-            } else {
-                "../".repeat(depth)
-            },
-            island.id
-        );
-        let escaped = island.specifier.replace('\0', "\\0");
-        code = code
-            .replace(&escaped, &target)
-            .replace(&island.specifier, &target);
-    }
+    let mut code = link_islands(&module.code, &module.islands, depth);
     if let Some(map) = &module.map {
         let map_path = destination.with_extension(format!(
             "{}.map",
@@ -524,6 +508,31 @@ fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<()
         code.push('\n');
     }
     std::fs::write(&destination, code).map_err(io_error)
+}
+
+/// Points a module's glue imports at `<out_dir>/_islands/<id>.js`, from a module `depth`
+/// directories below the output directory.
+fn link_islands(code: &str, islands: &[trioxide::IslandRef], depth: usize) -> String {
+    let mut code = code.to_string();
+    let prefix = if depth == 0 {
+        "./".to_string()
+    } else {
+        "../".repeat(depth)
+    };
+    for island in islands {
+        let target = format!("{prefix}{ISLANDS_DIR}/{}.js", island.id);
+        // Whole string literals only: one id can be a prefix of another (`k1`, `k10`).
+        let escaped = island.specifier.replace('\0', "\\0");
+        for specifier in [&escaped, &island.specifier] {
+            for quote in ['"', '\'', '`'] {
+                code = code.replace(
+                    &format!("{quote}{specifier}{quote}"),
+                    &format!("{quote}{target}{quote}"),
+                );
+            }
+        }
+    }
+    code
 }
 
 /// Writes an island's glue and `.wasm` into `<out_dir>/_islands/`, pointing the glue at the
@@ -570,4 +579,28 @@ fn output_name(path: &Path) -> PathBuf {
         _ => "js",
     };
     path.with_extension(extension)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn island_links_match_whole_specifiers() {
+        let islands: Vec<trioxide::IslandRef> = ["k1", "k10"]
+            .into_iter()
+            .map(|id| {
+                let id = trioxide::IslandId(id.to_string());
+                trioxide::IslandRef {
+                    specifier: id.glue_specifier(),
+                    id,
+                }
+            })
+            .collect();
+        let code = "import { a } from \"\\0trioxide:island/k10\";\nimport { b } from '\\0trioxide:island/k1';\n";
+        assert_eq!(
+            link_islands(code, &islands, 1),
+            "import { a } from \"../_islands/k10.js\";\nimport { b } from '../_islands/k1.js';\n"
+        );
+    }
 }
