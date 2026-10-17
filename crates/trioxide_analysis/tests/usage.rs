@@ -125,6 +125,12 @@ fn usage_queries() {
         trioxide_analysis::Fact::proven(false)
     );
 
+    // A literal allocates, at expression level.
+    let object = fixture.node("{ x: 1 }", |kind| {
+        matches!(kind, AstKind::ObjectExpression(_))
+    });
+    assert!(facts.expr_effects(object).value.allocates);
+
     // Points-to.
     let literal = fixture.node("{ x: 1 }", |kind| {
         matches!(kind, AstKind::ObjectExpression(_))
@@ -280,6 +286,19 @@ fn usage_queries() {
         "{locals_loop:?}"
     );
 
+    // Only whole steps are reported.
+    let fractional = for_loop("for (let x = 0; x < 1; x += 0.25) {\n    count += 1;\n  }");
+    // `x` steps by 0.25: no step; `count` by 1.
+    let steps: Vec<Option<f64>> = fractional
+        .induction
+        .iter()
+        .map(|induction| induction.step)
+        .collect();
+    assert!(
+        steps.contains(&None) && steps.contains(&Some(1.0)),
+        "{fractional:?}"
+    );
+
     // Reachability.
     let never = fixture.node("function never(): number {\n  return 1;\n}", |kind| {
         matches!(kind, AstKind::Function(_))
@@ -325,4 +344,82 @@ fn forgetting_a_module_opens_the_sites_that_called_into_it() {
     let after = facts.site_resolution(edge.site);
     assert_eq!(after.callees, Vec::new());
     assert!(!after.complete.value, "{after:?}");
+}
+
+/// With `trustTypes`, a `for…of` over an `Iterable<T>` still runs user iterator code: its
+/// effects never rest on the declared type alone.
+#[test]
+fn user_iterators_are_not_summarised_from_declared_types() {
+    let entry = common::fixtures()
+        .into_iter()
+        .find(|entry| entry.parent().unwrap().ends_with("protocol-methods"))
+        .unwrap();
+    let loaded = common::load_with(&entry, true);
+    let facts = &loaded.analysis.facts;
+    let source = loaded.graph.modules()[0].source.to_string();
+    let module = &loaded.graph.modules()[0];
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, &source, module.source_type).parse();
+    let program = allocator.alloc(parsed.program);
+    let semantic = SemanticBuilder::new()
+        .with_build_nodes(true)
+        .build(program)
+        .semantic;
+    let for_of = semantic
+        .nodes()
+        .iter()
+        .find(|node| matches!(node.kind(), AstKind::ForOfStatement(_)))
+        .expect("the loop in `sum`");
+    let loop_facts = facts
+        .loop_facts(NodeRef {
+            module: module.id,
+            node: for_of.id(),
+        })
+        .expect("the loop ran");
+    for effects in [loop_facts.effects.0, loop_facts.effects.1] {
+        assert!(effects.calls_unknown && effects.writes, "{loop_facts:?}");
+    }
+    let sum = semantic
+        .nodes()
+        .iter()
+        .find(|node| {
+            matches!(node.kind(), AstKind::Function(function)
+                if function.id.as_ref().is_some_and(|id| id.name == "sum"))
+        })
+        .expect("`sum`");
+    let effects = facts.effects(NodeRef {
+        module: module.id,
+        node: sum.id(),
+    });
+    assert!(effects.value.calls_unknown, "{effects:?}");
+
+    // The engine calls protocol methods: none of them has a complete set of callers.
+    let mut checked = 0;
+    for node in semantic.nodes().iter() {
+        let protocol = match semantic.nodes().parent_kind(node.id()) {
+            AstKind::ObjectProperty(property) if property.method => {
+                property.computed
+                    || property
+                        .key
+                        .static_name()
+                        .is_some_and(|name| name == "next" || name == "toJSON")
+            }
+            AstKind::MethodDefinition(method) => method.computed,
+            _ => false,
+        };
+        if protocol && matches!(node.kind(), AstKind::Function(_)) {
+            let unit = NodeRef {
+                module: module.id,
+                node: node.id(),
+            };
+            assert_eq!(
+                facts.callers_complete(unit),
+                trioxide_analysis::Fact::proven(false),
+                "{}",
+                node.kind().span().source_text(&source)
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 6);
 }

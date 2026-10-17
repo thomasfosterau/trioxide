@@ -491,3 +491,106 @@ fn transform_after_update_reanalyses() {
     project.transform(&main).unwrap();
     assert!(strings(&project) > 0);
 }
+
+/// After a refresh whose printing drops parentheses earlier in the module, a loop's `resized`
+/// names the rewritten AST's array literal, not whatever node the printed text numbered so.
+#[test]
+fn refreshed_loop_facts_name_the_rewritten_arrays() {
+    use oxc_ast::{
+        AstKind,
+        ast::{Expression, Statement},
+    };
+    use trioxide_common::NodeRef;
+    use trioxide_js::{FactSource, Pass, PassContext, PassGroup, PassManager, PassOptions};
+
+    /// Negates the `const k = <number>` initialiser, once.
+    struct NegateK(bool);
+
+    impl Pass for NegateK {
+        fn name(&self) -> &'static str {
+            "negate-k"
+        }
+
+        fn run<'a>(
+            &mut self,
+            program: &mut oxc_ast::ast::Program<'a>,
+            _ctx: &mut PassContext<'a, '_>,
+        ) -> bool {
+            if self.0 {
+                return false;
+            }
+            let Some(Statement::VariableDeclaration(declaration)) = program.body.first_mut() else {
+                return false;
+            };
+            let Some(Expression::NumericLiteral(literal)) = &mut declaration.declarations[0].init
+            else {
+                return false;
+            };
+            literal.value = -literal.value;
+            literal.raw = None;
+            self.0 = true;
+            true
+        }
+    }
+
+    let source = "const k = 1;\nconst twice = ((k * 2));\nexport function main(): void {\n  const arr = [1, 2];\n  for (let i = 0; i < 3; i++) {\n    arr.push(i);\n  }\n  console.log(arr.length, twice);\n}\n";
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    write(&root, "main.ts", source);
+    let mut project = Project::new(
+        root.clone(),
+        Options {
+            world: Some(trioxide::World::App),
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    project.facts(&root.join("main.ts")).unwrap();
+    let module = project.module_id(&root.join("main.ts")).unwrap();
+
+    let allocator = oxc_allocator::Allocator::default();
+    let mut program = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts())
+        .parse()
+        .program;
+    let scoping = trioxide_js::rebuild_scoping(&program);
+    let mut manager = PassManager::new(PassOptions::default());
+    manager.add_group(PassGroup {
+        name: "test",
+        passes: vec![Box::new(NegateK(false))],
+        fixpoint: true,
+    });
+    let mut refresher = project.fact_refresher();
+    let mut log = trioxide::log::ModuleLog::default();
+    manager.run(
+        &allocator,
+        &mut program,
+        scoping,
+        module,
+        &mut refresher,
+        &mut log,
+    );
+    assert_eq!(refresher.refreshes(), 1);
+
+    let semantic = oxc_semantic::SemanticBuilder::new()
+        .with_build_nodes(true)
+        .build(&program);
+    let nodes = semantic.semantic.nodes();
+    let find = |wanted: fn(AstKind<'_>) -> bool| {
+        let node = nodes
+            .iter()
+            .find(|node| wanted(node.kind()))
+            .expect("the node is in the module");
+        NodeRef {
+            module,
+            node: node.id(),
+        }
+    };
+    let array = find(|kind| matches!(kind, AstKind::ArrayExpression(_)));
+    let for_loop = find(|kind| matches!(kind, AstKind::ForStatement(_)));
+    let loop_facts = refresher
+        .facts()
+        .loop_facts(for_loop)
+        .expect("the loop ran")
+        .clone();
+    assert_eq!(loop_facts.resized, vec![array], "{loop_facts:?}");
+}

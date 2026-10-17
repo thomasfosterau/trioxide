@@ -353,12 +353,16 @@ pub struct LoopFacts {
     /// The function's own locals it assigns.
     pub written: Vec<SymbolRef>,
     /// Arrays whose length the loop condition bounds and the loop may change (so `a[i]` is
-    /// not in bounds through them). Every array the loop resizes is in `resized`.
+    /// not in bounds through them).
     pub length_changed: Vec<SymbolRef>,
-    /// The allocation sites of every array whose length the loop, or a unit it calls, may
-    /// change (`push`, `pop`, `length = …`, a write past the end).
+    /// Allocation sites of arrays whose length the loop, or a unit it calls, changes through
+    /// a modelled operation (`push`, `pop`, `shift`, `unshift`, `length = …`, a write past
+    /// the end). Only complete when `resizes_untracked` is false.
     pub resized: Vec<NodeRef>,
-    /// It may also change the length of arrays trioxide doesn't track (or runs unknown code).
+    /// Any array may have been resized, listed in `resized` or not: the loop runs unknown
+    /// code, or resizes arrays in ways trioxide doesn't attribute to a site (`splice`, `sort`,
+    /// `Array.prototype.push.call`, `defineProperty(a, "length")`, `Reflect.set`,
+    /// `Object.assign`, …).
     pub resizes_untracked: bool,
     /// Numeric locals of the loop's function that it assigns and that live across its
     /// iterations (not ones declared in its body or a nested loop).
@@ -383,9 +387,12 @@ pub struct Induction {
     /// Its range at the loop head: on entry and before every iteration's test.
     pub range: Fact<NumberType>,
     /// What it changes by per iteration, when the loop's only write to it is one `++`, `--`,
-    /// `+= c`, `-= c` or `= x ± c` with a constant `c`, run once per iteration (a `for`
-    /// loop's update, or a statement of the body when nothing `continue`s past it), and no
-    /// nested function writes it. Negative when it counts down.
+    /// `+= c`, `-= c` or `= x ± c` with a constant integer `c`, run once per iteration (a
+    /// `for` loop's update, or a statement of the body when nothing `continue`s past it), and
+    /// no nested function writes it. Negative when it counts down.
+    ///
+    /// The step is nominal: the update is exact only while the value stays an integer within
+    /// ±2^53 (from 2^53 − 2, `i++` stalls). Trip-count arithmetic must check `range` first.
     pub step: Option<f64>,
     /// It is the loop's counter: it has a `step` and the loop's test reads it.
     pub counter: bool,
@@ -570,7 +577,7 @@ impl Facts {
     /// implicit calls (getters, `valueOf`, …). With `trustTypes` the summary that takes
     /// declared types as proof (`Declared` unless it agrees with the proven one). Unlike a
     /// unit's [`Facts::effects`], `writes` and `reads` count the function's own locals and
-    /// objects too (`i++` writes). A node with no recorded evaluation (never evaluated, or a
+    /// objects too (`i++` writes), and `allocates` every object it makes (`[]` allocates). A node with no recorded evaluation (never evaluated, or a
     /// callee or optional-chain part evaluated as part of its call) is `Unknown`.
     pub fn expr_effects(&self, node: NodeRef) -> Fact<Effects> {
         let Some(&(proven, declared)) = self.expr_effects.get(&node) else {
@@ -611,6 +618,9 @@ impl Facts {
     /// units nothing calls or can reach and for statements after every path left; otherwise
     /// `Unknown` true, which passes must never treat as dead. Distinct from a `never` type,
     /// which also means "no value seen yet".
+    ///
+    /// Facts about code that never runs are vacuous (inside an unreachable function, `a.pop()`
+    /// may read as invariant and pure): passes must check `reachable` before acting on them.
     pub fn reachable(&self, node: NodeRef) -> Fact<bool> {
         if self.unreachable.contains(&node) {
             Fact::proven(false)
@@ -641,6 +651,11 @@ impl Facts {
         self.allocations.retain(|node, _| other(node));
         self.expr_effects.retain(|node, _| other(node));
         self.loops.retain(|node, _| other(node));
+        for facts in self.loops.values_mut() {
+            let count = facts.resized.len();
+            facts.resized.retain(other);
+            facts.resizes_untracked |= facts.resized.len() != count;
+        }
         self.open_sites.retain(other);
         // Unknown reachability is "may run".
         self.unreachable.retain(other);
@@ -717,6 +732,11 @@ impl Facts {
         table(&mut self.expr_effects, &node, Some);
         table(&mut self.loops, &node, |mut facts| {
             facts.invariant = facts.invariant.into_iter().filter_map(node).collect();
+            // A resized array whose site is gone is one trioxide no longer tracks.
+            let resized = std::mem::take(&mut facts.resized);
+            let count = resized.len();
+            facts.resized = resized.into_iter().filter_map(node).collect();
+            facts.resizes_untracked |= facts.resized.len() != count;
             Some(facts)
         });
         table(&mut self.points_to, &node, |sites| {

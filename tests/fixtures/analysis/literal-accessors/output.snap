@@ -1,0 +1,63 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/literal-accessors
+input_file: tests/fixtures/analysis/literal-accessors/input.ts
+---
+//- input.ts
+// Accessors in object literals, `__proto__` in literals and spread sources run user code: their
+// effects reach the unit doing the write, read or spread.
+let log = 0;
+function viaSetter() {
+	const s = { set p(n) {
+		log += n;
+	} };
+	s.p = 3;
+	return 0;
+}
+function viaGetter() {
+	const g = { get p() {
+		log += 1;
+		return 1;
+	} };
+	return g.p;
+}
+function viaProto() {
+	const o = { __proto__: { set p(n) {
+		log += n;
+	} } };
+	o.p = 1;
+	return 0;
+}
+function inLoop() {
+	const s = { set p(n) {
+		log += n;
+	} };
+	for (let i = 0; i < 2; i++) {
+		s.p = 1;
+	}
+	return 0;
+}
+function viaSpread() {
+	const src = { get x() {
+		log += 10;
+		return 1;
+	} };
+	const c = { ...src };
+	return c.x;
+}
+function spreadParam(s) {
+	const c = { ...s };
+	return c.x;
+}
+function spreadOnly(s) {
+	const c = { ...s };
+	return c === s ? 1 : 0;
+}
+export function main() {
+	console.log(viaSetter(), viaGetter(), viaProto(), inLoop(), viaSpread(), log);
+	const getter = { get x() {
+		log += 100;
+		return 2;
+	} };
+	console.log(spreadParam(getter), spreadOnly(getter), log);
+}
