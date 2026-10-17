@@ -1,0 +1,35 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/any-laundering
+input_file: tests/fixtures/analysis/any-laundering/input.ts
+---
+//- input.ts
+// `any` launders values past the type checker: the facts must follow values, not annotations.
+function fromAny() {
+	return "not a number";
+}
+export function main() {
+	const a = "text";
+	const n = a;
+	// The value is the string literal, whatever the annotation says.
+	console.log(
+		n
+		/*@proven string*/
+	);
+	const b = fromAny();
+	// An unknown call's `any` result is unknown, and the annotation can't make it proven.
+	console.log(b, typeof b);
+	const json = JSON.parse("[1, 2]");
+	const first = json[0];
+	// Only the annotation says it is a number.
+	console.log(
+		first
+		/*@declared number*/
+	);
+	const laundered = json;
+	console.log(
+		laundered,
+		laundered.length
+		/*@declared number*/
+	);
+}

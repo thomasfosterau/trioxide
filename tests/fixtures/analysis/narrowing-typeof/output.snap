@@ -1,0 +1,30 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/narrowing-typeof
+input_file: tests/fixtures/analysis/narrowing-typeof/input.ts
+---
+//- input.ts
+// `typeof` checks prove a value's primitive type, even when TypeScript can't.
+export function describe(value) {
+	if (typeof value === "number") {
+		return "number " + value;
+	}
+	if (typeof value === "string") {
+		return "string " + value.length;
+	}
+	if (typeof value !== "boolean") {
+		return "other";
+	}
+	return value ? "yes" : "no";
+}
+function parse(input) {
+	// The declared union narrows to its number member; the check makes it proven.
+	if (typeof input === "number") {
+		return input;
+	}
+	return input.length;
+}
+export function main() {
+	console.log(describe(1), describe("a"), describe(true), describe(null));
+	console.log(parse(3), parse("abc"));
+}

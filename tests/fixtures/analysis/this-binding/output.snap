@@ -1,0 +1,39 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/this-binding
+input_file: tests/fixtures/analysis/this-binding/input.ts
+---
+//- input.ts
+// `this` follows the call, not the definition.
+class Counter {
+	count = 0;
+	increment() {
+		return ++this.count;
+	}
+}
+export function main() {
+	const counter = new Counter();
+	// `.bind` below hands the method to unknown code, so `this` is only declared.
+	console.log(
+		counter.increment()
+		/*@declared number*/
+	);
+	const unbound = counter.increment;
+	try {
+		unbound();
+	} catch {
+		console.log("unbound");
+	}
+	const bound = counter.increment.bind(counter);
+	console.log(
+		bound()
+		/*@declared number*/
+	);
+	const object = {
+		name: "object",
+		method() {
+			return this.name;
+		}
+	};
+	console.log(object.method());
+}

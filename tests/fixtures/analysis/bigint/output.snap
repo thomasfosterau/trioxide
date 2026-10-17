@@ -1,0 +1,27 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/bigint
+input_file: tests/fixtures/analysis/bigint/input.ts
+---
+//- input.ts
+// Bigints: arithmetic stays bigint; mixing with numbers throws.
+function mix(a, b) {
+	try {
+		return a + b;
+	} catch {
+		return "TypeError";
+	}
+}
+export function main() {
+	const big = 2n ** 64n;
+	console.log(big, big + 1n, typeof big);
+	console.log(
+		mix(1n, 1)
+		/*@unknown*/
+	);
+	const shifted = 1 << 3;
+	console.log(
+		shifted
+		/*@proven number int*/
+	);
+}

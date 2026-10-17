@@ -1,0 +1,26 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/generators-async
+input_file: tests/fixtures/analysis/generators-async/input.ts
+---
+//- input.ts
+// Generators and async functions: their results are generator objects and promises.
+function* range(limit) {
+	for (let i = 0; i < limit; i++) yield i;
+}
+async function delayed(value) {
+	await null;
+	return value * 2;
+}
+export async function main() {
+	let total = 0;
+	for (const value of range(3)) {
+		total += value;
+	}
+	const result = await delayed(total);
+	console.log(
+		total,
+		result
+		/*@declared number*/
+	);
+}

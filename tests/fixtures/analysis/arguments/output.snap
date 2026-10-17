@@ -1,0 +1,23 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/arguments
+input_file: tests/fixtures/analysis/arguments/input.ts
+---
+//- input.ts
+// `arguments`: in strict code (modules) it doesn't alias parameters, but it does expose the
+// call's actual arguments.
+function first(a) {
+	return arguments[0];
+}
+function count(...rest) {
+	return arguments.length + rest.length;
+}
+function viaArguments(x) {
+	const args = arguments;
+	args[0] = 100;
+	// Strict mode: x is unaffected.
+	return x;
+}
+export function main() {
+	console.log(first(1), count(1, 2), viaArguments(5));
+}

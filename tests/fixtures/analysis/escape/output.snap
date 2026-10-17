@@ -1,0 +1,26 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/escape
+input_file: tests/fixtures/analysis/escape/input.ts
+---
+//- input.ts
+// Escape facts: where allocated objects may end up.
+let global;
+function keep(o) {
+	global = o;
+}
+function read(o) {
+	return o.v;
+}
+export function main() {
+	const local = { v: 1 };
+	const passed = { v: 2 };
+	const stored = { v: 3 };
+	const leaked = { v: 4 };
+	console.log(local.v + read(passed));
+	keep(stored);
+	console.log(leaked);
+	const pair = [1, 2];
+	const [a, b] = pair;
+	console.log(a + b, global?.v);
+}

@@ -1,0 +1,68 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/class-shapes
+input_file: tests/fixtures/analysis/class-shapes/input.ts
+---
+//- input.ts
+// Hidden-class facts: fields set up front keep one shape; fields added later or deleted don't.
+class Point {
+	x;
+	y;
+	constructor(x, y) {
+		this.x = x;
+		this.y = y;
+	}
+	norm() {
+		return Math.sqrt(this.x * this.x + this.y * this.y);
+	}
+}
+class Grows {
+	a = 1;
+	constructor() {
+		this.setup();
+	}
+	setup() {
+		// Runs while the instance is being built.
+		console.log(
+			this.a
+			/*@proven number int*/
+		);
+	}
+	extend() {
+		this.b = 2;
+	}
+}
+class Shrinks {
+	value = 1;
+	clear() {
+		delete this.value;
+	}
+}
+class WithParams {
+	id;
+	label;
+	constructor(id, label) {
+		this.id = id;
+		this.label = label;
+	}
+	describe() {
+		return `${this.id}:${this.label}`;
+	}
+}
+export function main() {
+	const p = new Point(3, 4);
+	console.log(
+		p.norm(),
+		p.x
+		/*@proven number int*/
+	);
+	const g = new Grows();
+	g.extend();
+	const s = new Shrinks();
+	s.clear();
+	console.log(
+		s.value
+		/*@proven union*/
+	);
+	console.log(new WithParams(7, "seven").describe());
+}

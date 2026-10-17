@@ -1,0 +1,33 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/enums-namespaces
+input_file: tests/fixtures/analysis/enums-namespaces/input.ts
+---
+//- input.ts
+// Enums and namespaces are objects at run time; their members come from TypeScript's types.
+var Direction = /* @__PURE__ */ function(Direction) {
+	Direction[Direction["Up"] = 1] = "Up";
+	Direction[Direction["Down"] = 2] = "Down";
+	return Direction;
+}(Direction || {});
+var Flags = /* @__PURE__ */ function(Flags) {
+	Flags[Flags["A"] = 1] = "A";
+	Flags[Flags["B"] = 2] = "B";
+	return Flags;
+}(Flags || {});
+let Units;
+(function(_Units) {
+	const meter = _Units.meter = 1;
+	function km(value) {
+		return value * 1e3;
+	}
+	_Units.km = km;
+})(Units || (Units = {}));
+export function main() {
+	console.log(Direction.Down, Direction[1]);
+	console.log(
+		Flags.B
+		/*@declared number*/
+	);
+	console.log(Units.km(2), Units.meter);
+}

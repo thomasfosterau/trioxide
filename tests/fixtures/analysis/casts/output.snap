@@ -1,0 +1,36 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/casts
+input_file: tests/fixtures/analysis/casts/input.ts
+---
+//- input.ts
+export function width(value) {
+	// Every caller is known (app mode) and passes 5, so the cast is irrelevant here.
+	return value * 2;
+}
+export function main() {
+	const s = "42";
+	const n = s;
+	console.log(
+		n
+		/*@proven string*/
+	);
+	const angle = "3";
+	console.log(
+		angle
+		/*@proven string*/
+	);
+	const maybe = Math.random() > 2 ? "x" : undefined;
+	// `!` does not remove undefined at run time.
+	console.log(
+		maybe
+		/*@proven union*/
+	);
+	const point = { x: 1 };
+	console.log(
+		point.x
+		/*@proven number int*/
+	);
+	console.log(width(5));
+	console.log(typeof lookup);
+}

@@ -1,0 +1,31 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/recursive-data
+input_file: tests/fixtures/analysis/recursive-data/input.ts
+---
+//- input.ts
+function make(depth) {
+	const children = [];
+	if (depth > 0) {
+		children.push(make(depth - 1), make(depth - 1));
+	}
+	return {
+		value: depth,
+		children
+	};
+}
+function count(tree) {
+	let total = 1;
+	for (const child of tree.children) {
+		total += count(child);
+	}
+	return total;
+}
+export function main() {
+	const tree = make(3);
+	console.log(
+		count(tree),
+		tree.value
+		/*@proven number int*/
+	);
+}

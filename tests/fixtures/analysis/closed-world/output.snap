@@ -1,0 +1,24 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/closed-world
+input_file: tests/fixtures/analysis/closed-world/input.ts
+---
+//- input.ts
+// App mode: every caller is visible, so parameters are what the calls pass.
+export function scale(value, factor) {
+	return value * factor;
+}
+export const shared = { count: 0 };
+export function bump() {
+	shared.count++;
+	return shared.count;
+}
+function escaping(value) {
+	return value + 1;
+}
+export function main() {
+	console.log(scale(2, 3), scale(4, 5), bump());
+	// Handing the function to unknown code means anyone may call it.
+	[1, 2].forEach(escaping);
+	setTimeout(escaping, 0);
+}
