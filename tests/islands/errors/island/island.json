@@ -1,0 +1,43 @@
+{
+  "id": "errors",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "filled",
+      "wasmName": "filled",
+      "params": [
+        {
+          "name": "length",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "value",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "typedArray",
+        "element": "f64"
+      }
+    },
+    {
+      "name": "total",
+      "wasmName": "total",
+      "params": [
+        {
+          "name": "length",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    }
+  ]
+}

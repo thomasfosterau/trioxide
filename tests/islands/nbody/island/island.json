@@ -1,0 +1,32 @@
+{
+  "id": "nbody",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "advance",
+      "wasmName": "advance",
+      "params": [
+        { "name": "bodies", "ty": { "kind": "typedArray", "element": "f64" }, "mutated": true },
+        { "name": "dt", "ty": { "kind": "f64" } },
+        { "name": "steps", "ty": { "kind": "f64" } }
+      ],
+      "ret": null
+    },
+    {
+      "name": "energy",
+      "wasmName": "energy",
+      "params": [{ "name": "bodies", "ty": { "kind": "typedArray", "element": "f64" } }],
+      "ret": { "kind": "f64" }
+    },
+    {
+      "name": "distance",
+      "wasmName": "distance",
+      "params": [
+        { "name": "dx", "ty": { "kind": "f64" } },
+        { "name": "dy", "ty": { "kind": "f64" } },
+        { "name": "dz", "ty": { "kind": "f64" } }
+      ],
+      "ret": { "kind": "f64" }
+    }
+  ]
+}

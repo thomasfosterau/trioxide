@@ -11,4 +11,14 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+## Use `std`'s float methods, which compile to the hardware `f64.sqrt`/`floor`/`ceil`/`trunc`
+## instructions on wasm32. Stable Rust offers no other way to reach them from `no_std`, and
+## libm's software versions are an order of magnitude slower. The island builder always
+## enables it; without it the crate also provides the wasm32 `#[panic_handler]`.
+std = []
+
 [dependencies]
+# Exact pin: the island builder writes the same requirement into the manifest it generates
+# (trioxide_wasm `RT_LIBM_REQUIREMENT`), and transcendental results depend on the version.
+libm = "=0.2.16"

@@ -30,6 +30,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Clippy without tsrs
         run: cargo clippy -p trioxide_cli -p trioxide_napi --no-default-features -- -D warnings
+      - name: Clippy trioxide_rt for wasm32 (with std, as islands build it)
+        run: cargo clippy -p trioxide_rt --target wasm32-unknown-unknown --features std -- -D warnings
 
   test:
     name: cargo test + pnpm test + differential

@@ -1,0 +1,154 @@
+{
+  "id": "multi",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "identity",
+      "wasmName": "identity",
+      "params": [
+        {
+          "name": "n",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "typedArray",
+        "element": "f64"
+      }
+    },
+    {
+      "name": "multiply",
+      "wasmName": "multiply",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "n",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "typedArray",
+        "element": "f64"
+      }
+    },
+    {
+      "name": "power",
+      "wasmName": "power",
+      "params": [
+        {
+          "name": "m",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "n",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "k",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "typedArray",
+        "element": "f64"
+      }
+    },
+    {
+      "name": "trace",
+      "wasmName": "trace",
+      "params": [
+        {
+          "name": "m",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "n",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "determinant",
+      "wasmName": "determinant",
+      "params": [
+        {
+          "name": "m",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "n",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "axpy",
+      "wasmName": "axpy",
+      "params": [
+        {
+          "name": "y",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          },
+          "mutated": true
+        },
+        {
+          "name": "x",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "alpha",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": null
+    }
+  ],
+  "fallback": "../kernel.fallback.js"
+}

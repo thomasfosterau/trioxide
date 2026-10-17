@@ -1,0 +1,15 @@
+# For editing and `cargo check` in place. The island builder ignores this file and writes its
+# own manifest (docs/ABI.md, "Crate layout").
+[package]
+name = "island_nbody"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+trioxide_rt = { path = "../../../../crates/trioxide_rt", features = ["std"] }
+
+[workspace]

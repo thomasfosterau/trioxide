@@ -6,7 +6,7 @@ use std::{
 
 use trioxide::Project;
 
-use crate::{Failure, GlobalArgs, Renderer, build_once, resolve_config};
+use crate::{Failure, GlobalArgs, Renderer, add_debug_islands, build_once, resolve_config};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -26,6 +26,7 @@ pub fn watch(
     loop {
         let (root, options, config) = resolve_config(global, entries.first(), renderer)?;
         let mut project = Project::new(root, options)?;
+        add_debug_islands(global, &mut project)?;
         let settings_files: Vec<PathBuf> = config
             .into_iter()
             .chain(project.compiler_settings().path.clone())
@@ -34,7 +35,7 @@ pub fn watch(
         let mut before = stamps(entries.iter().chain(&settings_files));
         loop {
             let started = Instant::now();
-            let result = build_once(&mut project, entries, out_dir, renderer);
+            let result = build_once(&mut project, entries, out_dir, global.emit, renderer);
 
             let mut watched: Vec<PathBuf> = project
                 .graph()

@@ -8,10 +8,11 @@ use trioxide_project::{
     CompilerSettings, ContentCache, ContentHash, GraphOptions, ModuleGraph, find_tsconfig,
 };
 use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
+use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
     BuildOutput, Error, ExplainQuery, Invalidation, Mode, ModuleOutput, Options, Report, Result,
-    World,
+    World, islands,
     pipeline::{ModuleCompiler, ModuleSource},
     report::ModuleReport,
 };
@@ -39,6 +40,8 @@ pub struct Project {
     logs: Vec<ModuleLog>,
     built_from_entries: bool,
     diagnostics: Vec<Diagnostic>,
+    debug_islands: Vec<IslandSource>,
+    island_builder: Option<Box<dyn IslandBuilder>>,
 }
 
 impl std::fmt::Debug for Project {
@@ -118,6 +121,8 @@ impl Project {
             logs: Vec::new(),
             built_from_entries: false,
             diagnostics: warnings,
+            debug_islands: Vec::new(),
+            island_builder: None,
         })
     }
 
@@ -155,11 +160,69 @@ impl Project {
             let id = ModuleId::new(u32::try_from(index).expect("module count fits u32"));
             modules.push(self.compile(id));
         }
+        let islands = self.build_islands();
         Ok(BuildOutput {
             modules,
-            islands: Vec::new(),
+            islands,
             report: self.report(),
         })
+    }
+
+    /// Adds an island to every following [`build`](Self::build), as if the partitioner had
+    /// chosen it: a debug and test hook until the Rust backend (S6) and partitioner (S8)
+    /// produce islands. Its glue is not wired into any module; callers import it themselves.
+    pub fn add_debug_island(&mut self, island: IslandSource) {
+        self.debug_islands.push(island);
+    }
+
+    /// Replaces the island builder. By default islands are built with cargo, cached in
+    /// [`Options::cache_dir`](crate::Options::cache_dir).
+    pub fn set_island_builder(&mut self, builder: Box<dyn IslandBuilder>) {
+        self.island_builder = Some(builder);
+    }
+
+    /// The Rust sources of the islands a [`build`](Self::build) of `entries` would compile,
+    /// without compiling them (`--emit=rust`). Fails only if an entry can't be read.
+    pub fn rust_islands(&mut self, entries: &[PathBuf]) -> Result<Vec<IslandSource>> {
+        self.graph.add_entries(entries)?;
+        self.built_from_entries = true;
+        self.analyse();
+        Ok(self.island_sources())
+    }
+
+    /// Writes the `trioxide_rt` crate islands depend on into the island cache and returns
+    /// its directory, so emitted island crates can depend on it by path.
+    pub fn island_runtime_dir(&self) -> Result<PathBuf> {
+        islands::cargo_builder(&self.root, &self.options)
+            .materialize_runtime()
+            .map_err(|error| Error::Io {
+                path: islands::cache_dir(&self.root, &self.options),
+                source: std::io::Error::other(error.to_string()),
+            })
+    }
+
+    /// The islands this build compiles: debug islands for now; S8's plan later.
+    fn island_sources(&self) -> Vec<IslandSource> {
+        if self.options.wasm.enabled {
+            self.debug_islands.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Builds the planned islands, recording fallbacks and failures as diagnostics.
+    fn build_islands(&mut self) -> Vec<trioxide_wasm::IslandArtifact> {
+        let sources = self.island_sources();
+        if sources.is_empty() {
+            return Vec::new();
+        }
+        let builder = self
+            .island_builder
+            .get_or_insert_with(|| Box::new(islands::cargo_builder(&self.root, &self.options)));
+        let (artifacts, diagnostics) =
+            islands::build(builder.as_ref(), &sources, self.options.wasm.require);
+        self.diagnostics.extend(diagnostics);
+        artifacts
     }
 
     /// Records a change to `path`: new in-memory contents (`Some`), or "re-read from disk"
