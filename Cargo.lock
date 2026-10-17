@@ -1172,14 +1172,19 @@ version = "0.154.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0caa01bfdeaf6d236c2389ac7d2f957c093b1697112394386298a31fa43af79a"
 dependencies = [
+ "cow-utils",
  "dragonbox_ecma",
  "itoa",
  "num-bigint",
  "num-traits",
+ "oxc_allocator",
  "oxc_ast",
+ "oxc_compat",
  "oxc_data_structures",
+ "oxc_regular_expression",
  "oxc_span",
  "oxc_syntax",
+ "smallvec",
 ]
 
 [[package]]
@@ -2027,19 +2032,26 @@ dependencies = [
 name = "trioxide_js"
 version = "0.0.0"
 dependencies = [
+ "insta",
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_codegen",
  "oxc_diagnostics",
+ "oxc_ecmascript",
  "oxc_parser",
  "oxc_semantic",
  "oxc_span",
+ "oxc_syntax",
  "oxc_transformer",
  "oxc_traverse",
+ "rustc-hash",
  "serde",
+ "trioxide",
  "trioxide_analysis",
  "trioxide_common",
  "trioxide_project",
+ "trioxide_types",
 ]
 
 [[package]]

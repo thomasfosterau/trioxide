@@ -1,0 +1,15 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline/shadowing
+input_file: tests/fixtures/passes/inline/shadowing/input.ts
+---
+//- input.ts
+7:11 inline applied
+11:11 inline applied
+3:7 dce applied
+7:20 simplify applied
+7:27 simplify applied
+7:35 simplify applied
+11:20 simplify applied
+11:27 simplify applied
+11:35 simplify applied

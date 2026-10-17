@@ -4,7 +4,7 @@ description: tests/fixtures/imports
 input_file: tests/fixtures/imports/input.ts
 ---
 //- input.ts
-import greet, { VERSION, add } from "./math.js";
+import greet, { add } from "./math.js";
 import * as shapes from "./shapes.js";
 import { label } from "./named.js";
 export { add };
@@ -14,7 +14,7 @@ const origin = {
 	y: 0
 };
 export function main() {
-	console.log(greet("trioxide"), VERSION, add(2, 3));
+	console.log(greet("trioxide"), "1.0", add(2, 3));
 	console.log(shapes.distance(origin, {
 		x: 3,
 		y: 4

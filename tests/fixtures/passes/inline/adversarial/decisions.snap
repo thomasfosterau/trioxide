@@ -1,0 +1,21 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline/adversarial
+input_file: tests/fixtures/passes/inline/adversarial/input.ts
+---
+//- input.ts
+21:19 inline skipped: the read may throw (e.g. in its temporal dead zone)
+41:23 inline skipped: the read may throw (e.g. in its temporal dead zone)
+41:29 inline applied
+42:26 inline skipped: the member's value (the enum object is used as a value, so only TypeScript says its members are read-only) is only Declared (trustTypes is off)
+21:19 fold skipped: the expression has effects, so it stays
+41:23 fold skipped: the expression has effects, so it stays
+42:15 fold skipped: the expression's single value is only Declared (trustTypes is off)
+42:26 fold skipped: the expression's single value is only Declared (trustTypes is off)
+43:38 fold skipped: the expression's single value is only Declared (trustTypes is off)
+2:1 imports applied
+//- side.ts
+//- cycle-a.ts
+8:10 fold skipped: the expression's single value is only Declared (trustTypes is off)
+//- cycle-b.ts
+5:10 fold skipped: the expression's single value is only Declared (trustTypes is off)

@@ -8,13 +8,8 @@ input_file: tests/fixtures/analysis/dynamic-keys/input.ts
 /** Uses a value without printing it (it depends on `Math.random()`). */
 function sink(..._values) {}
 export function main() {
-	const fixed = {
-		a: 1,
-		b: 2
-	};
-	const key = "a";
 	console.log(
-		fixed[key]
+		1
 		/*@proven number int*/
 	);
 	const bag = { a: 1 };
@@ -31,8 +26,4 @@ export function main() {
 	];
 	const i = Math.floor(Math.random() * 3);
 	list[i] = 10;
-	sink(
-		list[0]
-		/*@proven union*/
-	);
 }

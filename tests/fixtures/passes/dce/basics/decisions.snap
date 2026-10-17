@@ -1,0 +1,32 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/dce/basics
+input_file: tests/fixtures/passes/dce/basics/input.ts
+---
+//- input.ts
+32:3 inline applied
+34:15 inline applied
+28:24 fold applied
+30:22 fold applied
+31:16 fold applied
+14:3 dce applied
+22:5 dce applied
+28:9 dce applied
+29:9 dce applied
+30:9 dce applied
+31:9 dce applied
+32:3 dce applied
+33:3 dce applied
+5:1 dce skipped: unreachable, but declares a `var` or function, which are visible before it
+5:1 dce applied
+3:1 imports applied
+//- util.ts
+3:10 inline applied
+3:10 fold applied
+6:1 dce applied
+10:1 dce applied
+13:10 dce applied
+6:8 dce skipped: unreachable, but declares a `var` or function, which are visible before it
+6:8 dce applied
+10:14 dce applied
+12:7 dce applied

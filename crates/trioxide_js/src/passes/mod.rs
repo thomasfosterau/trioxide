@@ -1,0 +1,348 @@
+//! The optimisation passes (PLAN §4) and the default pipeline.
+//!
+//! Foundation passes, in one fact-driven group that runs once (its facts are refreshed at most
+//! once per module, before it, and only if an earlier group changed the module):
+//!
+//! 1. [`Inline`] (`"inline"`): references to constant bindings, imports of them and enum
+//!    members become literals.
+//! 2. [`Checks`] (`"checks"`): `?.`, `??`, `typeof` and nullish comparisons the types decide.
+//! 3. [`Fold`] (`"fold"`): expressions the facts prove constant, comparisons and `Math.*` calls
+//!    the ranges decide, and branches with constant tests.
+//! 4. [`Dce`] (`"dce"`): unreachable statements, unused pure bindings and functions, unused
+//!    exports (app world) and pure expression statements.
+//!
+//! Then a syntactic cleanup group, run to a fixed point without reading facts:
+//! [`Simplify`] (`"simplify"`) folds what the first group left constant with
+//! `oxc_ecmascript`, takes branches with literal tests and drops empty and inert code.
+//!
+//! The import guard (`"imports"`) brackets both: removing the last use of an import would
+//! let the TypeScript strip elide the whole import, so a module would no longer run; the
+//! guard keeps such imports as side-effect imports.
+//!
+//! Every pass checks its facts with [`Facts::is_usable`](trioxide_analysis::Facts::is_usable)
+//! and logs each rewrite (`applied`) and each declined candidate (`skipped`, with the reason).
+
+mod checks;
+mod dce;
+mod fold;
+mod imports;
+mod inline;
+mod simplify;
+mod util;
+
+use std::{cell::RefCell, rc::Rc};
+
+use oxc_ast::ast::{ArrowFunctionExpression, Function, Statement};
+use oxc_span::Span;
+use trioxide_common::log::ModuleLog;
+
+pub use checks::Checks;
+pub use dce::Dce;
+pub use fold::Fold;
+pub use imports::{KeepImports, RecordImports};
+pub use inline::Inline;
+pub use simplify::Simplify;
+
+use crate::PassGroup;
+use util::Query;
+
+/// The default groups: the fact-driven foundation passes, then the syntactic cleanup.
+pub fn default_groups() -> Vec<PassGroup> {
+    let imports = Rc::new(RefCell::new(imports::Guard::default()));
+    vec![
+        PassGroup {
+            name: "foundation",
+            passes: vec![
+                Box::new(RecordImports::new(Rc::clone(&imports))),
+                Box::new(Inline),
+                Box::new(Checks),
+                Box::new(Fold),
+                Box::new(Dce),
+            ],
+            fixpoint: false,
+        },
+        PassGroup {
+            name: "cleanup",
+            passes: vec![Box::new(Simplify), Box::new(KeepImports::new(imports))],
+            fixpoint: true,
+        },
+    ]
+}
+
+/// Decisions a pass made during one traversal, flushed into the [`ModuleLog`] afterwards.
+struct Decisions {
+    pass: &'static str,
+    events: Vec<(Option<Span>, Option<String>)>,
+    applied: usize,
+}
+
+impl Decisions {
+    fn new(pass: &'static str) -> Self {
+        Self {
+            pass,
+            events: Vec::new(),
+            applied: 0,
+        }
+    }
+
+    fn applied(&mut self, span: Span) {
+        self.applied += 1;
+        self.events.push((Some(span), None));
+    }
+
+    /// A rewrite not worth logging (dropping redundant parentheses).
+    fn quiet(&mut self) {
+        self.applied += 1;
+    }
+
+    fn skipped(&mut self, span: Span, reason: impl Into<String>) {
+        self.events.push((Some(span), Some(reason.into())));
+    }
+
+    /// Writes the decisions into `log` and returns whether anything was rewritten.
+    fn flush(self, log: &mut ModuleLog) -> bool {
+        for (span, reason) in self.events {
+            match reason {
+                None => log.applied(self.pass, span),
+                Some(reason) => log.skipped(self.pass, span, reason),
+            }
+        }
+        self.applied > 0
+    }
+}
+
+/// Where a traversal is: inside code proven never to run (whose facts are vacuous), or inside
+/// TypeScript enum and namespace bodies (which the TypeScript strip rewrites, and which passes
+/// leave alone).
+#[derive(Default)]
+struct Position {
+    dead: Vec<bool>,
+    dead_depth: usize,
+    opaque_depth: usize,
+}
+
+impl Position {
+    /// Whether facts may be used here.
+    fn live(&self) -> bool {
+        self.dead_depth == 0 && self.opaque_depth == 0
+    }
+
+    /// Whether the code here is left alone.
+    fn opaque(&self) -> bool {
+        self.opaque_depth > 0
+    }
+
+    fn enter(&mut self, dead: bool) {
+        self.dead.push(dead);
+        self.dead_depth += usize::from(dead);
+    }
+
+    fn exit(&mut self) {
+        if self.dead.pop() == Some(true) {
+            self.dead_depth -= 1;
+        }
+    }
+
+    fn enter_statement(&mut self, statement: &Statement<'_>, query: Query<'_>) {
+        self.enter(query.dead(statement.node_id()));
+    }
+
+    fn enter_function(&mut self, function: &Function<'_>, query: Query<'_>) {
+        self.enter(query.dead(function.node_id()));
+    }
+
+    fn enter_arrow(&mut self, arrow: &ArrowFunctionExpression<'_>, query: Query<'_>) {
+        self.enter(query.dead(arrow.node_id()));
+    }
+
+    fn enter_opaque(&mut self) {
+        self.opaque_depth += 1;
+    }
+
+    fn exit_opaque(&mut self) {
+        self.opaque_depth -= 1;
+    }
+}
+
+/// Blocks a pass made out of an `if` it folded (`if (true) { … }` → `{ … }`), to splice into
+/// the statement list they are in once the list is visited. Blocks the source wrote stay.
+#[derive(Default)]
+struct Unwrapped(rustc_hash::FxHashSet<Span>);
+
+impl Unwrapped {
+    /// Records `taken`, the branch replacing an `if` whose parent is `parent`, if it can be
+    /// spliced: a block in a statement list that declares nothing block-scoped.
+    fn record(&mut self, taken: &Statement<'_>, parent: &oxc_traverse::Ancestor<'_, '_>) {
+        use oxc_traverse::Ancestor;
+        let in_list = matches!(
+            parent,
+            Ancestor::ProgramBody(_)
+                | Ancestor::BlockStatementBody(_)
+                | Ancestor::FunctionBodyStatements(_)
+                | Ancestor::SwitchCaseConsequent(_)
+                | Ancestor::StaticBlockBody(_)
+        );
+        if let Statement::BlockStatement(block) = taken
+            && in_list
+            && !block.body.iter().any(declares_block_scoped)
+        {
+            self.0.insert(block.span);
+        }
+    }
+
+    /// Splices the recorded blocks of `statements` into it.
+    fn splice<'a>(
+        &mut self,
+        statements: &mut oxc_allocator::ArenaVec<'a, Statement<'a>>,
+        ast: &oxc_ast::builder::AstBuilder<'a>,
+    ) {
+        if self.0.is_empty() {
+            return;
+        }
+        let mut index = 0;
+        while index < statements.len() {
+            if let Statement::BlockStatement(block) = &mut statements[index]
+                && self.0.remove(&block.span)
+            {
+                let body = oxc_allocator::TakeIn::take_in(&mut block.body, ast);
+                statements.remove(index);
+                let count = body.len();
+                for (offset, statement) in body.into_iter().enumerate() {
+                    statements.insert(index + offset, statement);
+                }
+                index += count;
+            } else {
+                index += 1;
+            }
+        }
+    }
+}
+
+/// Whether a statement declares a binding scoped to the block it is in.
+fn declares_block_scoped(statement: &Statement<'_>) -> bool {
+    match statement {
+        Statement::VariableDeclaration(declaration) => !declaration.kind.is_var(),
+        Statement::ClassDeclaration(_)
+        | Statement::FunctionDeclaration(_)
+        | Statement::TSEnumDeclaration(_)
+        | Statement::TSNamespaceDeclaration(_)
+        | Statement::TSGlobalDeclaration(_)
+        | Statement::TSImportEqualsDeclaration(_)
+        | Statement::TSTypeAliasDeclaration(_)
+        | Statement::TSInterfaceDeclaration(_) => true,
+        _ => false,
+    }
+}
+
+/// Implements the [`Position`] bookkeeping hooks of an `oxc_traverse` visitor that has
+/// `position: Position` and `query: Query` fields. With `after_statement`, `exit_statement`
+/// also calls the visitor's `after_statement(statement, ctx)`.
+macro_rules! track_position {
+    (after_statement) => {
+        $crate::passes::track_position!(@hooks self, statement, ctx, {
+            self.after_statement(statement, ctx);
+        });
+    };
+    () => {
+        $crate::passes::track_position!(@hooks self, statement, ctx, {
+            let _ = (statement, ctx);
+        });
+    };
+    (@hooks $self:ident, $statement:ident, $ctx:ident, $after:block) => {
+        fn enter_statement(
+            &mut self,
+            statement: &mut oxc_ast::ast::Statement<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.enter_statement(statement, self.query);
+        }
+
+        fn exit_statement(
+            &mut $self,
+            $statement: &mut oxc_ast::ast::Statement<'a>,
+            $ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            $self.position.exit();
+            $after
+        }
+
+        fn enter_function(
+            &mut self,
+            function: &mut oxc_ast::ast::Function<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.enter_function(function, self.query);
+        }
+
+        fn exit_function(
+            &mut self,
+            _function: &mut oxc_ast::ast::Function<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.exit();
+        }
+
+        fn enter_arrow_function_expression(
+            &mut self,
+            arrow: &mut oxc_ast::ast::ArrowFunctionExpression<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.enter_arrow(arrow, self.query);
+        }
+
+        fn exit_arrow_function_expression(
+            &mut self,
+            _arrow: &mut oxc_ast::ast::ArrowFunctionExpression<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.exit();
+        }
+
+        fn exit_object_property(
+            &mut self,
+            property: &mut oxc_ast::ast::ObjectProperty<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            // `{ x }` whose value was rewritten prints as `{ x: <value> }`.
+            if property.shorthand
+                && !matches!(property.value, oxc_ast::ast::Expression::Identifier(_))
+            {
+                property.shorthand = false;
+            }
+        }
+
+        fn enter_ts_enum_declaration(
+            &mut self,
+            _declaration: &mut oxc_ast::ast::TSEnumDeclaration<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.enter_opaque();
+        }
+
+        fn exit_ts_enum_declaration(
+            &mut self,
+            _declaration: &mut oxc_ast::ast::TSEnumDeclaration<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.exit_opaque();
+        }
+
+        fn enter_ts_namespace_declaration(
+            &mut self,
+            _declaration: &mut oxc_ast::ast::TSNamespaceDeclaration<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.enter_opaque();
+        }
+
+        fn exit_ts_namespace_declaration(
+            &mut self,
+            _declaration: &mut oxc_ast::ast::TSNamespaceDeclaration<'a>,
+            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ) {
+            self.position.exit_opaque();
+        }
+    };
+}
+
+pub(crate) use track_position;

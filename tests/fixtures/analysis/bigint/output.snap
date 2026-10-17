@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/bigint/input.ts
 // Bigints: arithmetic stays bigint; mixing with numbers throws.
 function mix(a, b) {
 	try {
-		return a + b;
+		return a + 1;
 	} catch {
 		return "TypeError";
 	}
@@ -19,9 +19,8 @@ export function main() {
 		mix(1n, 1)
 		/*@unknown*/
 	);
-	const shifted = 1 << 3;
 	console.log(
-		shifted
+		8
 		/*@proven number int*/
 	);
 }

@@ -29,6 +29,6 @@ export function main() {
 		/*@proven union*/
 	);
 	values.forEach((v, i, all) => {
-		console.log(v + i, all.length);
+		console.log(v + i, 4);
 	});
 }

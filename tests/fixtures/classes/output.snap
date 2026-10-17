@@ -20,7 +20,7 @@ class Circle extends Shape {
 	#radius;
 	constructor(radius) {
 		super("circle");
-		this.#radius = radius;
+		this.#radius = 1;
 	}
 	get radius() {
 		return this.#radius;
@@ -43,7 +43,7 @@ class Rect extends Shape {
 		return this.sides[0] * this.sides[1];
 	}
 	static square(side) {
-		return new Rect(side, side);
+		return new Rect(4, 4);
 	}
 }
 export function main() {

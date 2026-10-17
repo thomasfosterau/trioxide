@@ -23,7 +23,7 @@ function inbounds() {
 		3
 	];
 	let t = 0;
-	for (let i = 0; i < a.length; i++) {
+	for (let i = 0; i < 3; i++) {
 		const v = a[i];
 		t = v;
 	}

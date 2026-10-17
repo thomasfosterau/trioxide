@@ -7,21 +7,21 @@ input_file: tests/fixtures/numeric/input.ts
 // The kind of code that should eventually become a WASM island.
 function blur(src, width, height) {
 	const dst = new Float64Array(src.length);
-	for (let y = 0; y < height; y++) {
-		for (let x = 0; x < width; x++) {
+	for (let y = 0; y < 4; y++) {
+		for (let x = 0; x < 4; x++) {
 			let sum = 0;
 			let count = 0;
 			for (let dy = -1; dy <= 1; dy++) {
 				for (let dx = -1; dx <= 1; dx++) {
 					const nx = x + dx;
 					const ny = y + dy;
-					if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-						sum += src[ny * width + nx];
+					if (nx >= 0 && nx < 4 && ny >= 0 && ny < 4) {
+						sum += src[ny * 4 + nx];
 						count++;
 					}
 				}
 			}
-			dst[y * width + x] = sum / count;
+			dst[y * 4 + x] = sum / count;
 		}
 	}
 	return dst;
@@ -38,14 +38,14 @@ function stats(values) {
 	let sum = 0;
 	let min = Infinity;
 	let max = -Infinity;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0; i < 6; i++) {
 		const v = values[i];
 		sum += v;
 		min = Math.min(min, v);
 		max = Math.max(max, v);
 	}
 	return {
-		mean: sum / values.length,
+		mean: sum / 6,
 		min,
 		max
 	};
@@ -69,5 +69,5 @@ export function main() {
 		-5,
 		9
 	]));
-	console.log(-7 % 3, 2 ** -1, Math.round(-.5), Object.is(Math.sign(-0), -0), .1 + .2);
+	console.log(-1, 2 ** -1, Math.round(-.5), Object.is(Math.sign(-0), -0), .30000000000000004);
 }

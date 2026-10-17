@@ -15,7 +15,7 @@ export function indirect(code) {
 	let y = 1;
 	(0, eval)(code);
 	// An indirect eval can't see y.
-	return y;
+	return 1;
 }
 export function main() {
 	console.log(direct("x = 'changed'"), indirect("1"));

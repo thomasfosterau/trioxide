@@ -1,0 +1,29 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline/shadowing
+input_file: tests/fixtures/passes/inline/shadowing/input.ts
+---
+//- input.ts
+function shadowed(Infinity, NaN, undefined) {
+	// An inlined constant, and syntactic folds (in the cleanup group).
+	return [
+		void 0,
+		1 / 0,
+		-(1 / 0),
+		0 / 0,
+		Infinity,
+		NaN,
+		undefined
+	];
+}
+function unshadowed() {
+	return [
+		undefined,
+		Infinity,
+		-Infinity,
+		NaN
+	];
+}
+export function main() {
+	console.log(shadowed(1, 2, 3), shadowed(4, 5, 6), unshadowed());
+}

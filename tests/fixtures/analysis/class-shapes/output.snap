@@ -9,11 +9,11 @@ class Point {
 	x;
 	y;
 	constructor(x, y) {
-		this.x = x;
-		this.y = y;
+		this.x = 3;
+		this.y = 4;
 	}
 	norm() {
-		return Math.sqrt(this.x * this.x + this.y * this.y);
+		return 5;
 	}
 }
 class Grows {
@@ -24,7 +24,7 @@ class Grows {
 	setup() {
 		// Runs while the instance is being built.
 		console.log(
-			this.a
+			1
 			/*@proven number int*/
 		);
 	}
@@ -46,14 +46,14 @@ class WithParams {
 		this.label = label;
 	}
 	describe() {
-		return `${this.id}:${this.label}`;
+		return `${7}:${this.label}`;
 	}
 }
 export function main() {
 	const p = new Point(3, 4);
 	console.log(
 		p.norm(),
-		p.x
+		3
 		/*@proven number int*/
 	);
 	const g = new Grows();

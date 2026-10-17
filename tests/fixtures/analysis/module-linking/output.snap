@@ -5,25 +5,25 @@ input_file: tests/fixtures/analysis/module-linking/input.ts
 ---
 //- input.ts
 // The linker resolves imports through re-exports, star exports, defaults and namespaces.
-import area, { PI_ISH as pi, double } from "./reexports.js";
-import * as geometry from "./geometry.js";
-import { counter } from "./geometry.js";
+import "./reexports.js";
+import "./geometry.js";
+import "./geometry.js";
 export function main() {
 	console.log(
-		pi,
-		double(21)
+		3.14,
+		42
 		/*@proven number int*/
 	);
 	console.log(
-		area(2)
+		12.56
 		/*@proven number*/
 	);
 	console.log(
-		geometry.perimeter(3)
+		12
 		/*@proven number int*/
 	);
 	console.log(
-		counter.count
+		0
 		/*@proven number int*/
 	);
 }
@@ -36,14 +36,14 @@ export * from "./math.js";
 //- geometry.ts
 export const PI_ISH = 3.14;
 export function perimeter(side) {
-	return side * 4;
+	return 12;
 }
 export default function area(side) {
-	return side * side * PI_ISH;
+	return 12.56;
 }
 export const counter = { count: 0 };
 
 //- math.ts
 export function double(value) {
-	return value * 2;
+	return 42;
 }

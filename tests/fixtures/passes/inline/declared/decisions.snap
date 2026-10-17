@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline/declared
+input_file: tests/fixtures/passes/inline/declared/input.ts
+---
+//- input.ts
+10:10 inline skipped: the binding's single value is only Declared (trustTypes is off)
+15:10 inline skipped: the member's value (the enum object is used as a value, so only TypeScript says its members are read-only) is only Declared (trustTypes is off)
+10:10 fold skipped: the expression's single value is only Declared (trustTypes is off)
+15:10 fold skipped: the expression's single value is only Declared (trustTypes is off)
+19:26 fold skipped: the expression's single value is only Declared (trustTypes is off)

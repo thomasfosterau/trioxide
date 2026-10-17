@@ -11,7 +11,7 @@ class Base {
 		this.value = 1;
 	}
 	set setter(v) {
-		log.push(`setter ${v}`);
+		log.push(`setter ${2}`);
 	}
 }
 class Derived extends Base {

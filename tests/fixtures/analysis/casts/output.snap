@@ -4,20 +4,14 @@ description: tests/fixtures/analysis/casts
 input_file: tests/fixtures/analysis/casts/input.ts
 ---
 //- input.ts
-function width(value) {
-	// Every caller is known (app mode) and passes 5, so the cast is irrelevant here.
-	return value * 2;
-}
 export function main() {
-	const s = "42";
-	const n = s;
+	const n = "42";
 	console.log(
 		n
 		/*@proven string*/
 	);
-	const angle = "3";
 	console.log(
-		angle
+		"3"
 		/*@proven string*/
 	);
 	const maybe = Math.random() > 2 ? "x" : undefined;
@@ -26,11 +20,10 @@ export function main() {
 		maybe
 		/*@proven union*/
 	);
-	const point = { x: 1 };
 	console.log(
-		point.x
+		1
 		/*@proven number int*/
 	);
-	console.log(width(5));
+	console.log(10);
 	console.log(typeof lookup);
 }

@@ -10,7 +10,7 @@ async function fetchValue(id) {
 	return id * 10;
 }
 async function* countdown(from) {
-	for (let i = from; i > 0; i--) {
+	for (let i = 3; i > 0; i--) {
 		await sleep(0);
 		yield i;
 	}

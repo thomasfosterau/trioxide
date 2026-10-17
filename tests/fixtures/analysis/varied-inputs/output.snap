@@ -14,7 +14,7 @@ class Vec2 {
 		this.y = y;
 	}
 	length() {
-		return Math.sqrt(this.x * this.x + this.y * this.y);
+		return Math.sqrt(1 + this.y * this.y);
 	}
 }
 function classify(value) {
@@ -30,7 +30,7 @@ function classify(value) {
 	return value < 0 ? "negative" : value === 0 ? Object.is(value, -0) ? "-0" : "0" : "positive";
 }
 function clamp(value, low, high) {
-	return Math.min(Math.max(value, low), high);
+	return Math.min(Math.max(value, -1), 1);
 }
 function sum(values) {
 	let total = 0;
@@ -47,12 +47,8 @@ function bytes(n) {
 	return out.length === 0 ? -1 : out[out.length - 1];
 }
 function shape(flag) {
-	const point = {
-		x: 1,
-		y: 2
-	};
-	const v = new Vec2(point.x, flag ? point.y : -point.y);
-	return v.length() + point.x;
+	const v = new Vec2(1, flag ? 2 : -2);
+	return v.length() + 1;
 }
 function divide(a, b) {
 	return a / b | 0;

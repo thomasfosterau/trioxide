@@ -21,10 +21,5 @@ export function main() {
 		data[i] = square(i) | 0;
 	}
 	const label = "total: " + sum(data);
-	const point = {
-		x: 1,
-		y: 2
-	};
-	const len = Math.sqrt(point.x * point.x + point.y * point.y);
-	console.log(label, Math.floor(len));
+	console.log(label, 2);
 }

@@ -1,0 +1,44 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/dce/adversarial
+input_file: tests/fixtures/passes/dce/adversarial/input.ts
+---
+//- input.ts
+// Adversarial cases for DCE: nothing that may throw or run user code goes.
+const log = [];
+const tracked = { get noisy() {
+	log.push("getter");
+	return 1;
+} };
+const primitive = { [Symbol.toPrimitive](hint) {
+	log.push(`toPrimitive ${hint}`);
+	return 3;
+} };
+function tdz() {
+	try {
+		// Reads `later` before its declaration: throws, so it stays.
+		const unused = later;
+		const later = 1;
+		return "no error";
+	} catch (error) {
+		return error.name;
+	}
+}
+function deadVar() {
+	const before = "undefined";
+	return before;
+}
+function iterates() {
+	const items = new Set([1, 2]);
+	// Iterating runs the iterator protocol.
+	for (const _ of items) {}
+	const [first] = items;
+	return first;
+}
+export const entryExport = 5;
+export function main() {
+	const viaGetter = tracked.noisy;
+	const viaPrimitive = +primitive;
+	const viaTemplate = `${primitive}`;
+	console.log(tdz(), 7, deadVar(), iterates(), log);
+}

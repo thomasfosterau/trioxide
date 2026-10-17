@@ -28,8 +28,7 @@ function oddKeys() {
 // Tagged template strings.
 function tag(strings, ...values) {
 	const first = strings[0];
-	const n = strings.length;
-	console.log(first, n, values.length);
+	console.log(first, 2, values.length);
 	return "";
 }
 // Setter-only accessor read.
@@ -56,9 +55,7 @@ export function main() {
 	readExtra();
 	oddKeys();
 	tag`a${1}b`;
-	const s = new SetOnly();
-	const r = s.v;
-	console.log(r);
+	console.log(undefined);
 	const b = new Box();
 	b.v = 7;
 	const dv = decoy.v;

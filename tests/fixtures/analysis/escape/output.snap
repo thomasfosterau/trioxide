@@ -9,15 +9,10 @@ let global;
 function keep(o) {
 	global = o;
 }
-function read(o) {
-	return o.v;
-}
 export function main() {
-	const local = { v: 1 };
-	const passed = { v: 2 };
 	const stored = { v: 3 };
 	const leaked = { v: 4 };
-	console.log(local.v + read(passed));
+	console.log(3);
 	keep(stored);
 	console.log(leaked);
 	const pair = [1, 2];

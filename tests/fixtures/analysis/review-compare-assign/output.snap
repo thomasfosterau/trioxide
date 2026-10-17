@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/review-compare-assign/input.ts
 //- input.ts
 export function compareAssign() {
 	let x = 1;
-	if (x === (x = "a", 1)) {
+	if (1 === (x = "a", 1)) {
 		const seen = x;
 		return String(seen);
 	}

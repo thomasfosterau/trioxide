@@ -9,8 +9,7 @@ function fromAny() {
 	return "not a number";
 }
 export function main() {
-	const a = "text";
-	const n = a;
+	const n = "text";
 	// The value is the string literal, whatever the annotation says.
 	console.log(
 		n

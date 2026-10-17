@@ -1,0 +1,16 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/fold/declared-trusted
+input_file: tests/fixtures/passes/fold/declared-trusted/input.ts
+---
+//- input.ts
+// The negative cases with trustTypes: declared facts count as proof, so `n * 2` folds.
+export function twice(n) {
+	return 10;
+}
+export function pick(flag) {
+	return flag ? "yes" : "no";
+}
+export function main() {
+	console.log(twice(5), pick(true));
+}

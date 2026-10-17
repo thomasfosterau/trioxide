@@ -1,0 +1,10 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/checks/declared
+input_file: tests/fixtures/passes/checks/declared/input.ts
+---
+//- input.ts
+5:11 checks skipped: the receiver's type is only Declared (trustTypes is off)
+5:21 checks skipped: the left operand's type is only Declared (trustTypes is off)
+5:33 checks skipped: the operand's type is only Declared (trustTypes is off)
+5:60 checks skipped: the operand's type is only Declared (trustTypes is off)

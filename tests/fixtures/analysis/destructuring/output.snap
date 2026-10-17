@@ -22,7 +22,7 @@ export function main() {
 		z: true
 	};
 	console.log(
-		x,
+		1,
 		why,
 		others
 		/*@proven object*/
@@ -33,7 +33,7 @@ export function main() {
 	}));
 	let a = 1;
 	let b = 2;
-	[a, b] = [b, a];
+	[a, b] = [2, 1];
 	console.log(
 		a,
 		b

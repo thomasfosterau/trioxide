@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/dce/library
+input_file: tests/fixtures/passes/dce/library/input.ts
+---
+//- input.ts
+9:15 fold applied
+2:1 imports applied
+//- util.ts

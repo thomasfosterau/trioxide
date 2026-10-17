@@ -1,0 +1,48 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline/constants
+input_file: tests/fixtures/passes/inline/constants/input.ts
+---
+//- input.ts
+// Positive cases: proven constants inline as literals, across modules too.
+import { BANNER, HUGE } from "./config.js";
+var Mode = /* @__PURE__ */ function(Mode) {
+	Mode["Fast"] = "fast";
+	Mode["Slow"] = "slow";
+	return Mode;
+}(Mode || {});
+var Level = /* @__PURE__ */ function(Level) {
+	Level[Level["Low"] = 0] = "Low";
+	Level[Level["High"] = 10] = "High";
+	return Level;
+}(Level || {});
+function describe(level) {
+	return level === 10 ? "high" : "low";
+}
+export function main() {
+	console.log(16, "trioxide", true, null, 12345678901234567890n, -3);
+	// Not a literal, so not inlined (but folded where the type is a single value).
+	console.log(HUGE);
+	// Too long to copy.
+	console.log(BANNER.length);
+	console.log(3, 1, "fast", "slow", describe(10));
+	console.log(Object.is(-0, -0), 1 / -0, undefined);
+}
+
+//- config.ts
+// Constants another module imports. The enum comes first: code before it must not be able
+// to call anything, or a read could run before the enum object exists.
+export let Color = /* @__PURE__ */ function(Color) {
+	Color[Color["Red"] = 1] = "Red";
+	Color[Color["Green"] = 2] = "Green";
+	Color[Color["Blue"] = 3] = "Blue";
+	return Color;
+}({});
+export const LIMIT = 8;
+export const NAME = "trioxide";
+export const ENABLED = true;
+export const NOTHING = null;
+export const HUGE = 10n ** 20n;
+export const ONE_BIG = 12345678901234567890n;
+export const OFFSET = -3;
+export const BANNER = "a string long enough that copying it into every use would hurt";

@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/generators-async/input.ts
 //- input.ts
 // Generators and async functions: their results are generator objects and promises.
 function* range(limit) {
-	for (let i = 0; i < limit; i++) yield i;
+	for (let i = 0; i < 3; i++) yield i;
 }
 async function delayed(value) {
 	await null;

@@ -44,10 +44,7 @@ export function main() {
 		y
 		/*@declared number*/
 	);
-	// An object nobody else sees keeps its exact shape.
-	const exact = { w: 4 };
-	const w = exact.w + exact.w;
-	console.log(w);
+	console.log(8);
 	const box = { inner: { v: 1 } };
 	const inner = box.inner;
 	inner.v = 2;

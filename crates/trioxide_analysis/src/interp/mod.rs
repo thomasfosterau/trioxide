@@ -727,7 +727,7 @@ fn import_cycles(world: &World<'_>) -> Vec<usize> {
 
 /// The modules whose exports the host can use: the entries (or, without any, the modules no
 /// other module imports) and every module they re-export from, transitively.
-fn open_modules(world: &World<'_>, options: &AnalysisOptions) -> FxHashSet<ModuleId> {
+pub(crate) fn open_modules(world: &World<'_>, options: &AnalysisOptions) -> FxHashSet<ModuleId> {
     let mut roots: Vec<ModuleId> = options.entries.clone();
     if roots.is_empty() {
         let imported: FxHashSet<ModuleId> = world

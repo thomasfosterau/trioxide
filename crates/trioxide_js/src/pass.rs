@@ -113,6 +113,14 @@ pub trait Pass {
         true
     }
 
+    /// Whether the pass reads analysis facts. The manager refreshes stale facts only before a
+    /// group (or fixpoint iteration) with a pass that does, since every refresh is a
+    /// whole-program analysis. A pass that says `false` must decide from syntax and the
+    /// scoping alone.
+    fn reads_facts(&self) -> bool {
+        true
+    }
+
     /// Runs the pass. Returns whether it changed the AST.
     fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool;
 }
@@ -132,14 +140,15 @@ pub struct PassGroup {
 ///
 /// Within a group, passes share one [`Scoping`] that they keep up to date (`oxc_traverse`
 /// does this). Between groups, and between fixpoint iterations, if anything changed the
-/// manager rebuilds the semantic data from scratch and refreshes the module's facts before
-/// the next iteration reads them (not after the last), so every group starts from consistent
-/// tables.
+/// manager rebuilds the semantic data from scratch. It refreshes the module's facts only
+/// before an iteration of a group that [reads them](Pass::reads_facts), and never after the
+/// last change, so facts are consistent wherever they are read and refreshes stay rare.
 pub struct PassManager {
     groups: Vec<PassGroup>,
     options: PassOptions,
     /// The most times a fixpoint group is repeated.
     pub max_iterations: usize,
+    refreshes: usize,
 }
 
 impl PassManager {
@@ -149,12 +158,24 @@ impl PassManager {
             groups: Vec::new(),
             options,
             max_iterations: 8,
+            refreshes: 0,
         }
     }
 
-    /// The default pipeline for `options`. Currently empty: S4 and S5 register passes here.
+    /// The default pipeline for `options` (PLAN §4): one fact-driven group of the foundation
+    /// passes, run once, then a syntactic cleanup group run to a fixed point (see
+    /// [`crate::passes`]).
     pub fn from_options(options: PassOptions) -> Self {
-        Self::new(options)
+        let mut manager = Self::new(options);
+        for group in crate::passes::default_groups() {
+            manager.add_group(group);
+        }
+        manager
+    }
+
+    /// How many times [`run`](Self::run) refreshed the facts.
+    pub fn refreshes(&self) -> usize {
+        self.refreshes
     }
 
     /// Appends a group. Passes disabled by the options are dropped.
@@ -196,9 +217,11 @@ impl PassManager {
             } else {
                 1
             };
+            let reads_facts = group.passes.iter().any(|pass| pass.reads_facts());
             for _ in 0..iterations {
-                if stale {
+                if stale && reads_facts {
                     facts.refresh(module, program, &scoping);
+                    self.refreshes += 1;
                     stale = false;
                 }
                 let mut ctx = PassContext {

@@ -10,9 +10,6 @@ function onValue(value) {
 		/*@declared number*/
 	);
 }
-function local(value) {
-	return value * 2;
-}
 export function main() {
 	const handlers = [onValue];
 	// Storing in a local array doesn't leak it...
@@ -20,5 +17,5 @@ export function main() {
 	// ...but handing it to an unknown function does.
 	if (typeof register === "function") register(first);
 	queueMicrotask(() => onValue(1));
-	console.log(local(2));
+	console.log(4);
 }

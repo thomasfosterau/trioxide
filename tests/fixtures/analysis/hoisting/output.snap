@@ -11,12 +11,11 @@ export function main() {
 		/*@proven string*/
 	);
 	console.log(
-		later
+		undefined
 		/*@proven undefined*/
 	);
-	var later = 5;
 	console.log(
-		later
+		5
 		/*@proven number int*/
 	);
 	function early() {

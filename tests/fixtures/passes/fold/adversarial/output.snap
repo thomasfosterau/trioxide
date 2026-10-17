@@ -1,0 +1,66 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/fold/adversarial
+input_file: tests/fixtures/passes/fold/adversarial/input.ts
+---
+//- input.ts
+// Adversarial cases for folding.
+const counter = {
+	reads: 0,
+	get value() {
+		this.reads++;
+		return 1;
+	}
+};
+const coercing = { valueOf() {
+	console.log("valueOf ran");
+	return 2;
+} };
+function getters() {
+	// A getter runs on every read: the read stays.
+	return counter.value + counter.value;
+}
+function primitive() {
+	// `+` runs valueOf.
+	return +coercing * 1;
+}
+function hoisting() {
+	// The branch never runs, but its `var` is visible outside it.
+	if (Math.random() > 2) {
+		var hoisted = 1;
+	}
+	return hoisted;
+}
+function shadowedNames(NaN, Infinity, Math) {
+	// NaN, Infinity and Math are parameters: folds must not lean on the globals.
+	return [
+		0 / 0,
+		1 / 0,
+		-(1 / 0),
+		25,
+		1,
+		2
+	];
+}
+function negativeZero() {
+	// max(-0, 0) is 0, min(0, -0) is -0.
+	return [
+		Math.max(-0, 0),
+		Math.min(0, -0),
+		Math.max(0, -0),
+		Math.abs(-0)
+	];
+}
+function sideEffects() {
+	let n = 0;
+	// The comparison is decided, but evaluating it writes n.
+	if ((n = 5) > 10) {
+		return -1;
+	}
+	return 5;
+}
+export function main() {
+	console.log(getters(), counter.reads, primitive(), hoisting());
+	console.log(shadowedNames(1, 2, { floor: (x) => 25 }));
+	console.log(negativeZero().map((x) => Object.is(x, -0)), sideEffects());
+}
