@@ -721,10 +721,40 @@ mod review_props {
     use super::*;
 
     const POOL: [f64; 34] = [
-        f64::NEG_INFINITY, -1e300, -9007199254740994.0, -4294967296.0, -2147483649.0, -2147483648.0,
-        -65536.5, -3.0, -2.5, -1.0, -0.75, -0.5, -0.49999999999999994, -0.4, -1e-300, -5e-324, -0.0, 0.0, 5e-324, 1e-300,
-        0.4, 0.49999999999999994, 0.5, 1.0, 2.5, 3.0, 31.0, 32.0, 2147483647.0, 2147483648.0, 4294967295.0,
-        9007199254740993.0, 1e300, f64::INFINITY,
+        f64::NEG_INFINITY,
+        -1e300,
+        -9007199254740994.0,
+        -4294967296.0,
+        -2147483649.0,
+        -2147483648.0,
+        -65536.5,
+        -3.0,
+        -2.5,
+        -1.0,
+        -0.75,
+        -0.5,
+        -0.49999999999999994,
+        -0.4,
+        -1e-300,
+        -5e-324,
+        -0.0,
+        0.0,
+        5e-324,
+        1e-300,
+        0.4,
+        0.49999999999999994,
+        0.5,
+        1.0,
+        2.5,
+        3.0,
+        31.0,
+        32.0,
+        2147483647.0,
+        2147483648.0,
+        4294967295.0,
+        9007199254740993.0,
+        1e300,
+        f64::INFINITY,
     ];
 
     struct Rng(u64);
@@ -750,7 +780,10 @@ mod review_props {
         // Also interior points of the hull.
         let finite: Vec<f64> = vals.iter().copied().filter(|v| v.is_finite()).collect();
         if finite.len() >= 2 {
-            let (lo, hi) = (finite.iter().cloned().fold(f64::INFINITY, f64::min), finite.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
+            let (lo, hi) = (
+                finite.iter().cloned().fold(f64::INFINITY, f64::min),
+                finite.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+            );
             let mid = lo / 2.0 + hi / 2.0;
             vals.push(mid);
             if rng.next() % 2 == 0 && (hi - lo) > 2.0 {
@@ -782,33 +815,57 @@ mod review_props {
     }
 
     fn i32_(v: f64) -> i32 {
-        if !v.is_finite() { return 0; }
+        if !v.is_finite() {
+            return 0;
+        }
         (v.trunc().rem_euclid(4294967296.0)) as u64 as u32 as i32
     }
     fn js_pow(a: f64, b: f64) -> f64 {
-        if b.is_nan() || (a.abs() == 1.0 && b.is_infinite()) { return f64::NAN; }
+        if b.is_nan() || (a.abs() == 1.0 && b.is_infinite()) {
+            return f64::NAN;
+        }
         a.powf(b)
     }
     fn js_round(x: f64) -> f64 {
-        if !x.is_finite() || x == 0.0 { return x; }
-        if x < 0.0 && x >= -0.5 { return -0.0; }
+        if !x.is_finite() || x == 0.0 {
+            return x;
+        }
+        if x < 0.0 && x >= -0.5 {
+            return -0.0;
+        }
         let f = x.floor();
         let r = if x - f >= 0.5 { f + 1.0 } else { f };
         if r == 0.0 && x < 0.0 { -0.0 } else { r }
     }
     fn js_minmax(a: f64, b: f64, max: bool) -> f64 {
-        if a.is_nan() || b.is_nan() { return f64::NAN; }
+        if a.is_nan() || b.is_nan() {
+            return f64::NAN;
+        }
         if a == 0.0 && b == 0.0 {
-            let neg = if max { a.is_sign_negative() && b.is_sign_negative() } else { a.is_sign_negative() || b.is_sign_negative() };
+            let neg = if max {
+                a.is_sign_negative() && b.is_sign_negative()
+            } else {
+                a.is_sign_negative() || b.is_sign_negative()
+            };
             return if neg { -0.0 } else { 0.0 };
         }
         if max { a.max(b) } else { a.min(b) }
     }
-    fn js_sign(a: f64) -> f64 { if a.is_nan() || a == 0.0 { a } else { a.signum() } }
+    fn js_sign(a: f64) -> f64 {
+        if a.is_nan() || a == 0.0 {
+            a
+        } else {
+            a.signum()
+        }
+    }
 
     #[test]
     fn random_intervals_binary() {
-        type B = (&'static str, fn(NumberType, NumberType) -> NumberType, fn(f64, f64) -> f64);
+        type B = (
+            &'static str,
+            fn(NumberType, NumberType) -> NumberType,
+            fn(f64, f64) -> f64,
+        );
         let ops: Vec<B> = vec![
             ("+", add, |a, b| a + b),
             ("-", sub, |a, b| a - b),
@@ -819,11 +876,25 @@ mod review_props {
             ("|", bit_or, |a, b| f64::from(i32_(a) | i32_(b))),
             ("&", bit_and, |a, b| f64::from(i32_(a) & i32_(b))),
             ("^", bit_xor, |a, b| f64::from(i32_(a) ^ i32_(b))),
-            ("<<", shl, |a, b| f64::from(i32_(a).wrapping_shl(i32_(b) as u32 & 31))),
-            (">>", shr, |a, b| f64::from(i32_(a) >> (i32_(b) as u32 & 31))),
-            (">>>", ushr, |a, b| f64::from((i32_(a) as u32) >> (i32_(b) as u32 & 31))),
-            ("max", |a, b| min_max(a, b, true), |a, b| js_minmax(a, b, true)),
-            ("min", |a, b| min_max(a, b, false), |a, b| js_minmax(a, b, false)),
+            ("<<", shl, |a, b| {
+                f64::from(i32_(a).wrapping_shl(i32_(b) as u32 & 31))
+            }),
+            (">>", shr, |a, b| {
+                f64::from(i32_(a) >> (i32_(b) as u32 & 31))
+            }),
+            (">>>", ushr, |a, b| {
+                f64::from((i32_(a) as u32) >> (i32_(b) as u32 & 31))
+            }),
+            (
+                "max",
+                |a, b| min_max(a, b, true),
+                |a, b| js_minmax(a, b, true),
+            ),
+            (
+                "min",
+                |a, b| min_max(a, b, false),
+                |a, b| js_minmax(a, b, false),
+            ),
         ];
         let mut rng = Rng(0x9E3779B97F4A7C15);
         let mut fails = std::collections::BTreeMap::new();
@@ -842,7 +913,9 @@ mod review_props {
                 }
             }
         }
-        for (_, f) in &fails { eprintln!("FAIL {f}"); }
+        for (_, f) in &fails {
+            eprintln!("FAIL {f}");
+        }
         assert!(fails.is_empty());
     }
 
@@ -872,12 +945,16 @@ mod review_props {
                 for &a in &xa {
                     let e = exact(a);
                     if !contains(r, e) {
-                        fails.entry(*name).or_insert_with(|| format!("{name}({a:e}) = {e:e} not in {r:?}; a in {ta:?}"));
+                        fails.entry(*name).or_insert_with(|| {
+                            format!("{name}({a:e}) = {e:e} not in {r:?}; a in {ta:?}")
+                        });
                     }
                 }
             }
         }
-        for (_, f) in &fails { eprintln!("FAIL {f}"); }
+        for (_, f) in &fails {
+            eprintln!("FAIL {f}");
+        }
         assert!(fails.is_empty());
     }
 
@@ -895,13 +972,25 @@ mod review_props {
                     for &b in &xb {
                         let holds_lt = if strict { a < b } else { a <= b };
                         let holds_gt = if strict { a > b } else { a >= b };
-                        if holds_lt && !contains(lt, a) { fails.push(format!("assume {a:e} <{} {b:e} but {lt:?}", if strict {""} else {"="})); }
-                        if holds_gt && !contains(gt, a) { fails.push(format!("assume {a:e} >{} {b:e} but {gt:?}", if strict {""} else {"="})); }
+                        if holds_lt && !contains(lt, a) {
+                            fails.push(format!(
+                                "assume {a:e} <{} {b:e} but {lt:?}",
+                                if strict { "" } else { "=" }
+                            ));
+                        }
+                        if holds_gt && !contains(gt, a) {
+                            fails.push(format!(
+                                "assume {a:e} >{} {b:e} but {gt:?}",
+                                if strict { "" } else { "=" }
+                            ));
+                        }
                     }
                 }
             }
         }
-        for f in fails.iter().take(5) { eprintln!("FAIL {f}"); }
+        for f in fails.iter().take(5) {
+            eprintln!("FAIL {f}");
+        }
         assert!(fails.is_empty());
     }
 }
