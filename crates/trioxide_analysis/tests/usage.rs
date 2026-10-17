@@ -125,6 +125,12 @@ fn usage_queries() {
         trioxide_analysis::Fact::proven(false)
     );
 
+    // A literal allocates, at expression level.
+    let object = fixture.node("{ x: 1 }", |kind| {
+        matches!(kind, AstKind::ObjectExpression(_))
+    });
+    assert!(facts.expr_effects(object).value.allocates);
+
     // Points-to.
     let literal = fixture.node("{ x: 1 }", |kind| {
         matches!(kind, AstKind::ObjectExpression(_))
@@ -278,6 +284,19 @@ fn usage_queries() {
     assert!(
         !locals_loop.invariant.contains(&binary("arr[0] * 2")),
         "{locals_loop:?}"
+    );
+
+    // Only whole steps are reported.
+    let fractional = for_loop("for (let x = 0; x < 1; x += 0.25) {\n    count += 1;\n  }");
+    // `x` steps by 0.25: no step; `count` by 1.
+    let steps: Vec<Option<f64>> = fractional
+        .induction
+        .iter()
+        .map(|induction| induction.step)
+        .collect();
+    assert!(
+        steps.contains(&None) && steps.contains(&Some(1.0)),
+        "{fractional:?}"
     );
 
     // Reachability.

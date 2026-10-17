@@ -1891,6 +1891,12 @@ impl Cx<'_, '_, '_> {
         if !self.record.allocations.contains(&site) {
             self.record.allocations.push(site);
         }
+        // The expressions being evaluated allocate, whether or not the object outlives the
+        // unit (which is all the unit's own summary counts).
+        if let Some(frame) = self.frames.last_mut() {
+            frame.proven.allocates = true;
+            frame.declared.allocates = true;
+        }
         site
     }
 

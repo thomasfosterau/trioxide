@@ -220,6 +220,15 @@ points-to sites), per loop (effects, written locals, arrays whose length the bod
 induction ranges, invariant expressions), per unit (callers, reachability distinct from
 `never`).
 
+Implicit calls count wherever the engine makes them: accessors (class ones, those of object
+literals and of a literal's `__proto__`, and getters a spread reads), coercions, `await`,
+iteration, and protocol methods (`[Symbol.iterator]`, `[Symbol.toPrimitive]`, `toJSON`, …),
+which are open units whose callers are never complete. Whether user iterator code runs
+never rests on declared types alone. Facts about code that never runs are vacuous, so
+passes check `reachable` first; a loop's `resized` is only complete when
+`resizes_untracked` is false, and an induction `step` is nominal (exact only for integers
+within ±2^53).
+
 **Refreshing facts.** Facts are keyed by `NodeId`s, which a rewrite invalidates. For v1 the
 facade's `FactRefresher` (the `trioxide_js::FactSource` the pipeline runs passes with)
 refreshes them for a module that a pass group changed, when the next group (or fixpoint
