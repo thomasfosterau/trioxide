@@ -14,6 +14,12 @@
 
 use crate::{conv, fpu};
 
+/// The transcendental functions whose results match V8's bit for bit: on every input of the
+/// golden tables and on the ~2M generated inputs per function behind `tests/golden/wide.txt`
+/// (checked against V8 12.4.254.21, Node 22.22). The lowering moves only these, and the exact
+/// non-transcendental functions, to WASM without the user opting in.
+pub const EXACT_TRANSCENDENTALS: &[&str] = &["tan", "asin", "acos", "atan", "expm1", "log2"];
+
 const TWO_POW_52: f64 = 4_503_599_627_370_496.0;
 
 /// `Math.abs`.

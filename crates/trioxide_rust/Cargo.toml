@@ -28,4 +28,5 @@ syn.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+trioxide_rt.workspace = true
 trioxide = { workspace = true, features = ["tsrs"] }

@@ -2122,6 +2122,7 @@ dependencies = [
  "trioxide",
  "trioxide_analysis",
  "trioxide_common",
+ "trioxide_rt",
  "trioxide_types",
  "trioxide_wasm",
 ]

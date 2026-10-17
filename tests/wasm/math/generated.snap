@@ -58,7 +58,7 @@ fn all(x: f64, y: f64) -> &'static mut [f64] {
     array::set_i32(out, 10, math::max(math::max(x, y), 0.0));
     array::set_i32(out, 11, math::min(x, y));
     array::set_i32(out, 12, math::hypot2(x, y));
-    array::set_i32(out, 13, math::atan2(y, x));
+    array::set_i32(out, 13, math::atan(y) + math::asin(x / 1e300) + math::acos(0.5));
     array::set_i32(out, 14, math::tan(x));
     array::set_i32(out, 15, math::log2(x));
     array::set_i32(out, 16, math::expm1(x));

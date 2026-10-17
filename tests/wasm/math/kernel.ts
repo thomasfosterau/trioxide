@@ -16,7 +16,7 @@ export function all(x: number, y: number): number[] {
   out[10] = Math.max(x, y, 0);
   out[11] = Math.min(x, y);
   out[12] = Math.hypot(x, y);
-  out[13] = Math.atan2(y, x);
+  out[13] = Math.atan(y) + Math.asin(x / 1e300) + Math.acos(0.5);
   out[14] = Math.tan(x);
   out[15] = Math.log2(x);
   out[16] = Math.expm1(x);

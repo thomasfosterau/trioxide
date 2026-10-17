@@ -6,7 +6,8 @@
 )]
 use super::{stmt::is_pure, *};
 
-/// `Math` functions computed exactly as V8 does (`docs/ABI.md`, "Numerics"), by arity.
+/// `Math` functions computed exactly as V8 does (`docs/ABI.md`, "Numerics"), by arity. The
+/// transcendental ones are `trioxide_rt::math::EXACT_TRANSCENDENTALS` (a test checks).
 const EXACT_MATH: &[(&str, MathFn, usize)] = &[
     ("abs", MathFn::Abs, 1),
     ("floor", MathFn::Floor, 1),
@@ -20,17 +21,14 @@ const EXACT_MATH: &[(&str, MathFn, usize)] = &[
     ("asin", MathFn::Asin, 1),
     ("acos", MathFn::Acos, 1),
     ("atan", MathFn::Atan, 1),
-    ("atan2", MathFn::Atan2, 2),
-    ("sinh", MathFn::Sinh, 1),
-    ("atanh", MathFn::Atanh, 1),
     ("expm1", MathFn::Expm1, 1),
-    ("log1p", MathFn::Log1p, 1),
     ("log2", MathFn::Log2, 1),
 ];
 
 /// `Math` functions whose last bit may differ from V8's.
 const INEXACT_MATH: &[&str] = &[
-    "sin", "cos", "cosh", "tanh", "asinh", "acosh", "exp", "log", "log10", "cbrt",
+    "sin", "cos", "cosh", "tanh", "asinh", "acosh", "exp", "log", "log10", "cbrt", "sinh", "atanh",
+    "log1p", "atan2",
 ];
 
 impl<'a> FnCx<'_, '_, 'a> {
@@ -1808,4 +1806,28 @@ fn builtin_constant(namespace: &str, name: &str) -> Option<f64> {
         ("Number", "NaN") => f64::NAN,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_math_matches_the_runtime() {
+        const ALGEBRAIC: &[&str] = &[
+            "abs", "floor", "ceil", "trunc", "sqrt", "round", "sign", "fround",
+        ];
+        for (name, _, _) in EXACT_MATH {
+            assert!(
+                ALGEBRAIC.contains(name) || trioxide_rt::math::EXACT_TRANSCENDENTALS.contains(name),
+                "{name} isn't exact in trioxide_rt"
+            );
+        }
+        for name in trioxide_rt::math::EXACT_TRANSCENDENTALS {
+            assert!(
+                EXACT_MATH.iter().any(|(n, _, _)| n == name),
+                "{name} is exact in trioxide_rt but not lowered"
+            );
+        }
+    }
 }

@@ -422,13 +422,18 @@ can be -0 needs `f64` unless it is consumed by ToInt32 or a comparison.
 `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `exp`, `expm1`, `log`, `log1p`, `log2`, `log10`,
 `cbrt`, `pow`) come from `libm` (a port of musl), while V8 uses fdlibm, and glibc for `sin`
 and `cos`. ECMAScript only asks for implementation-approximated results. Special cases (NaN,
-±0, ±Infinity, out-of-domain arguments) always agree. On the golden inputs:
+±0, ±Infinity, out-of-domain arguments) always agree. Against V8 12.4 (Node 22), on the
+golden tables and on ~2M generated inputs per function (`trioxide_rt/tests/golden/wide.txt`):
 
-- **exact** on every input: `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `atanh`,
-  `expm1`, `log1p`, `log2`;
+- **exact** on every input: `tan`, `asin`, `acos`, `atan`, `expm1`, `log2`
+  (`trioxide_rt::math::EXACT_TRANSCENDENTALS`);
 - **within 1 ulp**: `sin`, `cos`, `cosh`, `asinh`, `acosh`, `exp`, `log`, `log10`, `cbrt`,
-  `pow` (e.g. `Math.exp(1)` is 2.718281828459045 in V8 and 2.7182818284590455 in libm);
+  `pow`, and `sinh`, `atanh`, `log1p`, `atan2` on about 1 input in 4,000–30,000 (e.g.
+  `Math.exp(1)` is 2.718281828459045 in V8 and 2.7182818284590455 in libm;
+  `Math.sinh(123.04754638671875)` is 1.3735371549427924e+53 and 1.3735371549427926e+53);
 - **within 2 ulps**: `tanh` (e.g. `Math.tanh(0.7)`).
+
+A function joins the exact list only when the wide comparison finds no mismatch.
 
 `pow` is exact for the cases the lowering relies on (`x ** 2` is `x * x` in both). Since a
 last-bit difference can change printed output, S6 lowers code using the inexact functions
