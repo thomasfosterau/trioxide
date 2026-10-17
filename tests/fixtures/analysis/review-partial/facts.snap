@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/review-partial/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  known (1:1) open: throws calls-unknown (declared: pure)
+  known (1:1) open: reads writes throws calls-unknown (declared: pure)
   main (4:8) open: reads writes allocates throws calls-unknown
 nodes:
   1:10 bind `known`: function@proven

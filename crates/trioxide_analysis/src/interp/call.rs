@@ -268,6 +268,8 @@ impl<'a> Cx<'_, '_, 'a> {
     /// A call trioxide can't follow.
     fn unknown_call(&mut self, site: NodeId, function: &Val, this: &Val, args: &[Val]) -> Val {
         self.note_call();
+        let site_ref = self.node(site);
+        self.record.open_sites.insert(site_ref);
         for value in args {
             self.escape_value(value, Escape::Unknown);
         }
@@ -615,6 +617,32 @@ impl<'a> Cx<'_, '_, 'a> {
         result
     }
 
+    /// Whether the array made at `site` is at once the receiver of a whole-array `fill`
+    /// (`new Array(n).fill(v)`), with `Array.prototype.fill` intact.
+    fn filled_at_once(&self, site: NodeId) -> bool {
+        use oxc_ast::AstKind;
+        use oxc_span::GetSpan;
+        if self.an.patched.contains("Array") {
+            return false;
+        }
+        let nodes = self.module.semantic.nodes();
+        let span = nodes.kind(site).span();
+        let member = nodes.parent_id(site);
+        let AstKind::StaticMemberExpression(fill) = nodes.kind(member) else {
+            return false;
+        };
+        if fill.property.name != "fill" || fill.object.span() != span || fill.optional {
+            return false;
+        }
+        matches!(
+            nodes.parent_kind(member),
+            AstKind::CallExpression(call)
+                if call.callee.span() == fill.span
+                    && call.arguments.len() <= 1
+                    && !call.arguments.iter().any(Argument::is_spread)
+        )
+    }
+
     fn builtin_construct(&mut self, name: &str, args: &Args, site: NodeId) -> Val {
         if self.an.patched.contains(name) {
             return self.unknown_construct(args, site);
@@ -725,8 +753,10 @@ impl<'a> Cx<'_, '_, 'a> {
                         false,
                     );
                     let exact = number.as_constant();
+                    // `new Array(n).fill(v)`: filled before anything else can see a hole.
+                    let filled = self.filled_at_once(site);
                     self.mark(object, |obj| {
-                        obj.holey = true;
+                        obj.holey |= !filled;
                         obj.length = if obj.length.is_none() || obj.length == exact {
                             exact
                         } else {
@@ -734,6 +764,11 @@ impl<'a> Cx<'_, '_, 'a> {
                         };
                     });
                 }
+                // An argument with no value yet (not reached this round): nothing to record.
+                values
+                    if values
+                        .iter()
+                        .any(|value| value.ty == Type::Never && value.pts.is_none()) => {}
                 values => {
                     for value in values {
                         self.store_elem(object, value);
@@ -741,9 +776,10 @@ impl<'a> Cx<'_, '_, 'a> {
                     let count = values.len();
                     #[expect(clippy::cast_precision_loss, reason = "a handful of arguments")]
                     let exact = (!args.spread && count != 1).then_some(count as f64);
+                    let filled = self.filled_at_once(site);
                     self.mark(object, |obj| {
                         if count == 1 || args.spread {
-                            obj.holey = true;
+                            obj.holey |= !filled;
                             obj.length = None;
                         } else if obj.length != exact {
                             obj.length = if obj.elem.ty == Type::Never {
@@ -764,6 +800,9 @@ impl<'a> Cx<'_, '_, 'a> {
     fn unknown_construct(&mut self, args: &Args, site: NodeId) -> Val {
         // A builtin or host constructor: a fresh object, but what it does with its arguments
         // is unknown (Promise calls its executor, Map iterates, Proxy wraps).
+        self.note_call();
+        let site_ref = self.node(site);
+        self.record.open_sites.insert(site_ref);
         let object = self.alloc(site, ObjKind::Opaque);
         for value in &args.values {
             self.escape_value(value, Escape::Unknown);
@@ -837,6 +876,13 @@ impl<'a> Cx<'_, '_, 'a> {
     ) -> Val {
         let effects = builtin.effects;
         let declared_only = trust != Trust::Proven;
+        if effects.writes_receiver || effects.writes_other {
+            self.note_write(true);
+        }
+        // A clock or the PRNG: two calls can differ.
+        if effects.writes_other || builtin.name == "Date.now" {
+            self.note_volatile();
+        }
         // Arguments are coerced to primitives by most builtins (Math.floor(x) runs valueOf).
         let coerces = matches!(builtin.ret, Ret::Number(_)) && receiver.is_none()
             || matches!(
@@ -852,7 +898,12 @@ impl<'a> Cx<'_, '_, 'a> {
                     | "Math.imul"
                     | "Math.clz32"
             );
+        // Whether user code may run here (a conversion's `valueOf`, a getter).
+        let mut runs_code = false;
         for value in &args.values {
+            if (coerces || runs_argument_code(builtin)) && !value.is_primitive(false) {
+                runs_code = true;
+            }
             if coerces {
                 self.coerce(
                     value,
@@ -861,11 +912,27 @@ impl<'a> Cx<'_, '_, 'a> {
                         Ret::Number(NumberModel::Math(_) | NumberModel::Int32)
                     ),
                 );
+            } else if runs_argument_code(builtin) {
+                // Converted (`"a".padStart(n, o)`) or read through getters (`Object.values`),
+                // with the engine as caller.
+                self.coerce(value, false);
             } else if !builtin.effects.calls_args && !value.is_primitive(false) {
-                // A non-primitive argument may be converted (e.g. `includes`, `indexOf` don't, but
-                // `join` and `padStart` do); keep it simple and treat it as seen by the builtin.
+                // Seen by the builtin but not converted (`includes`, `push`).
                 self.escape_value(value, Escape::Known);
             }
+        }
+        // `join` and a comparator-less `sort` convert the elements.
+        if let Some(receiver) = receiver
+            && builtin.receiver == Receiver::Array
+            && (builtin.name == "join" || (builtin.name == "sort" && args.values.is_empty()))
+        {
+            let element = self.element(receiver, true);
+            runs_code |= !element.is_primitive(false);
+            self.coerce(&element, false);
+        }
+        if runs_code {
+            let site = self.node(site);
+            self.record.open_sites.insert(site);
         }
         let own_receiver = receiver.is_some_and(|receiver| self.owns(receiver));
         let free = |flag: bool| !flag;
@@ -932,13 +999,25 @@ impl<'a> Cx<'_, '_, 'a> {
         let grows = matches!(builtin.name, "push" | "unshift");
         for site in sites {
             if builtin.effects.retains_args {
-                for value in args {
-                    self.store_elem(site, value);
+                if builtin.name == "fill" {
+                    // `fill(value, start, end)` stores only the value.
+                    let value = args
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| Val::proven(Type::Undefined));
+                    self.store_elem(site, &value);
+                } else {
+                    for value in args {
+                        self.store_elem(site, value);
+                    }
                 }
             }
             if shrinks || grows {
                 self.mark(site, |obj| obj.length = None);
             }
+        }
+        if shrinks || grows {
+            self.note_resize(receiver);
         }
         if shrinks {
             self.forget_bounds_of(receiver);
@@ -1235,15 +1314,19 @@ impl<'a> Cx<'_, '_, 'a> {
             value.is_some_and(|value| cx.length_is_stable(&value))
         };
         let bounds = std::mem::take(&mut self.env.bounds);
-        let bounds = bounds
+        let (bounds, dropped): (Vec<_>, Vec<_>) = bounds
             .into_iter()
-            .filter(|&(_, array)| stable(self, array))
-            .collect();
+            .partition(|&(_, array)| stable(self, array));
         let lengths = std::mem::take(&mut self.env.lengths);
-        let lengths = lengths
+        let (lengths, dropped_lengths): (Vec<_>, Vec<_>) = lengths
             .into_iter()
-            .filter(|&(_, array)| stable(self, array))
-            .collect();
+            .partition(|&(_, array)| stable(self, array));
+        self.dropped.extend(
+            dropped
+                .iter()
+                .chain(&dropped_lengths)
+                .map(|&(_, array)| array),
+        );
         self.env.bounds = bounds;
         self.env.lengths = lengths;
     }
@@ -1277,22 +1360,26 @@ impl<'a> Cx<'_, '_, 'a> {
                 .is_some_and(|own| own.iter().all(|site| !sites.contains(site))),
             _ => false,
         };
-        let bounds = self
+        let (bounds, dropped): (Vec<_>, Vec<_>) = self
             .env
             .bounds
             .iter()
             .copied()
-            .filter(|&(_, array)| unaffected(array))
-            .collect();
-        let lengths = self
+            .partition(|&(_, array)| unaffected(array));
+        let (lengths, dropped_lengths): (Vec<_>, Vec<_>) = self
             .env
             .lengths
             .iter()
             .copied()
-            .filter(|&(_, array)| unaffected(array))
-            .collect();
+            .partition(|&(_, array)| unaffected(array));
         self.env.bounds = bounds;
         self.env.lengths = lengths;
+        self.dropped.extend(
+            dropped
+                .iter()
+                .chain(&dropped_lengths)
+                .map(|&(_, array)| array),
+        );
     }
 
     /// Whether `object[index]` is in bounds: a tracked local index below the array's length
@@ -1386,4 +1473,20 @@ pub enum Accessor {
     Missing,
     /// The getter or setter.
     Unit(NodeRef),
+}
+
+/// Whether `builtin` converts its arguments to primitives or reads them through getters, so
+/// user code (`valueOf`, `toString`, a getter) may run.
+fn runs_argument_code(builtin: &Builtin) -> bool {
+    matches!(builtin.receiver, Receiver::String | Receiver::Number)
+        || matches!(
+            (builtin.receiver, builtin.name),
+            (
+                Receiver::Global,
+                "encodeURIComponent" | "decodeURIComponent" | "Object.values" | "Object.entries"
+            ) | (
+                Receiver::TypedArray,
+                "fill" | "set" | "indexOf" | "lastIndexOf" | "includes"
+            )
+        )
 }

@@ -23,6 +23,7 @@
 //! Status: the pipeline is a passthrough (parse, strip TypeScript, print with sourcemaps).
 //! Analysis, optimisation passes and WASM islands plug in behind the same API.
 
+mod analysis;
 mod error;
 mod islands;
 mod options;
@@ -31,6 +32,7 @@ mod pipeline;
 mod project;
 mod report;
 
+pub use analysis::{FactRefresher, analysis_inputs, jsx_factories};
 pub use error::{Error, Result};
 pub use options::{
     CONFIG_FILE_NAMES, DevOptions, GlueMode, Mode, Options, Override, OverrideTarget, WasmOptions,

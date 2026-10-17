@@ -7,9 +7,8 @@ use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
-use trioxide_analysis::Facts;
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
-use trioxide_js::{EmitOptions, PassManager, PassOptions, emit};
+use trioxide_js::{EmitOptions, FactSource, PassManager, PassOptions, emit};
 
 use crate::{ModuleOutput, SourceMap};
 
@@ -34,7 +33,7 @@ impl ModuleCompiler {
     pub fn compile(
         &self,
         input: &ModuleSource<'_>,
-        facts: &mut Facts,
+        facts: &mut dyn FactSource,
         log: &mut ModuleLog,
         optimise: bool,
     ) -> ModuleOutput {

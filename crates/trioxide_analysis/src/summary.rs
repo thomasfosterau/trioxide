@@ -1,15 +1,21 @@
 //! Turns the interpreter's tables into [`Facts`].
 
-use rustc_hash::FxHashMap;
-use trioxide_types::{Shape, Type};
+use oxc_span::Span;
+use oxc_syntax::symbol::SymbolId;
+use rustc_hash::{FxHashMap, FxHashSet};
+use trioxide_common::{NodeId, NodeRef, SymbolRef};
+use trioxide_types::{NumberType, Shape, Type};
 
 use crate::{
     AnalysisOptions, callgraph,
-    facts::{AllocKind, Allocation, ClassShape, Escape, Fact, Facts, FunctionInfo, Trust},
+    facts::{
+        AllocKind, Allocation, ClassShape, Effects, Escape, Fact, Facts, FunctionInfo, Induction,
+        LoopFacts, Trust,
+    },
     interp::{self, ObjKind, Results, State},
     link::{Links, Target},
     value::{MAX_TYPE_DEPTH, Pts, Val},
-    world::World,
+    world::{Body, World},
 };
 
 /// Builds the fact tables.
@@ -51,13 +57,14 @@ pub fn facts(
         facts.set_in_bounds(node, trust);
     }
     let graph = callgraph::build(world, &results.output);
-    for (unit, (proven, declared)) in callgraph::effects(world, &graph, &results.output, state) {
+    let summaries = callgraph::effects(world, &graph, &results.output, state);
+    for (&unit, &(proven, declared)) in &summaries {
         facts.set_effect_summaries(unit, proven, declared);
     }
+    usage_facts(&mut facts, world, results, &graph, &summaries);
     facts.set_call_graph(graph);
 
-    let mut instances: FxHashMap<trioxide_common::NodeRef, Vec<&interp::Obj>> =
-        FxHashMap::default();
+    let mut instances: FxHashMap<NodeRef, Vec<&interp::Obj>> = FxHashMap::default();
     for (&site, obj) in &state.heap {
         let kind = match obj.kind {
             ObjKind::Object => AllocKind::Object,
@@ -90,14 +97,14 @@ pub fn facts(
             },
         );
     }
-    for (&class, info) in &world.classes {
+    for &class in world.classes.keys() {
         let sites = instances.get(&class).cloned().unwrap_or_default();
         let fields = crate::shapes::definite_fields(world, class);
         let mut shape = ClassShape {
             fields,
             ..ClassShape::default()
         };
-        let mut known = !interp::class_open(world, state, class) || info.has_heritage;
+        let mut known = true;
         for obj in &sites {
             for key in &obj.order {
                 if obj.added.contains(key) && !shape.added_later.contains(key) {
@@ -244,4 +251,575 @@ fn array_element(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
         return Some(Type::Unknown);
     }
     Some(refine(&fact.value, &element.pts, state, depth - 1))
+}
+
+/// Call-site completeness, per-expression and per-loop effects, points-to sets and
+/// reachability.
+fn usage_facts(
+    facts: &mut Facts,
+    world: &World<'_>,
+    results: &Results,
+    graph: &crate::facts::CallGraph,
+    summaries: &FxHashMap<NodeRef, (Effects, Effects)>,
+) {
+    let with_callees = |proven: Effects, declared: Effects, callees: &[NodeRef]| {
+        callees
+            .iter()
+            .fold((proven, declared), |(proven, declared), callee| {
+                let (callee_proven, callee_declared) = summaries
+                    .get(callee)
+                    .copied()
+                    .unwrap_or((Effects::ANY, Effects::ANY));
+                (
+                    union(proven, callee_proven),
+                    union(declared, callee_declared),
+                )
+            })
+    };
+    let mut pending_loops = Vec::new();
+    let mut open_sites = FxHashSet::default();
+    let mut reached = FxHashSet::default();
+    let mut skipped = Vec::new();
+    let mut volatile = FxHashSet::default();
+    for (&unit, record) in &results.output.units {
+        open_sites.extend(record.open_sites.iter().copied());
+        // Visits of one expression are merged (loops revisit them).
+        let mut visits: Vec<&interp::ExprVisit> = record.expr_effects.iter().collect();
+        visits.sort_unstable_by_key(|visit| visit.node);
+        let mut callees: Vec<NodeRef> = Vec::new();
+        for group in visits.chunk_by(|a, b| a.node == b.node) {
+            let (mut proven, mut declared) = (Effects::PURE, Effects::PURE);
+            let mut is_volatile = false;
+            callees.clear();
+            for visit in group {
+                proven = union(proven, visit.proven);
+                declared = union(declared, visit.declared);
+                // At expression level, writes to locals and reads of mutable locals count.
+                proven.writes |= visit.local_writes;
+                declared.writes |= visit.local_writes;
+                proven.reads |= visit.shared_reads;
+                declared.reads |= visit.shared_reads;
+                is_volatile |= visit.volatile;
+                let (start, end) = (visit.edges.0 as usize, visit.edges.1 as usize);
+                callees.extend(record.edges[start..end].iter().map(|edge| edge.callee));
+            }
+            callees.sort_unstable();
+            callees.dedup();
+            let (proven, declared) = with_callees(proven, declared, &callees);
+            let node = NodeRef {
+                module: unit.module,
+                node: group[0].node,
+            };
+            facts.set_expr_effects(node, proven, declared);
+            if is_volatile {
+                volatile.insert(node);
+            }
+        }
+        let module = world.module(unit.module);
+        for (&node, record) in &record.loops {
+            let (mut proven, mut declared) = (record.proven, record.declared);
+            proven.writes |= record.shared_writes;
+            declared.writes |= record.shared_writes;
+            let effects = with_callees(proven, declared, &record.callees);
+            let symbols = |symbols: &[SymbolId]| -> Vec<SymbolRef> {
+                symbols
+                    .iter()
+                    .map(|&symbol| module.symbol(symbol))
+                    .collect()
+            };
+            let ranges: Vec<(SymbolId, Fact<NumberType>)> = record
+                .induction
+                .iter()
+                .filter_map(|(symbol, value)| {
+                    let fact = value.fact();
+                    let number = fact.value.as_number()?;
+                    Some((
+                        *symbol,
+                        Fact {
+                            value: number,
+                            trust: fact.trust,
+                        },
+                    ))
+                })
+                .collect();
+            let induction = induction_variables(world, node, &ranges);
+            // Arrays resized here or by any unit it calls, transitively.
+            let mut resized: FxHashSet<NodeRef> = record.resized.iter().copied().collect();
+            let mut resizes_untracked = record.resizes_untracked || effects.0.calls_unknown;
+            let mut pending: Vec<NodeRef> = record.callees.clone();
+            let mut seen: FxHashSet<NodeRef> = pending.iter().copied().collect();
+            while let Some(callee) = pending.pop() {
+                match results.output.units.get(&callee) {
+                    Some(callee) => {
+                        resized.extend(callee.resized.iter().copied());
+                        resizes_untracked |= callee.resizes_untracked;
+                    }
+                    None => resizes_untracked = true,
+                }
+                for edge in graph.edges_from(callee) {
+                    if seen.insert(edge.callee) {
+                        pending.push(edge.callee);
+                    }
+                }
+            }
+            let mut resized: Vec<NodeRef> = resized.into_iter().collect();
+            resized.sort_unstable();
+            let written = symbols(&record.written);
+            pending_loops.push((
+                node,
+                LoopFacts {
+                    effects,
+                    written,
+                    length_changed: symbols(&record.length_changed),
+                    resized,
+                    resizes_untracked,
+                    induction,
+                    invariant: Vec::new(),
+                },
+            ));
+        }
+        reached.extend(record.reached.iter().copied());
+        skipped.extend(record.skipped.iter().copied());
+    }
+    // Effects first: invariance needs them.
+    for (node, mut loop_facts) in pending_loops {
+        loop_facts.invariant = invariant_expressions(facts, world, node, &loop_facts, &volatile);
+        facts.set_loop_facts(node, loop_facts);
+    }
+    facts.set_open_sites(open_sites);
+    for (&node, value) in &results.output.nodes {
+        if let Some(sites) = value.pts.sites()
+            && !sites.is_empty()
+        {
+            facts.set_points_to(node, sites.to_vec());
+        }
+    }
+
+    // Units run if something reachable calls them, or code that doesn't record calls can:
+    // module bodies, class initialisers, and any unit whose function object escapes.
+    let state = &results.state;
+    let mut live: FxHashSet<NodeRef> = FxHashSet::default();
+    let mut pending: Vec<NodeRef> = world
+        .unit_order
+        .iter()
+        .copied()
+        .filter(|&unit| {
+            let info = world.unit(unit);
+            !matches!(info.body, Body::Function(_) | Body::Arrow(_))
+                || state
+                    .heap
+                    .get(&unit)
+                    .is_none_or(|obj| obj.escape != interp::Escape::None)
+                || interp::unit_open(world, state, info)
+        })
+        .collect();
+    while let Some(unit) = pending.pop() {
+        if !live.insert(unit) {
+            continue;
+        }
+        pending.extend(graph.edges_from(unit).map(|edge| edge.callee));
+    }
+    // Dead code: unreachable units, and statements no reachable path got to, with everything
+    // inside them (node ids are preorder, so a node's descendants follow it).
+    let mut roots: Vec<NodeRef> = world
+        .unit_order
+        .iter()
+        .copied()
+        .filter(|unit| {
+            !live.contains(unit)
+                && matches!(world.unit(*unit).body, Body::Function(_) | Body::Arrow(_))
+        })
+        .collect();
+    roots.extend(
+        skipped
+            .into_iter()
+            .filter(|statement| !reached.contains(statement)),
+    );
+    let mut unreachable = FxHashSet::default();
+    for root in roots {
+        if unreachable.contains(&root) {
+            continue;
+        }
+        let module = world.module(root.module);
+        let nodes = module.semantic.nodes();
+        let span = oxc_span::GetSpan::span(&nodes.kind(root.node));
+        unreachable.insert(root);
+        for index in root.node.index() + 1..nodes.len() {
+            let id = NodeId::from_usize(index);
+            let inner = oxc_span::GetSpan::span(&nodes.kind(id));
+            if !(span.start <= inner.start && inner.end <= span.end) {
+                break;
+            }
+            unreachable.insert(module.node(id));
+        }
+    }
+    facts.set_unreachable(unreachable);
+}
+
+/// Either effect set.
+fn union(a: Effects, b: Effects) -> Effects {
+    Effects {
+        reads: a.reads || b.reads,
+        writes: a.writes || b.writes,
+        allocates: a.allocates || b.allocates,
+        throws: a.throws || b.throws,
+        calls_unknown: a.calls_unknown || b.calls_unknown,
+    }
+}
+
+/// The largest loop-invariant expressions of the loop `node` (see [`LoopFacts::invariant`]).
+/// The numeric locals of the loop `node` with their head ranges, minus those declared inside
+/// it (a nested loop's, the body's), with their steps.
+fn induction_variables(
+    world: &World<'_>,
+    node: NodeRef,
+    ranges: &[(SymbolId, Fact<NumberType>)],
+) -> Vec<Induction> {
+    use oxc_ast::{
+        AstKind,
+        ast::{AssignmentOperator, BinaryOperator, Expression, UpdateOperator},
+    };
+    use oxc_span::GetSpan;
+    let module = world.module(node.module);
+    let nodes = module.semantic.nodes();
+    let scoping = module.semantic.scoping();
+    let loop_kind = nodes.kind(node.node);
+    let loop_span = loop_kind.span();
+    let (head, test, update, body) = match loop_kind {
+        AstKind::ForStatement(stmt) => (
+            stmt.init.as_ref().map(GetSpan::span),
+            stmt.test.as_ref().map(GetSpan::span),
+            stmt.update.as_ref().map(GetSpan::span),
+            stmt.body.span(),
+        ),
+        AstKind::WhileStatement(stmt) => (None, Some(stmt.test.span()), None, stmt.body.span()),
+        AstKind::DoWhileStatement(stmt) => (None, Some(stmt.test.span()), None, stmt.body.span()),
+        AstKind::ForInStatement(stmt) => (Some(stmt.left.span()), None, None, stmt.body.span()),
+        AstKind::ForOfStatement(stmt) => (Some(stmt.left.span()), None, None, stmt.body.span()),
+        _ => return Vec::new(),
+    };
+    let within = |inner: Span, outer: Span| outer.start <= inner.start && inner.end <= outer.end;
+    // The top-level statements of the body, which run once per iteration unless a
+    // `continue` skips them.
+    let body_statements: Vec<Span> = match loop_kind {
+        AstKind::ForStatement(stmt) => statements_of(&stmt.body),
+        AstKind::WhileStatement(stmt) => statements_of(&stmt.body),
+        AstKind::DoWhileStatement(stmt) => statements_of(&stmt.body),
+        _ => Vec::new(),
+    };
+    let unit_of = |id: NodeId| {
+        nodes.ancestor_ids(id).find(|&ancestor| {
+            matches!(
+                nodes.kind(ancestor),
+                AstKind::Function(_)
+                    | AstKind::ArrowFunctionExpression(_)
+                    | AstKind::StaticBlock(_)
+            )
+        })
+    };
+    let loop_unit = unit_of(node.node);
+    let continues = nodes
+        .iter()
+        .filter(|candidate| matches!(candidate.kind(), AstKind::ContinueStatement(_)))
+        .any(|candidate| {
+            within(candidate.kind().span(), body) && unit_of(candidate.id()) == loop_unit
+        });
+    ranges
+        .iter()
+        .filter_map(|(symbol, range)| {
+            let (symbol, range) = (*symbol, range.clone());
+            let declared = nodes.kind(scoping.symbol_declaration(symbol)).span();
+            if within(declared, loop_span) && !head.is_some_and(|head| within(declared, head)) {
+                return None;
+            }
+            let mut writes = Vec::new();
+            let mut tested = false;
+            for &reference in scoping.get_resolved_reference_ids(symbol) {
+                let reference = scoping.get_reference(reference);
+                let at = reference.node_id();
+                let span = nodes.kind(at).span();
+                if reference.is_write() {
+                    if unit_of(at) != loop_unit {
+                        // A closure writes it: anything may happen between iterations.
+                        writes.push(None);
+                    } else if within(span, loop_span) {
+                        writes.push(Some(at));
+                    }
+                }
+                if reference.is_read() && test.is_some_and(|test| within(span, test)) {
+                    tested = true;
+                }
+            }
+            let step = match writes.as_slice() {
+                [Some(at)] => {
+                    // The expression the write is the target of.
+                    let expression = nodes.parent_id(*at);
+                    let span = nodes.kind(expression).span();
+                    let once = update == Some(span)
+                        || (!continues && body_statements.contains(&span));
+                    let constant = |expression: &Expression<'_>| match expression.without_parentheses() {
+                        Expression::NumericLiteral(literal) => Some(literal.value),
+                        Expression::UnaryExpression(unary)
+                            if unary.operator == oxc_ast::ast::UnaryOperator::UnaryNegation =>
+                        {
+                            match unary.argument.without_parentheses() {
+                                Expression::NumericLiteral(literal) => Some(-literal.value),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    let names = |expression: &Expression<'_>| {
+                        matches!(expression.without_parentheses(), Expression::Identifier(ident)
+                            if ident.reference_id.get().and_then(|reference| scoping.get_reference(reference).symbol_id()) == Some(symbol))
+                    };
+                    let step = match nodes.kind(expression) {
+                        AstKind::UpdateExpression(update) => Some(match update.operator {
+                            UpdateOperator::Increment => 1.0,
+                            UpdateOperator::Decrement => -1.0,
+                        }),
+                        AstKind::AssignmentExpression(assign) => match assign.operator {
+                            AssignmentOperator::Addition => constant(&assign.right),
+                            AssignmentOperator::Subtraction => constant(&assign.right).map(|c| -c),
+                            AssignmentOperator::Assign => match assign.right.without_parentheses() {
+                                Expression::BinaryExpression(binary)
+                                    if binary.operator == BinaryOperator::Addition =>
+                                {
+                                    if names(&binary.left) {
+                                        constant(&binary.right)
+                                    } else if names(&binary.right) {
+                                        constant(&binary.left)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Expression::BinaryExpression(binary)
+                                    if binary.operator == BinaryOperator::Subtraction
+                                        && names(&binary.left) =>
+                                {
+                                    constant(&binary.right).map(|c| -c)
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    step.filter(|step| once && step.is_finite())
+                }
+                _ => None,
+            };
+            Some(Induction {
+                symbol: module.symbol(symbol),
+                range,
+                step,
+                counter: step.is_some() && tested,
+            })
+        })
+        .collect()
+}
+
+/// The spans of the statements directly in `body` (itself, if it isn't a block), as
+/// expression statements' expressions.
+fn statements_of(body: &oxc_ast::ast::Statement<'_>) -> Vec<Span> {
+    use oxc_ast::ast::Statement;
+    use oxc_span::GetSpan;
+    let expression = |statement: &Statement<'_>| match statement {
+        Statement::ExpressionStatement(statement) => Some(statement.expression.span()),
+        _ => None,
+    };
+    match body {
+        Statement::BlockStatement(block) => block.body.iter().filter_map(expression).collect(),
+        statement => expression(statement).into_iter().collect(),
+    }
+}
+
+/// Expressions in the loop `node` that give the same value on every iteration and can be
+/// evaluated once, before the first iteration's body, after the loop's first test passes.
+fn invariant_expressions(
+    facts: &Facts,
+    world: &World<'_>,
+    node: NodeRef,
+    loop_facts: &LoopFacts,
+    volatile: &FxHashSet<NodeRef>,
+) -> Vec<NodeRef> {
+    use oxc_ast::AstKind;
+    use oxc_span::GetSpan;
+    let module = world.module(node.module);
+    let nodes = module.semantic.nodes();
+    let scoping = module.semantic.scoping();
+    let loop_kind = nodes.kind(node.node);
+    let loop_span = loop_kind.span();
+    // Only the parts run on every iteration, before anything conditional: the test and the
+    // body (not a `for` loop's init or update, nor a `for-in`/`of` loop's head).
+    let regions: Vec<Span> = match loop_kind {
+        AstKind::ForStatement(stmt) => stmt
+            .test
+            .iter()
+            .map(GetSpan::span)
+            .chain([stmt.body.span()])
+            .collect(),
+        AstKind::WhileStatement(stmt) => vec![stmt.test.span(), stmt.body.span()],
+        AstKind::DoWhileStatement(stmt) => vec![stmt.body.span(), stmt.test.span()],
+        AstKind::ForInStatement(stmt) => vec![stmt.body.span()],
+        AstKind::ForOfStatement(stmt) => vec![stmt.body.span()],
+        _ => return Vec::new(),
+    };
+    let loop_writes = loop_facts.effects.0.writes;
+    // Node ids are preorder: the loop's descendants follow it.
+    let inside: Vec<_> = (node.node.index() + 1..nodes.len())
+        .map(NodeId::from_usize)
+        .take_while(|&id| {
+            let span = nodes.kind(id).span();
+            loop_span.start <= span.start && span.end <= loop_span.end
+        })
+        .collect();
+    let mut variant_reads: Vec<Span> = Vec::new();
+    for &id in &inside {
+        match nodes.kind(id) {
+            AstKind::IdentifierReference(ident) => {
+                let written = ident
+                    .reference_id
+                    .get()
+                    .and_then(|reference| scoping.get_reference(reference).symbol_id())
+                    .is_some_and(|symbol| loop_facts.written.contains(&module.symbol(symbol)));
+                if written {
+                    variant_reads.push(ident.span);
+                }
+            }
+            // An early exit or a suspension can make what follows conditional (narrowed by
+            // the exit's guard) or let other code run between iterations.
+            AstKind::BreakStatement(_)
+            | AstKind::ContinueStatement(_)
+            | AstKind::ReturnStatement(_)
+            | AstKind::ThrowStatement(_)
+            | AstKind::AwaitExpression(_)
+            | AstKind::YieldExpression(_)
+                if !in_nested_function(nodes, id, node.node) =>
+            {
+                return Vec::new();
+            }
+            _ => {}
+        }
+    }
+    let mut found: Vec<(NodeRef, Span)> = Vec::new();
+    for &id in &inside {
+        let kind = nodes.kind(id);
+        if !matches!(
+            kind,
+            AstKind::BinaryExpression(_)
+                | AstKind::UnaryExpression(_)
+                | AstKind::LogicalExpression(_)
+                | AstKind::ConditionalExpression(_)
+                | AstKind::StaticMemberExpression(_)
+                | AstKind::ComputedMemberExpression(_)
+                | AstKind::CallExpression(_)
+                | AstKind::TemplateLiteral(_)
+        ) {
+            continue;
+        }
+        let span = kind.span();
+        if !regions
+            .iter()
+            .any(|region| region.start <= span.start && span.end <= region.end)
+            || found
+                .iter()
+                .any(|(_, outer)| outer.start <= span.start && span.end <= outer.end)
+        {
+            continue;
+        }
+        let expression = module.node(id);
+        let effects = facts.expr_effects(expression);
+        if effects.trust != Trust::Proven
+            || !effects.value.is_side_effect_free()
+            || effects.value.allocates
+            || (effects.value.reads && loop_writes)
+            || volatile.contains(&expression)
+            || variant_reads
+                .iter()
+                .any(|read| span.start <= read.start && read.end <= span.end)
+            || !unconditional(nodes, id, node.node, span)
+        {
+            continue;
+        }
+        found.push((expression, span));
+    }
+    found.into_iter().map(|(node, _)| node).collect()
+}
+
+/// Whether `id` is inside a function nested in `outer`.
+fn in_nested_function(nodes: &oxc_semantic::AstNodes<'_>, id: NodeId, outer: NodeId) -> bool {
+    use oxc_ast::AstKind;
+    nodes
+        .ancestor_ids(id)
+        .take_while(|&ancestor| ancestor != outer)
+        .any(|ancestor| {
+            matches!(
+                nodes.kind(ancestor),
+                AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) | AstKind::Class(_)
+            )
+        })
+}
+
+/// Whether the expression `id` (spanning `span`) runs whenever its loop `outer`'s iteration
+/// gets that far, in a position where its value alone matters: no conditional, nested loop
+/// or function between them, and not a callee (its `this` would be lost) or a write target.
+fn unconditional(
+    nodes: &oxc_semantic::AstNodes<'_>,
+    id: NodeId,
+    outer: NodeId,
+    span: Span,
+) -> bool {
+    use oxc_ast::AstKind;
+    use oxc_span::GetSpan;
+    match nodes.parent_kind(id) {
+        AstKind::CallExpression(call) if call.callee.span() == span => return false,
+        AstKind::NewExpression(call) if call.callee.span() == span => return false,
+        AstKind::TaggedTemplateExpression(tagged) if tagged.tag.span() == span => return false,
+        AstKind::UnaryExpression(unary)
+            if unary.operator == oxc_syntax::operator::UnaryOperator::Delete =>
+        {
+            return false;
+        }
+        _ => {}
+    }
+    let mut child = id;
+    for ancestor in nodes.ancestor_ids(id) {
+        if ancestor == outer {
+            return true;
+        }
+        let kind = nodes.kind(ancestor);
+        let child_span = nodes.kind(child).span();
+        let conditional = match kind {
+            AstKind::LogicalExpression(logical) => logical.right.span() == child_span,
+            AstKind::ConditionalExpression(conditional) => conditional.test.span() != child_span,
+            AstKind::IfStatement(stmt) => stmt.test.span() != child_span,
+            AstKind::SwitchStatement(stmt) => stmt.discriminant.span() != child_span,
+            AstKind::AssignmentExpression(assignment) => {
+                assignment.operator.is_logical() || assignment.left.span() == child_span
+            }
+            AstKind::UpdateExpression(_)
+            | AstKind::ChainExpression(_)
+            | AstKind::TryStatement(_)
+            | AstKind::ForStatement(_)
+            | AstKind::ForInStatement(_)
+            | AstKind::ForOfStatement(_)
+            | AstKind::WhileStatement(_)
+            | AstKind::DoWhileStatement(_)
+            | AstKind::Function(_)
+            | AstKind::ArrowFunctionExpression(_)
+            | AstKind::Class(_)
+            | AstKind::FormalParameter(_)
+            | AstKind::AssignmentPattern(_)
+            | AstKind::AssignmentTargetWithDefault(_)
+            | AstKind::ArrayAssignmentTarget(_)
+            | AstKind::ObjectAssignmentTarget(_) => true,
+            _ => false,
+        };
+        if conditional {
+            return false;
+        }
+        child = ancestor;
+    }
+    false
 }

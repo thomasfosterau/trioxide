@@ -1955,6 +1955,8 @@ dependencies = [
  "insta",
  "json-strip-comments",
  "oxc_allocator",
+ "oxc_ast",
+ "oxc_codegen",
  "oxc_diagnostics",
  "oxc_parser",
  "oxc_semantic",

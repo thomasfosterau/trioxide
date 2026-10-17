@@ -1,0 +1,107 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/varied-inputs
+input_file: tests/fixtures/analysis/varied-inputs/input.ts
+---
+//- input.ts
+// Module-private functions driven with many inputs, so the runtime check sees every fact
+// under more than one value (parameters, narrowing, ranges, bounds, shapes and effects).
+class Vec2 {
+	x;
+	y;
+	constructor(x, y) {
+		this.x = x;
+		this.y = y;
+	}
+	length() {
+		return Math.sqrt(this.x * this.x + this.y * this.y);
+	}
+}
+function classify(value) {
+	if (value === null || value === undefined) {
+		return "none";
+	}
+	if (typeof value === "string") {
+		return value.length > 3 ? "long" : "short";
+	}
+	if (Number.isNaN(value)) {
+		return "nan";
+	}
+	return value < 0 ? "negative" : value === 0 ? Object.is(value, -0) ? "-0" : "0" : "positive";
+}
+function clamp(value, low, high) {
+	return Math.min(Math.max(value, low), high);
+}
+function sum(values) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		total += values[i];
+	}
+	return total;
+}
+function bytes(n) {
+	const out = new Uint8Array(n);
+	for (let i = 0; i < out.length; i++) {
+		out[i] = i * 37;
+	}
+	return out.length === 0 ? -1 : out[out.length - 1];
+}
+function shape(flag) {
+	const point = {
+		x: 1,
+		y: 2
+	};
+	const v = new Vec2(point.x, flag ? point.y : -point.y);
+	return v.length() + point.x;
+}
+function divide(a, b) {
+	return a / b | 0;
+}
+export function main() {
+	const inputs = [
+		0,
+		-0,
+		1,
+		-1,
+		.5,
+		NaN,
+		Infinity,
+		-Infinity,
+		2 ** 31,
+		-(2 ** 31) - 1,
+		"",
+		"abcd",
+		null,
+		undefined
+	];
+	const seen = [];
+	for (const input of inputs) {
+		seen.push(classify(input));
+	}
+	const numbers = [
+		0,
+		-0,
+		1,
+		-1,
+		.5,
+		NaN,
+		Infinity,
+		-Infinity,
+		1e300,
+		-1e-300
+	];
+	let acc = 0;
+	for (const a of numbers) {
+		for (const b of numbers) {
+			acc += clamp(a, -1, 1) + divide(a, b);
+		}
+	}
+	console.log(seen.join(","), acc);
+	console.log(sum([]), sum([1]), sum([
+		1,
+		2.5,
+		-3
+	]), sum(numbers.slice(0, 3)));
+	console.log(bytes(0), bytes(1), bytes(10), bytes(300));
+	console.log(shape(true), shape(false));
+}

@@ -1,0 +1,67 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
+description: tests/fixtures/analysis/throwing-callees
+input_file: tests/fixtures/analysis/throwing-callees/input.ts
+---
+//- input.ts
+// Throws through callers, arrows, constructors, field initialisers and static blocks.
+let log = 0;
+function thrower(n) {
+	if (n > 2) {
+		throw "big";
+	}
+	return n;
+}
+const viaArrow = (n) => thrower(n);
+const viaBlockArrow = (n) => {
+	return thrower(n) + 1;
+};
+function viaFunction(n) {
+	return viaArrow(n) * 2;
+}
+const writesArrow = (n) => log += n;
+class Checked {
+	value;
+	constructor(n) {
+		this.value = thrower(n);
+	}
+}
+class Initialised {
+	first = thrower(1);
+	second = writesArrow(1);
+}
+class Static {
+	static ready = 0;
+	static {
+		Static.ready = thrower(2);
+		log += 1;
+	}
+}
+function guarded(n) {
+	try {
+		return viaFunction(n);
+	} catch {
+		return -1;
+	}
+}
+export function main() {
+	const results = [
+		guarded(1),
+		guarded(5),
+		viaBlockArrow(1),
+		writesArrow(2)
+	];
+	let caught = 0;
+	try {
+		viaBlockArrow(9);
+	} catch {
+		caught += 1;
+	}
+	try {
+		new Checked(7);
+	} catch {
+		caught += 1;
+	}
+	console.log(results, caught, new Checked(1).value, new Initialised().second, Static.ready, log);
+}

@@ -1,19 +1,21 @@
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
-use trioxide_analysis::{Analysis, AnalysisOptions, ModuleInput, analyze};
+use trioxide_analysis::{Analysis, AnalysisOptions};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
 use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
 use trioxide_project::{
-    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, JsxMode, ModuleGraph,
-    find_tsconfig,
+    CompilerSettings, ContentCache, ContentHash, GraphOptions, ModuleGraph, find_tsconfig,
 };
-use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
+use trioxide_types::{SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
     BuildOutput, Error, ExplainQuery, Invalidation, Mode, ModuleOutput, Options, Report, Result,
-    World, islands,
+    World,
+    analysis::{self, FactRefresher, analysis_inputs},
+    islands,
     pipeline::{ModuleCompiler, ModuleSource},
     report::ModuleReport,
 };
@@ -40,6 +42,12 @@ pub struct Project {
     outputs: ContentCache<ModuleOutput>,
     logs: Vec<ModuleLog>,
     built_from_entries: bool,
+    /// Whether the analysis has run (else every fact is unknown, which is safe).
+    analysed: bool,
+    /// Whether the facts may not match the graph: a source changed, an entry was added, or
+    /// they were computed from other text. The next [`transform`](Self::transform)
+    /// re-analyses first.
+    stale: bool,
     diagnostics: Vec<Diagnostic>,
     debug_islands: Vec<IslandSource>,
     island_builder: Option<Box<dyn IslandBuilder>>,
@@ -121,6 +129,8 @@ impl Project {
             outputs: ContentCache::default(),
             logs: Vec::new(),
             built_from_entries: false,
+            analysed: false,
+            stale: false,
             diagnostics: warnings,
             debug_islands: Vec::new(),
             island_builder: None,
@@ -239,6 +249,7 @@ impl Project {
             path: &module.path,
             source: &module.source,
         });
+        self.stale = true;
         let dependants = self.graph.dependants(id);
         Ok(Invalidation {
             changed: Some(module.path.clone()),
@@ -253,12 +264,19 @@ impl Project {
     /// The compiled form of one module, for per-file consumers such as the Vite plugin.
     ///
     /// Served from cache when the module and options are unchanged. A module that isn't in
-    /// the graph yet is added as an entry (with everything it imports).
+    /// the graph yet is added as an entry (with everything it imports). Once the program has
+    /// been analysed, a transform after an [`update`](Self::update) or a new entry analyses
+    /// it again first, so passes never see facts about other text.
     pub fn transform(&mut self, path: &Path) -> Result<ModuleOutput> {
-        let id = match self.graph.get(path) {
-            Some(id) => id,
-            None => self.graph.add_entries(&[path.to_path_buf()])?[0],
+        let id = if let Some(id) = self.graph.get(path) {
+            id
+        } else {
+            self.stale = true;
+            self.graph.add_entries(&[path.to_path_buf()])?[0]
         };
+        if self.analysed && self.stale {
+            self.analyse();
+        }
         Ok(self.compile(id))
     }
 
@@ -294,55 +312,35 @@ impl Project {
         self.report().filter(query)
     }
 
+    /// Re-analyses the program with some modules' sources replaced, e.g. by the regenerated
+    /// (still TypeScript) source of a module the passes rewrote, and returns the new facts.
+    ///
+    /// The type oracle reloads the replaced sources too. Node ids in the facts are those a
+    /// fresh parse of each source gets (`Parser::new(..)` with the module's source type, then
+    /// `SemanticBuilder`), so a pass manager continues on a reparse of the text it passed.
+    /// Modules not listed keep their graph sources; a path that isn't in the graph is ignored.
+    ///
+    /// The project keeps these facts (and the oracle the replaced text) until the next
+    /// [`build`](Self::build), [`facts`](Self::facts) or [`transform`](Self::transform), which
+    /// analyse the graph's own sources again. Cached outputs are dropped.
+    pub fn reanalyse(&mut self, sources: &[(PathBuf, String)]) -> &trioxide_analysis::Facts {
+        let overrides: FxHashMap<ModuleId, &str> = sources
+            .iter()
+            .filter_map(|(path, source)| Some((self.graph.get(path)?, source.as_str())))
+            .collect();
+        let diagnostics = self.run_analysis(&overrides);
+        self.diagnostics.extend(diagnostics);
+        self.outputs.clear();
+        self.analysed = true;
+        self.stale = true;
+        &self.analysis.facts
+    }
+
     /// Runs the whole-program stages: type oracle, analysis and partitioning.
     fn analyse(&mut self) {
-        let modules = self.graph.modules();
-        let sources: Vec<SourceText<'_>> = modules
-            .iter()
-            .map(|module| SourceText {
-                module: module.id,
-                path: &module.path,
-                source: &module.source,
-            })
-            .collect();
-        let input = OracleInput {
-            root: &self.root,
-            tsconfig: self.settings.path.as_deref(),
-            modules: &sources,
-            check: self.options.check,
-        };
-        let mut diagnostics = self.oracle.load(&input);
-        if self.options.check {
-            for module in modules {
-                diagnostics.extend(self.oracle.diagnostics(module.id));
-            }
-        }
-
-        let world = self.options.world_or(self.built_from_entries);
-        let inputs = analysis_inputs(&self.graph);
-        self.analysis = analyze(
-            &inputs,
-            &mut *self.oracle,
-            AnalysisOptions {
-                closed_world: world == World::App,
-                trust_types: self.options.trust_types,
-                jsx_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
-                    self.settings
-                        .jsx_factory
-                        .clone()
-                        .unwrap_or_else(|| "React.createElement".into())
-                }),
-                jsx_fragment_factory: (self.settings.jsx == JsxMode::Classic).then(|| {
-                    self.settings
-                        .jsx_fragment_factory
-                        .clone()
-                        .unwrap_or_else(|| "React.Fragment".into())
-                }),
-                entries: self.graph.entries().to_vec(),
-            },
-        );
-        diagnostics.append(&mut self.analysis.diagnostics);
-
+        let diagnostics = self.run_analysis(&FxHashMap::default());
+        self.analysed = true;
+        self.stale = false;
         let partitioner = Partitioner::new(PartitionOptions {
             mode: match self.options.mode {
                 Mode::JsOnly => PartitionMode::JsOnly,
@@ -361,12 +359,61 @@ impl Project {
         self.diagnostics.extend(diagnostics);
     }
 
+    /// What an analysis run of this project needs besides the graph and the oracle.
+    fn setup(&self) -> analysis::Setup {
+        let world = self.options.world_or(self.built_from_entries);
+        let (jsx_factory, jsx_fragment_factory) = analysis::jsx_factories(&self.settings);
+        analysis::Setup {
+            root: self.root.clone(),
+            tsconfig: self.settings.path.clone(),
+            check: self.options.check,
+            options: AnalysisOptions {
+                closed_world: world == World::App,
+                trust_types: self.options.trust_types,
+                jsx_factory,
+                jsx_fragment_factory,
+                entries: self.graph.entries().to_vec(),
+            },
+        }
+    }
+
+    /// Loads the oracle and analyses the graph, with `overrides` in place of some modules'
+    /// sources. Returns the diagnostics.
+    fn run_analysis(&mut self, overrides: &FxHashMap<ModuleId, &str>) -> Vec<Diagnostic> {
+        let setup = self.setup();
+        let (analysis, diagnostics) =
+            analysis::analyse_graph(&mut *self.oracle, &self.graph, &setup, overrides);
+        self.analysis = analysis;
+        diagnostics
+    }
+
+    /// The id of the graph module at `path`, if it is in the graph.
+    pub fn module_id(&self, path: &Path) -> Option<ModuleId> {
+        self.graph.get(path)
+    }
+
+    /// The project's facts as a [`FactSource`](trioxide_js::FactSource) whose `refresh`
+    /// re-analyses a rewritten module (see [`FactRefresher`]), for a pass manager to run with.
+    ///
+    /// The facts it refreshes replace the project's (and the oracle keeps the rewritten
+    /// text) until the next [`build`](Self::build), [`facts`](Self::facts) or
+    /// [`transform`](Self::transform), which analyse the graph's own sources again. Cached
+    /// outputs are dropped.
+    pub fn fact_refresher(&mut self) -> FactRefresher<'_> {
+        self.stale = true;
+        self.outputs.clear();
+        let setup = self.setup();
+        FactRefresher::new(&mut *self.oracle, &self.graph, setup, &mut self.analysis)
+    }
+
     fn compile(&mut self, id: ModuleId) -> ModuleOutput {
         let module = self.graph.module(id);
         let key = module.hash.combine(self.options_hash);
         if let Some(cached) = self.outputs.get(id, key) {
             return cached.clone();
         }
+        let setup = self.setup();
+        let module = self.graph.module(id);
         if self.logs.len() <= id.index() {
             self.logs.resize_with(id.index() + 1, ModuleLog::default);
         }
@@ -378,9 +425,12 @@ impl Project {
             source: &module.source,
             source_type: module.source_type,
         };
-        let mut output = self
-            .compiler
-            .compile(&input, &mut self.analysis.facts, log, true);
+        // Passes see facts refreshed after each group that changes the module; other modules
+        // compile against the program's own facts, so those come back afterwards.
+        let mut facts =
+            FactRefresher::new(&mut *self.oracle, &self.graph, setup, &mut self.analysis);
+        let mut output = self.compiler.compile(&input, &mut facts, log, true);
+        facts.restore();
         let mut diagnostics = module.diagnostics.clone();
         diagnostics.append(&mut output.diagnostics);
         output.diagnostics = diagnostics;
@@ -407,31 +457,6 @@ impl Project {
             diagnostics: self.diagnostics.clone(),
         }
     }
-}
-
-/// The analysis inputs for every module of `graph`.
-fn analysis_inputs(graph: &ModuleGraph) -> Vec<ModuleInput<'_>> {
-    graph
-        .modules()
-        .iter()
-        .map(|module| ModuleInput {
-            id: module.id,
-            path: &module.path,
-            source: &module.source,
-            source_type: module.source_type,
-            imports: module
-                .imports
-                .iter()
-                .map(|import| {
-                    let target = match import.target {
-                        ImportTarget::Module(id) => Some(id),
-                        _ => None,
-                    };
-                    (import.specifier.clone(), target)
-                })
-                .collect(),
-        })
-        .collect()
 }
 
 /// Strips TypeScript from one module without analysis or optimisation: plain

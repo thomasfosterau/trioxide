@@ -1,0 +1,264 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/varied-inputs
+input_file: tests/fixtures/analysis/varied-inputs/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Vec2.<fields> (4:12): pure
+  Vec2.constructor (5:14): writes
+  Vec2.length (9:9): reads
+  classify (14:1): pure
+  clamp (27:1): pure
+  sum (31:1): reads
+  bytes (39:1): allocates (declared: allocates throws)
+  shape (47:1): reads writes allocates throws
+    calls 49:13 -> Vec2.<fields>
+    calls 49:13 -> Vec2.constructor
+    calls 50:10 -> Vec2.length
+  divide (53:1): pure
+  main (57:8) open: reads writes allocates throws calls-unknown
+    calls 63:15 -> classify
+    calls 69:14 -> clamp
+    calls 69:32 -> divide
+    calls 73:15 -> sum
+    calls 73:24 -> sum
+    calls 73:34 -> sum
+    calls 73:53 -> sum
+    calls 74:15 -> bytes
+    calls 74:25 -> bytes
+    calls 74:35 -> bytes
+    calls 74:46 -> bytes
+    calls 75:15 -> shape
+    calls 75:28 -> shape
+classes:
+  Vec2 (4:1): fields [x, y] stable
+nodes:
+  4:7 bind `Vec2`: function@proven
+  6:12 bind `x`: 1@proven
+  7:12 bind `y`: number[-2, 2] int nonNaN nonNegZero@proven
+  10:12 call `Math.sqrt(this.x * this.x + this.y * ...`: number[0, 2.23606797749979] nonNegZero@proven
+  10:12 member `Math.sqrt`: unknown
+  10:12 ref `Math`: unknown
+  10:22 binary `this.x * this.x + this.y * this.y`: number[-3, 5] int nonNaN nonNegZero@proven
+  10:22 binary `this.x * this.x`: 1@proven
+  10:22 member `this.x`: 1@proven
+  10:22 this `this`: Vec2@proven
+  10:31 member `this.x`: 1@proven
+  10:31 this `this`: Vec2@proven
+  10:40 binary `this.y * this.y`: number[-4, 4] int nonNaN@proven
+  10:40 member `this.y`: number[-2, 2] int nonNaN nonNegZero@proven
+  10:40 this `this`: Vec2@proven
+  10:49 member `this.y`: number[-2, 2] int nonNaN nonNegZero@proven
+  10:49 this `this`: Vec2@proven
+  14:10 bind `classify`: function@proven
+  14:19 bind `value`: undefined | null | number | string@proven
+  15:7 binary `value === null || value === undefined`: boolean@proven
+  15:7 binary `value === null`: boolean@proven
+  15:7 ref `value`: undefined | null | number | string@proven
+  15:25 binary `value === undefined`: boolean@proven
+  15:25 ref `value`: undefined | number | string@proven
+  15:35 ref `undefined`: undefined@proven
+  18:7 binary `typeof value === "string"`: boolean@proven
+  18:7 unary `typeof value`: string@proven
+  18:14 ref `value`: number | string@proven
+  19:12 cond `value.length > 3 ? "long" : "short"`: string@proven
+  19:12 binary `value.length > 3`: boolean@proven
+  19:12 member `value.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  19:12 ref `value`: string@proven
+  21:7 call `Number.isNaN(value)`: boolean@proven
+  21:7 member `Number.isNaN`: unknown
+  21:7 ref `Number`: unknown
+  21:20 ref `value`: number@proven
+  24:10 cond `value < 0 ? "negative" : value === 0 ...`: string@proven
+  24:10 binary `value < 0`: boolean@proven
+  24:10 ref `value`: number@proven
+  24:35 cond `value === 0 ? (Object.is(value, -0) ?...`: string@proven
+  24:35 binary `value === 0`: boolean@proven
+  24:35 ref `value`: number@proven
+  24:50 cond `Object.is(value, -0) ? "-0" : "0"`: string@proven
+  24:50 call `Object.is(value, -0)`: boolean@proven
+  24:50 member `Object.is`: unknown
+  24:50 ref `Object`: unknown
+  24:60 ref `value`: number[0, 0] int nonNaN@proven
+  24:67 unary `-0`: number[-0, -0] int nonNaN@proven
+  27:10 bind `clamp`: function@proven
+  27:16 bind `value`: number@proven
+  27:31 bind `low`: -1@proven
+  27:44 bind `high`: 1@proven
+  28:10 call `Math.min(Math.max(value, low), high)`: number[-1, 1]@proven
+  28:10 member `Math.min`: unknown
+  28:10 ref `Math`: unknown
+  28:19 call `Math.max(value, low)`: number[-1, inf]@proven
+  28:19 member `Math.max`: unknown
+  28:19 ref `Math`: unknown
+  28:28 ref `value`: number@proven
+  28:35 ref `low`: -1@proven
+  28:41 ref `high`: 1@proven
+  31:10 bind `sum`: function@proven
+  31:14 bind `values`: number[]@proven
+  32:7 bind `total`: 0@proven
+  33:12 bind `i`: 0@proven
+  33:19 binary `i < values.length`: boolean@proven
+  33:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  33:23 member `values.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  33:23 ref `values`: number[]@proven
+  33:38 unary `i++`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  33:38 ref `i`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  34:5 assign `total += values[i]`: number nonNegZero@proven
+  34:5 ref `total`: number nonNegZero@proven
+  34:14 member `values[i]`: number@proven in-bounds@proven
+  34:14 ref `values`: number[]@proven
+  34:21 ref `i`: number[0, 4294967294] int nonNaN nonNegZero@proven
+  36:10 ref `total`: number nonNegZero@proven
+  39:10 bind `bytes`: function@proven
+  39:16 bind `n`: number[0, 300] int nonNaN nonNegZero@proven
+  40:9 bind `out`: Uint8Array@proven
+  40:15 new `new Uint8Array(n)`: Uint8Array@proven escape=none
+  40:19 ref `Uint8Array`: unknown
+  40:30 ref `n`: number[0, 300] int nonNaN nonNegZero@proven
+  41:12 bind `i`: 0@proven
+  41:19 binary `i < out.length`: boolean@proven
+  41:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  41:23 member `out.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  41:23 ref `out`: Uint8Array@proven
+  41:35 unary `i++`: number[0, 9007199254740990] int nonNaN nonNegZero@proven
+  41:35 ref `i`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  42:5 assign `out[i] = i * 37`: number[0, 333266372425416640] int nonNaN nonNegZero@proven
+  42:5 member `out[i]`: unknown
+  42:5 ref `out`: Uint8Array@proven
+  42:9 ref `i`: number[0, 9007199254740990] int nonNaN nonNegZero@proven
+  42:14 binary `i * 37`: number[0, 333266372425416640] int nonNaN nonNegZero@proven
+  42:14 ref `i`: number[0, 9007199254740990] int nonNaN nonNegZero@proven
+  44:10 cond `out.length === 0 ? -1 : out[out.lengt...`: undefined | (number[-1, 255] int nonNaN nonNegZero)@proven
+  44:10 binary `out.length === 0`: boolean@proven
+  44:10 member `out.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  44:10 ref `out`: Uint8Array@proven
+  44:29 unary `-1`: -1@proven
+  44:34 member `out[out.length - 1]`: undefined | (number[0, 255] int nonNaN nonNegZero)@proven
+  44:34 ref `out`: Uint8Array@proven
+  44:38 binary `out.length - 1`: number[-1, 9007199254740990] int nonNaN nonNegZero@proven
+  44:38 member `out.length`: number[0, 9007199254740991] int nonNaN nonNegZero@proven
+  44:38 ref `out`: Uint8Array@proven
+  47:10 bind `shape`: function@proven
+  47:16 bind `flag`: boolean@proven
+  48:9 bind `point`: {| x: 1, y: 2 |}@proven
+  48:17 object `{ x: 1, y: 2 }`: {| x: 1, y: 2 |}@proven escape=none stable-shape
+  49:9 bind `v`: Vec2@proven
+  49:13 new `new Vec2(point.x, flag ? point.y : -p...`: Vec2@proven escape=known
+  49:17 ref `Vec2`: function@proven
+  49:22 member `point.x`: 1@proven
+  49:22 ref `point`: {| x: 1, y: 2 |}@proven
+  49:31 cond `flag ? point.y : -point.y`: number[-2, 2] int nonNaN nonNegZero@proven
+  49:31 ref `flag`: boolean@proven
+  49:38 member `point.y`: 2@proven
+  49:38 ref `point`: {| x: 1, y: 2 |}@proven
+  49:48 unary `-point.y`: -2@proven
+  49:49 member `point.y`: 2@proven
+  49:49 ref `point`: {| x: 1, y: 2 |}@proven
+  50:10 binary `v.length() + point.x`: number[1, inf] nonNegZero@proven
+  50:10 call `v.length()`: number[0, inf]@proven
+  50:10 member `v.length`: function@proven
+  50:10 ref `v`: Vec2@proven
+  50:23 member `point.x`: 1@proven
+  50:23 ref `point`: {| x: 1, y: 2 |}@proven
+  53:10 bind `divide`: function@proven
+  53:17 bind `a`: number@proven
+  53:28 bind `b`: number@proven
+  54:10 binary `(a / b) | 0`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  54:11 binary `a / b`: number@proven
+  54:11 ref `a`: number@proven
+  54:15 ref `b`: number@proven
+  57:17 bind `main`: function@proven
+  58:9 bind `inputs`: (undefined | null | number | string)[]@proven
+  58:58 array `[ 0, -0, 1, -1, 0.5, NaN, Infinity, -...`: (undefined | null | number | string)[]@proven escape=none stable-shape
+  59:8 unary `-0`: number[-0, -0] int nonNaN@proven
+  59:15 unary `-1`: -1@proven
+  59:24 ref `NaN`: number@proven
+  59:29 ref `Infinity`: inf@proven
+  59:39 unary `-Infinity`: -inf@proven
+  59:40 ref `Infinity`: inf@proven
+  59:50 binary `2 ** 31`: number[0, inf] int nonNegZero@proven
+  59:59 binary `-(2 ** 31) - 1`: number[-inf, -1] int nonNegZero@proven
+  59:59 unary `-(2 ** 31)`: number[-inf, -0] int@proven
+  59:61 binary `2 ** 31`: number[0, inf] int nonNegZero@proven
+  59:93 ref `undefined`: undefined@proven
+  61:9 bind `seen`: string[]@proven
+  61:26 array `[]`: string[]@proven escape=none stable-shape
+  62:14 bind `input`: undefined | null | number | string@proven
+  62:23 ref `inputs`: (undefined | null | number | string)[]@proven
+  63:5 call `seen.push(classify(input))`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  63:5 member `seen.push`: unknown
+  63:5 ref `seen`: string[]@proven
+  63:15 call `classify(input)`: string@proven
+  63:15 ref `classify`: function@proven
+  63:24 ref `input`: undefined | null | number | string@proven
+  65:9 bind `numbers`: number[]@proven
+  65:19 array `[0, -0, 1, -1, 0.5, NaN, Infinity, -I...`: number[]@proven escape=none stable-shape
+  65:23 unary `-0`: number[-0, -0] int nonNaN@proven
+  65:30 unary `-1`: -1@proven
+  65:39 ref `NaN`: number@proven
+  65:44 ref `Infinity`: inf@proven
+  65:54 unary `-Infinity`: -inf@proven
+  65:55 ref `Infinity`: inf@proven
+  65:72 unary `-1e-300`: -0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001@proven
+  66:7 bind `acc`: 0@proven
+  67:14 bind `a`: number@proven
+  67:19 ref `numbers`: number[]@proven
+  68:16 bind `b`: number@proven
+  68:21 ref `numbers`: number[]@proven
+  69:7 assign `acc += clamp(a, -1, 1) + divide(a, b)`: number nonNegZero@proven
+  69:7 ref `acc`: number nonNegZero@proven
+  69:14 binary `clamp(a, -1, 1) + divide(a, b)`: number nonNegZero@proven
+  69:14 call `clamp(a, -1, 1)`: number@proven
+  69:14 ref `clamp`: function@proven
+  69:20 ref `a`: number@proven
+  69:23 unary `-1`: -1@proven
+  69:32 call `divide(a, b)`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  69:32 ref `divide`: function@proven
+  69:39 ref `a`: number@proven
+  69:42 ref `b`: number@proven
+  72:3 call `console.log(seen.join(","), acc)`: unknown
+  72:3 member `console.log`: unknown
+  72:3 ref `console`: unknown
+  72:15 call `seen.join(",")`: string@proven
+  72:15 member `seen.join`: unknown
+  72:15 ref `seen`: string[]@proven
+  72:31 ref `acc`: number nonNegZero@proven
+  73:3 call `console.log(sum([]), sum([1]), sum([1...`: unknown
+  73:3 member `console.log`: unknown
+  73:3 ref `console`: unknown
+  73:15 call `sum([])`: number nonNegZero@proven
+  73:15 ref `sum`: function@proven
+  73:19 array `[]`: never[]@proven escape=known stable-shape
+  73:24 call `sum([1])`: number nonNegZero@proven
+  73:24 ref `sum`: function@proven
+  73:28 array `[1]`: 1[]@proven escape=known stable-shape
+  73:34 call `sum([1, 2.5, -3])`: number nonNegZero@proven
+  73:34 ref `sum`: function@proven
+  73:38 array `[1, 2.5, -3]`: (number[-3, 2.5] nonNaN nonNegZero)[]@proven escape=known stable-shape
+  73:47 unary `-3`: -3@proven
+  73:53 call `sum(numbers.slice(0, 3))`: number nonNegZero@proven
+  73:53 ref `sum`: function@proven
+  73:57 call `numbers.slice(0, 3)`: number[]@proven escape=known stable-shape
+  73:57 member `numbers.slice`: unknown
+  73:57 ref `numbers`: number[]@proven
+  74:3 call `console.log(bytes(0), bytes(1), bytes...`: unknown
+  74:3 member `console.log`: unknown
+  74:3 ref `console`: unknown
+  74:15 call `bytes(0)`: undefined | (number[-1, 255] int nonNaN nonNegZero)@proven
+  74:15 ref `bytes`: function@proven
+  74:25 call `bytes(1)`: undefined | (number[-1, 255] int nonNaN nonNegZero)@proven
+  74:25 ref `bytes`: function@proven
+  74:35 call `bytes(10)`: undefined | (number[-1, 255] int nonNaN nonNegZero)@proven
+  74:35 ref `bytes`: function@proven
+  74:46 call `bytes(300)`: undefined | (number[-1, 255] int nonNaN nonNegZero)@proven
+  74:46 ref `bytes`: function@proven
+  75:3 call `console.log(shape(true), shape(false))`: unknown
+  75:3 member `console.log`: unknown
+  75:3 ref `console`: unknown
+  75:15 call `shape(true)`: number[1, inf] nonNegZero@proven
+  75:15 ref `shape`: function@proven
+  75:28 call `shape(false)`: number[1, inf] nonNegZero@proven
+  75:28 ref `shape`: function@proven

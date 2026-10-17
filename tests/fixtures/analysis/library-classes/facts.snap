@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/library-classes/input.ts
 //- input.ts
 functions:
   <module> (1:1): allocates
-  Account.<fields> (4:22) open: writes throws calls-unknown
+  Account.<fields> (4:22) open: reads writes throws calls-unknown
   Account.deposit (6:10) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
   Internal.<fields> (12:16): writes
   Internal.get (14:6): reads

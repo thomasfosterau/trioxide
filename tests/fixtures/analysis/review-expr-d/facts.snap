@@ -13,8 +13,8 @@ functions:
   arrays (23:1): reads writes allocates throws calls-unknown
   thisArg (34:1): reads writes allocates throws calls-unknown
   <anonymous> (35:15) open: reads writes allocates throws calls-unknown
-  Made.<fields> (42:12) open: writes throws calls-unknown
-  Made.get (44:6) open: reads throws calls-unknown (declared: reads)
+  Made.<fields> (42:12) open: reads writes throws calls-unknown
+  Made.get (44:6) open: reads writes throws calls-unknown (declared: reads)
   main (50:8) open: reads writes allocates throws calls-unknown
     calls 51:13 -> Base.<fields>
     calls 51:13 -> Derived.<fields>

@@ -9,13 +9,13 @@ functions:
   pure (5:1): pure
   reader (9:1): reads
   writer (13:1): writes
-  thrower (17:1): allocates throws calls-unknown
+  thrower (17:1): reads writes allocates throws calls-unknown
   allocator (24:1): allocates
   caller (28:1): reads writes
     calls 29:3 -> writer
     calls 29:10 -> pure
     calls 30:10 -> reader
-  catches (33:1): allocates throws calls-unknown
+  catches (33:1): reads writes allocates throws calls-unknown
     calls 35:12 -> thrower
   main (41:8) open: reads writes allocates throws calls-unknown
     calls 42:15 -> pure

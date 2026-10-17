@@ -47,6 +47,35 @@ fn fields_and_constructor_assignments(
         }
         fields = definite_fields(world, parent);
     }
+    // Parameter properties come first: TypeScript emits them before the other fields under
+    // both field semantics.
+    let constructor_params = info
+        .class
+        .body
+        .body
+        .iter()
+        .find_map(|element| match element {
+            ClassElement::MethodDefinition(method)
+                if method.kind == MethodDefinitionKind::Constructor =>
+            {
+                Some(&method.value.params)
+            }
+            _ => None,
+        });
+    for param in constructor_params
+        .into_iter()
+        .flat_map(|params| &params.items)
+    {
+        if param.initializer.as_deref().is_some_and(uses_this) {
+            break;
+        }
+        if is_parameter_property(param)
+            && let BindingPattern::BindingIdentifier(id) = &param.pattern
+            && !fields.contains(&id.name.to_string())
+        {
+            fields.push(id.name.to_string());
+        }
+    }
     for element in &info.class.body.body {
         let ClassElement::PropertyDefinition(property) = element else {
             if let ClassElement::AccessorProperty(property) = element
@@ -96,6 +125,7 @@ fn constructor_prefix(
     for param in &constructor.params.items {
         if is_parameter_property(param)
             && let BindingPattern::BindingIdentifier(id) = &param.pattern
+            && !fields.contains(&id.name.to_string())
         {
             fields.push(id.name.to_string());
         }

@@ -73,7 +73,22 @@ impl<'a> Cx<'_, '_, 'a> {
     /// Evaluates an expression and records its value.
     pub fn expr(&mut self, expression: &'a Expression<'a>) -> Val {
         self.position = expression.span().start;
+        self.frames.push(super::Frame::new(self.record.edges.len()));
         let value = self.expr_inner(expression);
+        let frame = self.frames.pop().expect("the expression's frame");
+        // Every evaluation is recorded, pure ones too: an expression with no record (a
+        // callee member, a part of a `?.` chain) has unknown effects, not none.
+        #[expect(clippy::cast_possible_truncation, reason = "edges of one unit")]
+        let visit = super::ExprVisit {
+            node: expression.node_id(),
+            proven: frame.proven,
+            declared: frame.declared,
+            local_writes: frame.local_writes,
+            volatile: frame.volatile,
+            shared_reads: frame.shared_reads,
+            edges: (frame.edges as u32, self.record.edges.len() as u32),
+        };
+        self.record.expr_effects.push(visit);
         self.record_node(expression.node_id(), &value);
         value
     }
@@ -174,11 +189,12 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             Expression::AwaitExpression(await_expression) => {
                 let value = self.expr(&await_expression.argument);
-                self.escape_value(&value, Escape::Known);
-                // Awaiting a primitive gives it back; anything else may be a thenable.
+                // Awaiting a primitive gives it back; anything else may be a thenable whose
+                // `then` the engine calls with its own resolve and reject: its methods are open.
                 if value.is_primitive(false) {
                     value
                 } else {
+                    self.escape_value(&value, Escape::Unknown);
                     self.effect(EffectKind::CallsUnknown, false, value.is_primitive(true));
                     self.always(EffectKind::Throws);
                     let value = Val::unknown();
@@ -463,8 +479,9 @@ impl<'a> Cx<'_, '_, 'a> {
         let (proven_free, declared_free) = (no_throw(false), no_throw(true));
         self.effect(EffectKind::Throws, proven_free, declared_free);
         if !proven {
-            self.escape_value(value, Escape::Known);
-            // `valueOf`, `toString` or `Symbol.toPrimitive` may run and change anything.
+            // `valueOf`, `toString` or `Symbol.toPrimitive` may run, called by the engine (so
+            // they are open), and change anything.
+            self.escape_value(value, Escape::Unknown);
             self.after_call(false);
             self.note_call();
         }
@@ -946,6 +963,23 @@ impl<'a> Cx<'_, '_, 'a> {
             B::Addition => {
                 self.coerce(left, false);
                 self.coerce(right, false);
+                // A bigint plus anything but a bigint or a string throws.
+                let mixes = |declared: bool| {
+                    let bigint = |value: &Val| {
+                        !value.is_primitive(declared) || value.ty.members().contains(&Type::BigInt)
+                    };
+                    let other = |value: &Val| {
+                        !value.is_primitive(declared)
+                            || value
+                                .ty
+                                .members()
+                                .iter()
+                                .any(|member| !matches!(member, Type::BigInt | Type::String))
+                    };
+                    (bigint(left) && other(right)) || (bigint(right) && other(left))
+                };
+                let (proven_mixes, declared_mixes) = (mixes(false), mixes(true));
+                self.effect(EffectKind::Throws, !proven_mixes, !declared_mixes);
                 let string =
                     |value: &Val| value.trust >= Trust::Declared && value.ty == Type::String;
                 if (string(left) || string(right))
@@ -1127,7 +1161,22 @@ impl<'a> Cx<'_, '_, 'a> {
         let Some(simple) = assign.left.as_simple_assignment_target() else {
             return Val::unknown();
         };
-        let old = self.simple_target_value(simple);
+        // A member target's object and key are evaluated once, for the read and the write.
+        let member = simple.as_member_expression();
+        let evaluated = member.map(|member| (self.expr(member.object()), self.member_key(member)));
+        let old = match (member, &evaluated) {
+            (Some(member), Some((object, key))) => {
+                let node = member.node_id();
+                let value = self.read_prop_at(object, key, node, member);
+                self.require_object(object);
+                self.or_declared(value, node, member.span())
+            }
+            _ => self.simple_target_value(simple),
+        };
+        let store = |cx: &mut Self, value: Val| match &evaluated {
+            Some((object, key)) => cx.write_prop(object, key, &value, assign.node_id.get(), false),
+            None => cx.assign_simple(simple, value, assign.node_id.get()),
+        };
         let value = if let Some(logical) = operator.to_logical_operator() {
             // `a ||= b` etc. assign only on one branch; the result is one of the two.
             let right = self.expr(&assign.right);
@@ -1140,7 +1189,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 },
             };
             let value = kept.join(&right);
-            self.assign_simple(simple, value.clone(), assign.node_id.get());
+            store(self, value.clone());
             return value;
         } else if let Some(binary) = operator.to_binary_operator() {
             let right = self.expr(&assign.right);
@@ -1148,7 +1197,7 @@ impl<'a> Cx<'_, '_, 'a> {
         } else {
             Val::unknown()
         };
-        self.assign_simple(simple, value.clone(), assign.node_id.get());
+        store(self, value.clone());
         value
     }
 
@@ -1501,6 +1550,7 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// Reads property `key` of `object`.
     pub fn read_prop(&mut self, object: &Val, key: &Key, node: oxc_syntax::node::NodeId) -> Val {
+        self.note_shared_read();
         if is_never(object) {
             return Val::never();
         }
@@ -1589,6 +1639,7 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// The elements of an array value (`in_bounds`: no `undefined` for out-of-range reads).
     pub fn element(&mut self, object: &Val, in_bounds: bool) -> Val {
+        self.note_shared_read();
         if is_never(object) {
             return Val::never();
         }
@@ -1985,9 +2036,17 @@ impl<'a> Cx<'_, '_, 'a> {
         node: oxc_syntax::node::NodeId,
         defining: bool,
     ) {
+        self.note_write(true);
         self.require_object(object);
         if matches!(key, Key::Unknown) || key.name() == Some("length") {
             self.forget_bounds_of(object);
+        }
+        // `length`, or an index that may be past the end.
+        if matches!(key, Key::Unknown)
+            || key.name() == Some("length")
+            || (key.is_index() && !self.an.output.in_bounds.contains_key(&self.node(node)))
+        {
+            self.note_resize(object);
         }
         let Some(sites) = object
             .pts
@@ -2100,6 +2159,7 @@ impl<'a> Cx<'_, '_, 'a> {
     }
 
     fn delete(&mut self, object: &Val, key: &Key) {
+        self.note_write(true);
         if let Some(sites) = object.pts.sites().filter(|sites| !sites.is_empty()) {
             for &site in sites {
                 let name = key.name().map(str::to_string);

@@ -1,6 +1,6 @@
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use trioxide_common::{NodeRef, Span, SymbolRef};
+use trioxide_common::{ModuleId, NodeId, NodeRef, Span, SymbolRef};
 use trioxide_types::{ClassId, FunctionId, NumberType, Type};
 
 /// How far a fact can be relied on (PLAN D1).
@@ -156,7 +156,9 @@ pub enum AllocKind {
 pub struct Allocation {
     /// What it creates.
     pub kind: AllocKind,
-    /// How far its objects travel.
+    /// How far its objects travel. Always `Proven`: escape levels never rest on declared
+    /// types (a call TypeScript resolves to a program method is still an unknown call, which
+    /// escapes everything it is given), so neither do shapes.
     pub escape: Fact<Escape>,
     /// For object literals and arrays: the exact shape every object from the site keeps (no
     /// property added after creation, none deleted, no computed keys), if there is one.
@@ -206,6 +208,7 @@ pub struct CallGraph {
     sccs: Vec<Vec<FunctionId>>,
     by_caller: FxHashMap<FunctionId, Vec<usize>>,
     by_site: FxHashMap<NodeRef, Vec<usize>>,
+    by_callee: FxHashMap<FunctionId, Vec<usize>>,
 }
 
 impl CallGraph {
@@ -213,9 +216,11 @@ impl CallGraph {
     pub fn new(units: Vec<FunctionId>, edges: Vec<CallEdge>, sccs: Vec<Vec<FunctionId>>) -> Self {
         let mut by_caller: FxHashMap<FunctionId, Vec<usize>> = FxHashMap::default();
         let mut by_site: FxHashMap<NodeRef, Vec<usize>> = FxHashMap::default();
+        let mut by_callee: FxHashMap<FunctionId, Vec<usize>> = FxHashMap::default();
         for (index, edge) in edges.iter().enumerate() {
             by_caller.entry(edge.caller).or_default().push(index);
             by_site.entry(edge.site).or_default().push(index);
+            by_callee.entry(edge.callee).or_default().push(index);
         }
         Self {
             units,
@@ -223,6 +228,7 @@ impl CallGraph {
             sccs,
             by_caller,
             by_site,
+            by_callee,
         }
     }
 
@@ -240,6 +246,15 @@ impl CallGraph {
     pub fn edges_from(&self, caller: FunctionId) -> impl Iterator<Item = &CallEdge> {
         self.by_caller
             .get(&caller)
+            .into_iter()
+            .flatten()
+            .map(|&index| &self.edges[index])
+    }
+
+    /// The edges into `callee`: every site known to call it.
+    pub fn callers(&self, callee: FunctionId) -> impl Iterator<Item = &CallEdge> {
+        self.by_callee
+            .get(&callee)
             .into_iter()
             .flatten()
             .map(|&index| &self.edges[index])
@@ -280,7 +295,24 @@ pub struct FunctionInfo {
 ///
 /// Passes must check trust before acting: use [`Facts::is_usable`], which honours
 /// `trustTypes`.
-#[derive(Debug, Default)]
+///
+/// The queries:
+///
+/// | Query | Answers |
+/// |---|---|
+/// | [`ty`](Self::ty), [`range`](Self::range), [`symbol_ty`](Self::symbol_ty) | types and numeric ranges of nodes and bindings |
+/// | [`in_bounds`](Self::in_bounds) | an element access is below the length (and not a hole) |
+/// | [`escapes`](Self::escapes), [`allocation`](Self::allocation), [`class_shape`](Self::class_shape) | how far objects travel; object and class shapes |
+/// | [`effects`](Self::effects), [`expr_effects`](Self::expr_effects), [`is_pure`](Self::is_pure) | what a unit or an expression may do |
+/// | [`call_graph`](Self::call_graph) (with [`CallGraph::callers`]), [`site_resolution`](Self::site_resolution) | who calls what, and whether a site's callees are all it may run |
+/// | [`points_to`](Self::points_to) | the allocation sites a value may be |
+/// | [`loop_facts`](Self::loop_facts) | a loop's effects, written locals, length changes, induction ranges, invariants |
+/// | [`reachable`](Self::reachable) | whether code may run at all (unlike a `never` type) |
+/// | [`function`](Self::function), [`resolve_import`](Self::resolve_import) | units and linked imports |
+///
+/// Every answer carries a [`Trust`]; escape and shape facts are always `Proven` (see
+/// [`Allocation::escape`]).
+#[derive(Debug, Clone, Default)]
 pub struct Facts {
     trust_types: bool,
     node_types: FxHashMap<NodeRef, Fact<Type>>,
@@ -292,6 +324,71 @@ pub struct Facts {
     functions: FxHashMap<FunctionId, FunctionInfo>,
     imports: FxHashMap<SymbolRef, SymbolRef>,
     call_graph: CallGraph,
+    /// Call sites where unknown code may run as well.
+    open_sites: FxHashSet<NodeRef>,
+    /// Effects of evaluated expressions that have any (with their callees'): `(proven, declared)`.
+    expr_effects: FxHashMap<NodeRef, (Effects, Effects)>,
+    loops: FxHashMap<NodeRef, LoopFacts>,
+    points_to: FxHashMap<NodeRef, Vec<NodeRef>>,
+    /// Nodes no execution reaches.
+    unreachable: FxHashSet<NodeRef>,
+}
+
+/// What a call site may call (see [`Facts::site_resolution`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SiteResolution {
+    /// The program units it may call.
+    pub callees: Vec<FunctionId>,
+    /// Whether those are all it may call: no code trioxide doesn't see runs there.
+    pub complete: Fact<bool>,
+}
+
+/// What a loop (its test, body and update, every iteration) does.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoopFacts {
+    /// Its effects, including what it calls: `(proven, declared)`. `writes` counts every
+    /// write except assignments to the function's own tracked locals (those are `written`):
+    /// writes to objects, local ones included, and to locals a closure can see.
+    pub effects: (Effects, Effects),
+    /// The function's own locals it assigns.
+    pub written: Vec<SymbolRef>,
+    /// Arrays whose length the loop condition bounds and the loop may change (so `a[i]` is
+    /// not in bounds through them). Every array the loop resizes is in `resized`.
+    pub length_changed: Vec<SymbolRef>,
+    /// The allocation sites of every array whose length the loop, or a unit it calls, may
+    /// change (`push`, `pop`, `length = …`, a write past the end).
+    pub resized: Vec<NodeRef>,
+    /// It may also change the length of arrays trioxide doesn't track (or runs unknown code).
+    pub resizes_untracked: bool,
+    /// Numeric locals of the loop's function that it assigns and that live across its
+    /// iterations (not ones declared in its body or a nested loop).
+    pub induction: Vec<Induction>,
+    /// The largest expressions inside it whose value is the same on every iteration and that
+    /// can be evaluated once, before the first iteration's body, after the loop's first test
+    /// passes. Each is in the test or the body (not a `for` loop's update, nor a `for-in`/`of`
+    /// head), runs on every iteration that gets that far (no `if`, `?:`, `&&`, `switch`,
+    /// `try`, nested loop or function around it, and the loop has no `break`, `continue`,
+    /// `return`, `throw`, `await` or `yield`), is `Proven` free of writes, throws, unknown
+    /// calls and allocation, reads no clock or random number, reads none of `written`, reads
+    /// no object or shared local when the loop writes any, and is not a callee, a write
+    /// target or a `delete` operand. Identifiers and literals are left out.
+    pub invariant: Vec<NodeRef>,
+}
+
+/// A numeric local a loop assigns (see [`LoopFacts::induction`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Induction {
+    /// The local.
+    pub symbol: SymbolRef,
+    /// Its range at the loop head: on entry and before every iteration's test.
+    pub range: Fact<NumberType>,
+    /// What it changes by per iteration, when the loop's only write to it is one `++`, `--`,
+    /// `+= c`, `-= c` or `= x ± c` with a constant `c`, run once per iteration (a `for`
+    /// loop's update, or a statement of the body when nothing `continue`s past it), and no
+    /// nested function writes it. Negative when it counts down.
+    pub step: Option<f64>,
+    /// It is the loop's counter: it has a `step` and the loop's test reads it.
+    pub counter: bool,
 }
 
 impl Facts {
@@ -408,6 +505,20 @@ impl Facts {
         &self.call_graph
     }
 
+    /// Whether [`CallGraph::callers`] lists every site that may call `function`: `Proven`
+    /// true when no code trioxide doesn't see can reach it (it is not
+    /// [`open`](FunctionInfo::open)), so every call is one trioxide followed, accessor uses
+    /// and modelled builtins' callbacks (`arr.map(f)`) included; `Proven` false when it is
+    /// open (passed to code trioxide doesn't model, such as `f.call(…)`, or exported in an
+    /// open world); `Unknown` for a unit the analysis has nothing on. Check this before
+    /// relying on a function having a single caller.
+    pub fn callers_complete(&self, function: FunctionId) -> Fact<bool> {
+        match self.functions.get(&function) {
+            None => Fact::unknown(),
+            Some(info) => Fact::proven(!info.open),
+        }
+    }
+
     /// What the analysis knows about a code unit.
     pub fn function(&self, function: FunctionId) -> Option<&FunctionInfo> {
         self.functions.get(&function)
@@ -416,6 +527,274 @@ impl Facts {
     /// The exported binding an import binding refers to (the linker's answer).
     pub fn resolve_import(&self, symbol: SymbolRef) -> Option<SymbolRef> {
         self.imports.get(&symbol).copied()
+    }
+
+    /// What the call (or `new`, or implicit-call) site `site` may call: the call graph's
+    /// callees there, including the callbacks a modelled builtin calls at the site
+    /// (`arr.map(f)` lists `f`) and the constructor and field initialisers of a `new`.
+    ///
+    /// `complete` says whether those are all the program code that may run at the site:
+    /// - `true` at `Proven`: nothing else runs there (a site in code that never runs is
+    ///   vacuously complete; [`reachable`](Self::reachable) tells those apart);
+    /// - `true` at `Declared`: so, if TypeScript's types hold (some callee was resolved
+    ///   through a declared class);
+    /// - `false` at `Proven`: code trioxide doesn't see may run there (an unknown callee, an
+    ///   unmodelled builtin or constructor such as `new Promise(executor)`, or a conversion
+    ///   that may call `valueOf`/`toString`);
+    /// - `Unknown`: the site was never evaluated.
+    ///
+    /// A generator's (or async generator's) body doesn't run at the call: the call creates
+    /// the generator, and the body runs at its `next()` calls. Its unit is listed as the
+    /// callee all the same; an inliner must check the callee's kind.
+    pub fn site_resolution(&self, site: NodeRef) -> SiteResolution {
+        let edges: Vec<&CallEdge> = self.call_graph.callees(site).collect();
+        let mut callees: Vec<FunctionId> = edges.iter().map(|edge| edge.callee).collect();
+        callees.sort_unstable();
+        callees.dedup();
+        let complete = if !self.node_types.contains_key(&site) {
+            Fact::unknown()
+        } else if self.open_sites.contains(&site) {
+            Fact::proven(false)
+        } else {
+            let trust = edges
+                .iter()
+                .map(|edge| edge.trust)
+                .min()
+                .unwrap_or(Trust::Proven);
+            Fact { value: true, trust }
+        };
+        SiteResolution { callees, complete }
+    }
+
+    /// What evaluating `node` may do, including its subexpressions, the units it calls and
+    /// implicit calls (getters, `valueOf`, …). With `trustTypes` the summary that takes
+    /// declared types as proof (`Declared` unless it agrees with the proven one). Unlike a
+    /// unit's [`Facts::effects`], `writes` and `reads` count the function's own locals and
+    /// objects too (`i++` writes). A node with no recorded evaluation (never evaluated, or a
+    /// callee or optional-chain part evaluated as part of its call) is `Unknown`.
+    pub fn expr_effects(&self, node: NodeRef) -> Fact<Effects> {
+        let Some(&(proven, declared)) = self.expr_effects.get(&node) else {
+            return Fact::unknown();
+        };
+        if self.trust_types && declared != proven {
+            Fact::declared(declared)
+        } else {
+            Fact::proven(proven)
+        }
+    }
+
+    /// Whether `node` can be removed when its value is unused: evaluating it writes nothing,
+    /// throws nothing and runs no unknown code (it may read and allocate).
+    pub fn is_pure(&self, node: NodeRef) -> Fact<bool> {
+        let effects = self.expr_effects(node);
+        Fact {
+            value: !effects.value.writes && !effects.value.throws && !effects.value.calls_unknown,
+            trust: effects.trust,
+        }
+    }
+
+    /// What the loop statement `node` does, if it was evaluated.
+    pub fn loop_facts(&self, node: NodeRef) -> Option<&LoopFacts> {
+        self.loops.get(&node)
+    }
+
+    /// The allocation sites the value of `node` may be (`Proven`: if it is an object, it was
+    /// made at one of them), or `Unknown` when it may be an object trioxide doesn't track.
+    pub fn points_to(&self, node: NodeRef) -> Fact<Option<&[NodeRef]>> {
+        match self.points_to.get(&node) {
+            Some(sites) => Fact::proven(Some(sites.as_slice())),
+            None => Fact::unknown(),
+        }
+    }
+
+    /// Whether `node` (a unit, statement or expression) may be executed. `Proven` false for
+    /// units nothing calls or can reach and for statements after every path left; otherwise
+    /// `Unknown` true, which passes must never treat as dead. Distinct from a `never` type,
+    /// which also means "no value seen yet".
+    pub fn reachable(&self, node: NodeRef) -> Fact<bool> {
+        if self.unreachable.contains(&node) {
+            Fact::proven(false)
+        } else {
+            Fact {
+                value: true,
+                trust: Trust::Unknown,
+            }
+        }
+    }
+
+    /// Drops every node-keyed fact of `module` (so they all read as `Unknown`), e.g. when a
+    /// pass rewrote it in a way its node ids can't follow. The rewrite must keep its meaning:
+    /// facts elsewhere about values and effects stay. Facts elsewhere that name its nodes go:
+    /// call sites that called into it become open (their callees are gone) and points-to sets
+    /// that include its allocation sites read as `Unknown`.
+    pub fn forget_module(&mut self, module: ModuleId) {
+        let other = |node: &NodeRef| node.module != module;
+        for edge in &self.call_graph.edges {
+            if other(&edge.site) && !other(&edge.callee) {
+                self.open_sites.insert(edge.site);
+            }
+        }
+        self.points_to
+            .retain(|node, sites| other(node) && sites.iter().all(other));
+        self.node_types.retain(|node, _| other(node));
+        self.in_bounds.retain(|node, _| other(node));
+        self.allocations.retain(|node, _| other(node));
+        self.expr_effects.retain(|node, _| other(node));
+        self.loops.retain(|node, _| other(node));
+        self.open_sites.retain(other);
+        // Unknown reachability is "may run".
+        self.unreachable.retain(other);
+        self.effects.retain(|unit, _| other(unit));
+        self.functions.retain(|unit, _| other(unit));
+        self.class_shapes.retain(|class, _| other(class));
+        self.symbol_types
+            .retain(|symbol, _| symbol.module != module);
+        self.imports
+            .retain(|import, target| import.module != module && target.module != module);
+        let graph = std::mem::take(&mut self.call_graph);
+        let units = graph.units.into_iter().filter(other).collect();
+        let edges = graph
+            .edges
+            .into_iter()
+            .filter(|edge| other(&edge.site) && other(&edge.caller) && other(&edge.callee))
+            .collect();
+        let sccs = graph
+            .sccs
+            .into_iter()
+            .map(|scc| scc.into_iter().filter(other).collect::<Vec<_>>())
+            .filter(|scc| !scc.is_empty())
+            .collect();
+        self.call_graph = CallGraph::new(units, edges, sccs);
+    }
+
+    /// Renumbers `module`'s nodes, e.g. after a pass rewrote it and the facts were computed
+    /// from its printed text: `map` takes each node id the facts use to the one it now has.
+    /// Facts about nodes `map` doesn't cover are dropped, and so are facts elsewhere whose
+    /// values name them (a type naming a dropped function, a points-to set with a dropped
+    /// site); call sites in other modules that called a dropped unit become open.
+    pub fn remap_module(&mut self, module: ModuleId, map: &FxHashMap<NodeId, NodeId>) {
+        fn table<V>(
+            table: &mut FxHashMap<NodeRef, V>,
+            node: &impl Fn(NodeRef) -> Option<NodeRef>,
+            value: impl Fn(V) -> Option<V>,
+        ) {
+            *table = std::mem::take(table)
+                .into_iter()
+                .filter_map(|(key, entry)| Some((node(key)?, value(entry)?)))
+                .collect();
+        }
+        let node = |node: NodeRef| -> Option<NodeRef> {
+            if node.module == module {
+                map.get(&node.node).map(|&id| NodeRef { module, node: id })
+            } else {
+                Some(node)
+            }
+        };
+        let ty = |fact: Fact<Type>| -> Option<Fact<Type>> {
+            Some(Fact {
+                value: fact.value.try_map_ids(&node)?,
+                trust: fact.trust,
+            })
+        };
+        table(&mut self.node_types, &node, ty);
+        self.symbol_types = std::mem::take(&mut self.symbol_types)
+            .into_iter()
+            .filter_map(|(symbol, fact)| Some((symbol, ty(fact)?)))
+            .collect();
+        table(&mut self.effects, &node, Some);
+        table(&mut self.in_bounds, &node, Some);
+        table(&mut self.allocations, &node, |allocation| {
+            Some(Allocation {
+                kind: match allocation.kind {
+                    AllocKind::Instance(class) => AllocKind::Instance(node(class)?),
+                    kind => kind,
+                },
+                ..allocation
+            })
+        });
+        table(&mut self.class_shapes, &node, Some);
+        table(&mut self.functions, &node, Some);
+        table(&mut self.expr_effects, &node, Some);
+        table(&mut self.loops, &node, |mut facts| {
+            facts.invariant = facts.invariant.into_iter().filter_map(node).collect();
+            Some(facts)
+        });
+        table(&mut self.points_to, &node, |sites| {
+            sites.into_iter().map(node).collect()
+        });
+        let nodes = |set: FxHashSet<NodeRef>| set.into_iter().filter_map(node).collect();
+        self.unreachable = nodes(std::mem::take(&mut self.unreachable));
+        let mut open_sites: FxHashSet<NodeRef> = nodes(std::mem::take(&mut self.open_sites));
+        let graph = std::mem::take(&mut self.call_graph);
+        let units = graph.units.into_iter().filter_map(node).collect();
+        let mut edges = Vec::new();
+        for edge in graph.edges {
+            match (node(edge.site), node(edge.caller), node(edge.callee)) {
+                (Some(site), Some(caller), Some(callee)) => edges.push(CallEdge {
+                    site,
+                    caller,
+                    callee,
+                    ..edge
+                }),
+                (Some(site), Some(_), None) => {
+                    open_sites.insert(site);
+                }
+                _ => {}
+            }
+        }
+        let sccs = graph
+            .sccs
+            .into_iter()
+            .map(|scc| scc.into_iter().filter_map(node).collect::<Vec<_>>())
+            .filter(|scc| !scc.is_empty())
+            .collect();
+        self.call_graph = CallGraph::new(units, edges, sccs);
+        self.open_sites = open_sites;
+    }
+
+    /// Gives `alias` the facts about the value of `node` (a parenthesized expression and its
+    /// contents, for example).
+    pub fn alias(&mut self, alias: NodeRef, node: NodeRef) {
+        if let Some(fact) = self.node_types.get(&node).cloned() {
+            self.node_types.insert(alias, fact);
+        }
+        if let Some(&effects) = self.expr_effects.get(&node) {
+            self.expr_effects.insert(alias, effects);
+        }
+        if let Some(sites) = self.points_to.get(&node).cloned() {
+            self.points_to.insert(alias, sites);
+        }
+        if self.unreachable.contains(&node) {
+            self.unreachable.insert(alias);
+        }
+    }
+
+    /// Sets the span recorded for `function` (after [`remap_module`](Self::remap_module), its
+    /// span in the source it now has).
+    pub fn set_function_span(&mut self, function: FunctionId, span: Span) {
+        if let Some(info) = self.functions.get_mut(&function) {
+            info.span = span;
+        }
+    }
+
+    pub(crate) fn set_open_sites(&mut self, sites: FxHashSet<NodeRef>) {
+        self.open_sites = sites;
+    }
+
+    pub(crate) fn set_expr_effects(&mut self, node: NodeRef, proven: Effects, declared: Effects) {
+        self.expr_effects.insert(node, (proven, declared));
+    }
+
+    pub(crate) fn set_loop_facts(&mut self, node: NodeRef, facts: LoopFacts) {
+        self.loops.insert(node, facts);
+    }
+
+    pub(crate) fn set_points_to(&mut self, node: NodeRef, sites: Vec<NodeRef>) {
+        self.points_to.insert(node, sites);
+    }
+
+    pub(crate) fn set_unreachable(&mut self, nodes: FxHashSet<NodeRef>) {
+        self.unreachable = nodes;
     }
 
     /// Every node with a type fact, sorted.
