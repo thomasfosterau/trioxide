@@ -1,0 +1,6 @@
+# Pinned to tsrs's MSRV (docs/PLAN.md D10). Bump in a dedicated PR together with tsrs.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

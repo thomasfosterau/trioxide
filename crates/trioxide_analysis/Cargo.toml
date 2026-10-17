@@ -1,0 +1,19 @@
+[package]
+name = "trioxide_analysis"
+description = "Trioxide's analysis side tables (facts with trust levels)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+trioxide_common.workspace = true
+trioxide_types.workspace = true
+oxc_syntax.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true

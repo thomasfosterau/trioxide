@@ -1,0 +1,19 @@
+[package]
+name = "trioxide_partition"
+description = "Trioxide's JS/WASM partitioner: eligibility, islands, cost model, directives."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+trioxide_analysis.workspace = true
+trioxide_common.workspace = true
+trioxide_types.workspace = true
+trioxide_wasm.workspace = true
+serde.workspace = true

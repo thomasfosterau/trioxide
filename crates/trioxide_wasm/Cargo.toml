@@ -1,0 +1,17 @@
+[package]
+name = "trioxide_wasm"
+description = "Trioxide's WASM island contract, build driver and JS glue."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+trioxide_common.workspace = true
+serde.workspace = true
+thiserror.workspace = true
