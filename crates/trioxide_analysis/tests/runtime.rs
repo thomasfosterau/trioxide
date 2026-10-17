@@ -1,16 +1,24 @@
 //! Checks `Proven` facts against reality: every analysis fixture with a `main()` is
 //! instrumented, then run in Node, and any contradiction fails the test. Checked:
 //!
-//! - node types: every wrappable expression (and every parameter and declared binding, after
-//!   it is bound) with a proven type, plus the proven type of the symbol an identifier reads;
-//!   instances with `instanceof` against every evaluation of their class;
-//! - in-bounds element accesses: the index is below the length and not a hole;
-//! - effects: functions proven not to throw are run inside a `try` that reports a throw;
-//! - stable shapes: objects from sites with a proven stable shape keep their own keys, in
-//!   order, from creation to the end of the run.
+//! - types: every expression that can be wrapped without changing the program (including
+//!   template literals, sequences, function and class expressions, `yield`, `super.x`,
+//!   whole `?.` chains and plain callees), every parameter (at body start) and declared
+//!   binding (after its statement), and the symbol type behind every value reference;
+//!   instances with `instanceof` against every evaluation of their class, and functions by
+//!   identity against every evaluation of their definition;
+//! - in-bounds accesses: the index is an integer below the length, and not a hole;
+//! - effects: a function proven not to throw reports any throw; one proven not to write
+//!   (and not async or a generator) reports any write, while it runs, to a top-level binding
+//!   or a property of one;
+//! - shapes: objects from allocation sites with a proven stable shape, and instances of
+//!   classes with a proven stable shape, end the run with the own keys they had when made,
+//!   in order, and a class's proven fields come first in that order;
+//! - reachability: units and statements proven unreachable report it if they run.
 //!
-//! Not checked: escape levels and call edges (no runtime counterpart that is cheap to observe),
-//! nodes inside `?.` chains, assignment targets and member callees.
+//! Not checked: escape levels, call edges and site completeness, points-to sets, loop facts,
+//! writes through objects other than top-level bindings, the parts of a `?.` chain, member
+//! callees and assignment targets themselves.
 //!
 //! Skipped (with a message) when `node` is not on PATH; a fixture that imports a package is
 //! skipped when the differential suite's dependencies aren't installed.
@@ -106,7 +114,11 @@ fn predicate(ty: &Type) -> String {
             "globalThis.__instance({:?}, v)",
             format!("m{}:{}", class.module.index(), class.node.index())
         ),
-        Type::Function(..) => "typeof v === 'function'".into(),
+        Type::Function(_, Some(function)) => format!(
+            "globalThis.__function({:?}, v)",
+            format!("m{}:{}", function.module.index(), function.node.index())
+        ),
+        Type::Function(_, None) => "typeof v === 'function'".into(),
         Type::Union(members) => format!(
             "({})",
             members
@@ -144,6 +156,7 @@ fn checked_kind(kind: AstKind<'_>) -> bool {
             | AstKind::ArrowFunctionExpression(_)
             | AstKind::YieldExpression(_)
             | AstKind::ParenthesizedExpression(_)
+            | AstKind::ChainExpression(_)
     ) || matches!(kind, AstKind::Function(function) if function.is_expression())
         || matches!(kind, AstKind::Class(class) if class.is_expression())
 }
@@ -340,19 +353,94 @@ fn instrument(
                 count += 1;
             }
         }
-        // Functions proven not to throw report it if they do.
+        // Functions proven not to throw report a throw; ones proven not to write (outside
+        // their locals) report a write to module-level state while they run.
         if let Some(body) = function_body(nodes, node.id()) {
             let effects = facts.effects(node_ref);
-            if effects.trust == Trust::Proven && !effects.value.throws {
-                let id = key(node.id());
-                edits.insert(body.start + 1, "try {".into(), false);
-                edits.insert(
-                    body.end - 1,
-                    format!("}} catch (e) {{ globalThis.__threw({id:?}); throw e; }}"),
-                    true,
-                );
+            let id = key(node.id());
+            let no_throw = effects.trust == Trust::Proven && !effects.value.throws;
+            let suspends = matches!(node.kind(), AstKind::Function(function) if function.r#async || function.generator)
+                || matches!(node.kind(), AstKind::ArrowFunctionExpression(arrow) if arrow.r#async);
+            let no_write = effects.trust == Trust::Proven && !effects.value.writes && !suspends;
+            let mut open = String::new();
+            let mut close = String::new();
+            if no_throw {
+                open.push_str("try {");
                 count += 1;
             }
+            if no_write {
+                write!(open, "try {{ globalThis.__quiet.push({id:?});").unwrap();
+                close.push_str("} finally { globalThis.__quiet.pop(); }");
+                count += 1;
+            }
+            if no_throw {
+                write!(
+                    close,
+                    "}} catch (e) {{ globalThis.__threw({id:?}); throw e; }}"
+                )
+                .unwrap();
+            }
+            if !open.is_empty() {
+                edits.insert(body.start + 1, open, false);
+                edits.insert(body.end - 1, close, true);
+            }
+        }
+        // Writes to module-level state (a top-level binding, or a property of one).
+        if let Some(target) = written_module_binding(node.kind(), scoping)
+            && !must_not_wrap(nodes, node.id())
+        {
+            edits.wrap(span, format!("(globalThis.__wrote({target:?}), "), ")");
+        }
+        // Function objects register themselves, for identity checks.
+        match node.kind() {
+            AstKind::Function(function) if function.is_declaration() && function.body.is_some() => {
+                if let Some(name) = &function.id
+                    && matches!(
+                        nodes.parent_kind(node.id()),
+                        AstKind::Program(_)
+                            | AstKind::BlockStatement(_)
+                            | AstKind::FunctionBody(_)
+                            | AstKind::ExportNamedDeclaration(_)
+                    )
+                {
+                    let statement = match nodes.parent_kind(node.id()) {
+                        AstKind::ExportNamedDeclaration(export) => export.span,
+                        _ => function.span,
+                    };
+                    edits.insert(
+                        statement.end,
+                        format!(";globalThis.__fn({:?}, {});", key(node.id()), name.name),
+                        false,
+                    );
+                }
+            }
+            _ => {}
+        }
+        // Instances of classes with a proven stable shape keep their keys.
+        if let AstKind::NewExpression(_) = node.kind()
+            && let Some(allocation) = facts.allocation(node_ref)
+            && let AllocKind::Instance(class) = allocation.kind
+            && let shape = facts.class_shape(class)
+            && shape.trust == Trust::Proven
+            && shape.value.is_stable()
+            && !must_not_wrap(nodes, node.id())
+        {
+            let fields: Vec<String> = shape
+                .value
+                .fields
+                .iter()
+                .map(|field| format!("{field:?}"))
+                .collect();
+            edits.wrap(
+                span,
+                format!(
+                    "globalThis.__shape({:?}, [{}], (",
+                    format!("m{}:{}", class.module.index(), class.node.index()),
+                    fields.join(", ")
+                ),
+                "))",
+            );
+            count += 1;
         }
         // Parameters and declared bindings, once bound.
         if let AstKind::BindingIdentifier(binding) = node.kind() {
@@ -412,6 +500,18 @@ fn instrument(
             edits.wrap(span, format!("__c({id:?}, ("), "))");
             count += 1;
         }
+        // Function expressions register themselves (inside the check of their own type, so
+        // they are registered when it runs).
+        if (matches!(node.kind(), AstKind::Function(function) if function.is_expression())
+            || matches!(node.kind(), AstKind::ArrowFunctionExpression(_)))
+            && !must_not_wrap(nodes, node.id())
+        {
+            edits.wrap(
+                span,
+                format!("globalThis.__fne({:?}, (", key(node.id())),
+                "))",
+            );
+        }
         // Objects whose shape is proven stable.
         if matches!(
             node.kind(),
@@ -448,6 +548,32 @@ fn function_body(nodes: &AstNodes<'_>, id: NodeId) -> Option<Span> {
         _ => None,
     }
     .filter(|_| !matches!(kind, AstKind::Function(function) if function.r#type == oxc_ast::ast::FunctionType::TSDeclareFunction))
+}
+
+/// For an assignment or update whose target is a top-level binding (or a property of one),
+/// that binding's name.
+fn written_module_binding(kind: AstKind<'_>, scoping: &oxc_semantic::Scoping) -> Option<String> {
+    use oxc_ast::ast::{Expression, SimpleAssignmentTarget};
+    let target = match kind {
+        AstKind::AssignmentExpression(assign) => assign.left.as_simple_assignment_target()?,
+        AstKind::UpdateExpression(update) => &update.argument,
+        _ => return None,
+    };
+    let ident = match target {
+        SimpleAssignmentTarget::AssignmentTargetIdentifier(ident) => &**ident,
+        target => match target
+            .as_member_expression()?
+            .object()
+            .without_parentheses()
+        {
+            Expression::Identifier(ident) => &**ident,
+            _ => return None,
+        },
+    };
+    let symbol = scoping
+        .get_reference(ident.reference_id.get()?)
+        .symbol_id()?;
+    (scoping.symbol_scope_id(symbol) == scoping.root_scope_id()).then(|| ident.name.to_string())
 }
 
 /// A statement that can sit inside a block without changing what it declares.
@@ -557,6 +683,31 @@ globalThis.__bi = (id, i) => {
   }
   return i;
 };
+globalThis.__quiet = [];
+globalThis.__wrote = (name) => {
+  if (globalThis.__quiet.length > 0) {
+    violations.push(`${globalThis.__quiet.at(-1)}: proven not to write, but wrote ${name}`);
+  }
+};
+const functions = new Map();
+const register = (id, f) => {
+  if (!functions.has(id)) functions.set(id, new WeakSet());
+  functions.get(id).add(f);
+  return f;
+};
+globalThis.__fn = register;
+globalThis.__fne = register;
+globalThis.__function = (id, v) => {
+  if (typeof v !== 'function') return false;
+  const all = functions.get(id);
+  return !all || all.has(v);
+};
+const instances = [];
+globalThis.__shape = (id, fields, v) => {
+  checks++;
+  instances.push([id, fields, v, Object.getOwnPropertyNames(v).join(',')]);
+  return v;
+};
 globalThis.__dead = (id) => { violations.push(`${id}: proven unreachable, but ran`); };
 globalThis.__threw = (id) => { violations.push(`${id}: proven not to throw, but threw`); };
 globalThis.__c = (id, value) => {
@@ -575,6 +726,15 @@ const m = await import(pathToFileURL(process.argv[2]).href);
 const log = console.log;
 console.log = () => {};
 try { await m.main(); } finally { console.log = log; }
+for (let [id, fields, v, keys] of instances) {
+  const now = Object.getOwnPropertyNames(v);
+  if (now.join(',') !== keys) violations.push(`${id}: stable class shape [${keys}] but ended as [${now}]`);
+  // Private names aren't properties.
+  fields = fields.filter((field) => !field.startsWith('#'));
+  if (now.slice(0, fields.length).join(',') !== fields.join(',')) {
+    violations.push(`${id}: fields [${fields}] first, but has [${now}]`);
+  }
+}
 for (const [id, v, keys] of objects) {
   const now = Object.getOwnPropertyNames(v).join(',');
   if (now !== keys) violations.push(`${id}: stable shape [${keys}] but ended as [${now}]`);

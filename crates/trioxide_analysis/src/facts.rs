@@ -295,6 +295,23 @@ pub struct FunctionInfo {
 ///
 /// Passes must check trust before acting: use [`Facts::is_usable`], which honours
 /// `trustTypes`.
+///
+/// The queries:
+///
+/// | Query | Answers |
+/// |---|---|
+/// | [`ty`](Self::ty), [`range`](Self::range), [`symbol_ty`](Self::symbol_ty) | types and numeric ranges of nodes and bindings |
+/// | [`in_bounds`](Self::in_bounds) | an element access is below the length (and not a hole) |
+/// | [`escapes`](Self::escapes), [`allocation`](Self::allocation), [`class_shape`](Self::class_shape) | how far objects travel; object and class shapes |
+/// | [`effects`](Self::effects), [`expr_effects`](Self::expr_effects), [`is_pure`](Self::is_pure) | what a unit or an expression may do |
+/// | [`call_graph`](Self::call_graph) (with [`CallGraph::callers`]), [`site_resolution`](Self::site_resolution) | who calls what, and whether a site's callees are all it may run |
+/// | [`points_to`](Self::points_to) | the allocation sites a value may be |
+/// | [`loop_facts`](Self::loop_facts) | a loop's effects, written locals, length changes, induction ranges, invariants |
+/// | [`reachable`](Self::reachable) | whether code may run at all (unlike a `never` type) |
+/// | [`function`](Self::function), [`resolve_import`](Self::resolve_import) | units and linked imports |
+///
+/// Every answer carries a [`Trust`]; escape and shape facts are always `Proven` (see
+/// [`Allocation::escape`]).
 #[derive(Debug, Clone, Default)]
 pub struct Facts {
     trust_types: bool,

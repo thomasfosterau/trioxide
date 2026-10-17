@@ -217,16 +217,30 @@ back to TS where it knows nothing:
 Beyond types, the `Facts` API answers per call site (callees and whether that is all that
 can run there), per expression (effects including callees and implicit calls, `is_pure`,
 points-to sites), per loop (effects, written locals, arrays whose length the body may change,
-induction ranges), per unit (callers, reachability distinct from `never`), and
-`Project::reanalyse` recomputes the facts for regenerated module sources between pass groups
-(node ids are those of a fresh parse of that text).
+induction ranges, invariant expressions), per unit (callers, reachability distinct from
+`never`).
+
+**Refreshing facts.** Facts are keyed by `NodeId`s, which a rewrite invalidates. For v1 the
+facade's `FactRefresher` (the `trioxide_js::FactSource` the pipeline runs passes with)
+refreshes them after every pass group that changes a module: it prints the module back out
+(passes run before the TS strip, so it is still TypeScript), reloads the oracle and re-runs the
+whole analysis with that text. Node ids line up because a semantic build numbers nodes in
+traversal order: the reparsed text and the rewritten AST get the same ids exactly when they
+have the same shape, which the refresher checks; when they don't (printing added parentheses
+a pass didn't create, say), that module's facts are dropped to `Unknown`. After the module is
+compiled the program's own facts come back for the others. Cost: one whole-program analysis,
+oracle load included, per refresh, so pass groups should be few. `Project::reanalyse` does the
+same for given sources. NodeId-stable incremental analysis (re-interpreting only the units a
+rewrite touched, and the dev/HMR path's per-update re-analysis) will replace this inside
+`FactRefresher::refresh` and `Project::update`, keeping the `FactSource` interface.
 
 Correctness is tested two ways: `/*@trust …*/` annotations in the analysis fixtures state the
 expected trust of particular expressions, and a runtime checker instruments every fixture and
-runs it under node, failing on any violation: proven types of expressions, parameters,
-bindings and symbols (instances with `instanceof`), in-bounds accesses, functions proven not
-to throw, stable shapes and proven-unreachable code. Escape levels and call edges are not
-checked at run time.
+runs it under node, failing on any violation (the exact list is in `tests/runtime.rs`): proven
+types of expressions, parameters, bindings and symbols (instances with `instanceof`,
+functions by identity), in-bounds accesses, functions proven not to throw or not to write
+top-level state, stable object and class shapes, and proven-unreachable code. Escape levels,
+call edges, points-to sets and loop facts are not checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
 The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work
