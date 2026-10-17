@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install && rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy without tsrs
+        run: cargo clippy -p trioxide_cli -p trioxide_napi --no-default-features -- -D warnings
+
+  test:
+    name: cargo test + pnpm test + differential
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml, includes wasm32)
+        run: rustup toolchain install && rustup show active-toolchain && rustup target list --installed
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - run: cargo test --workspace
+      - name: trioxide_rt builds for wasm32
+        run: cargo build -p trioxide_rt --target wasm32-unknown-unknown
+
+      - name: Build the napi binding
+        run: pnpm --filter trioxide build
+      - name: Generated binding loader is committed and current
+        run: git diff --exit-code -- packages/trioxide/binding
+      - name: npm package tests
+        run: pnpm --filter trioxide test
+      - name: Differential suite
+        env:
+          TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
+        run: pnpm --filter trioxide-differential test

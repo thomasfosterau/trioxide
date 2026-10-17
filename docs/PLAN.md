@@ -26,7 +26,7 @@ These shape everything else. All of them are agreed.
 | D7 | **Own JS↔WASM ABI, not wasm-bindgen** | The compilable subset is narrow (numbers, booleans, typed arrays, number arrays, plain-data structs). A small generated glue layer costs less and avoids pinning `wasm-bindgen-cli` versions. `wasm-opt` runs if it is on PATH. |
 | D8 | **Whole-program core, per-file facade** | The Rust core owns a `Project` (module graph via `oxc_resolver`, incremental cache keyed by content hash). Vite's per-file `transform` hook asks the project for already-computed results. In dev, analysis is incremental and WASM is off by default. |
 | D9 | **Targets Vite 8+ (Rolldown/oxc-based)** | The plugin runs `enforce: 'pre'` on `.ts/.tsx/.mts/.cts`, so it sees types before Vite's own oxc transform strips them, and returns JS. |
-| D10 | **Pin oxc and tsrs exactly** | All `oxc_*` crates pinned to one exact version (currently `=0.154.0`) and bumped together in dedicated PRs. tsrs is not on crates.io, so it is a git dependency pinned to a commit and bumped the same way. Both make breaking changes often. The workspace pins Rust 1.99.1 in `rust-toolchain.toml` (tsrs's MSRV). |
+| D10 | **Pin oxc and tsrs exactly** | All `oxc_*` crates pinned to one exact version (currently `=0.154.0`) and bumped together in dedicated PRs. `oxc_resolver` and `oxc_sourcemap` live in separate repositories with their own version lines; they are pinned exactly too (`oxc_sourcemap` to the version `oxc_codegen` uses). tsrs is not on crates.io, so it is a git dependency pinned to a commit and bumped the same way. Both make breaking changes often. The workspace pins Rust 1.99.1 in `rust-toolchain.toml` (tsrs's MSRV). tsrs pins `unicode-id-start =1.1.2` (Unicode 15.1, matching TypeScript), and oxc resolves to the same version. |
 | D11 | **Config** | `trioxide.json` / `trioxide.jsonc` with a JSON schema, merged with Vite plugin options. `tsconfig.json` is read for `paths`, `target` and `jsx`. Source directives override everything: `"use wasm"` / `"use js"` at the top of a file or function body, or a `/** @trioxide wasm|js */` JSDoc tag. |
 
 ---
@@ -85,7 +85,8 @@ minifier iterates to a fixed point. Analyses must be cheap to recompute per modu
 Cargo.toml                    # workspace, exact oxc pins + tsrs git pin, shared lints
 rust-toolchain.toml           # 1.99.1
 crates/
-  trioxide/                   # facade: Project, Options, build(), transform_one()
+  trioxide/                   # facade: Project, Options, build(), transform(), strip_types()
+  trioxide_common/            # ids (ModuleId, NodeRef, SymbolRef), Diagnostic, decision-log records
   trioxide_project/           # module graph, oxc_resolver, tsconfig, content-hash cache
   trioxide_types/             # the only crate that touches tsrs: program setup, span map, type conversion
   trioxide_analysis/          # linker, call graph, effects, soundness, ranges, escape, builtins
@@ -269,22 +270,35 @@ an `--require-wasm` flag that turns it into an error.
 
 **Rust facade (`trioxide`):**
 ```rust
-pub struct Options { /* mode, world, trust_types, target, passes, wasm, cache_dir, ... */ }
+pub struct Options { /* mode, world, trust_types, check, tsconfig, target, sourcemap, passes, wasm, dev, cache_dir, overrides */ }
 pub struct Project { /* graph + caches */ }
 impl Project {
     pub fn new(root: PathBuf, options: Options) -> Result<Self>;
     pub fn build(&mut self, entries: &[PathBuf]) -> Result<BuildOutput>;      // whole program
     pub fn update(&mut self, path: &Path, source: Option<String>) -> Result<Invalidation>;
     pub fn transform(&mut self, path: &Path) -> Result<ModuleOutput>;        // per-file, Vite
-    pub fn explain(&self, query: ExplainQuery) -> Report;
+    pub fn explain(&self, query: &ExplainQuery) -> Report;
 }
-pub struct ModuleOutput { code: String, map: Option<SourceMap>, islands: Vec<IslandRef>, diagnostics: Vec<Diagnostic> }
+pub fn strip_types(root: &Path, path: &Path, source: &str, options: &Options) -> Result<ModuleOutput>; // differential baseline
+pub struct ModuleOutput { path: PathBuf, code: String, map: Option<SourceMap /* v3 JSON */>, islands: Vec<IslandRef>, diagnostics: Vec<Diagnostic> }
 pub struct BuildOutput { modules: Vec<ModuleOutput>, islands: Vec<IslandArtifact /* wasm bytes + glue */>, report: Report }
 ```
 
+Problems in user code are `Diagnostic`s on the outputs (plain, serialisable data with
+spans, rendered with `oxc_diagnostics`); `Err` is reserved for I/O, invalid config and
+unreadable entries. The `Options` JSON schema is generated into
+`schema/trioxide.schema.json`.
+
+**Cross-stream seams** (S1 stubs, filled by later streams):
+`trioxide_types::TypeOracle` (+ `NoopTypeOracle`), `trioxide_analysis::Facts` (tables keyed
+by `NodeRef`/`SymbolRef`, each fact with a `Trust`), `trioxide_js::{Pass, PassManager,
+FactSource}`, `trioxide_partition::Partitioner`, `trioxide_wasm::{IslandSpec,
+IslandBuilder}`.
+
 **CLI:** `trioxide build [entries…] --out-dir dist`, `trioxide transform <file>` (stdout),
-`trioxide explain [target]`, `trioxide check-toolchain`. `--config`, `--mode`, `--world`,
-`--trust-types`, `--no-wasm`, `--emit=js|rust|wasm|report`.
+`trioxide explain [target]`, `trioxide check-toolchain`. `--config`, `--root`, `--mode`,
+`--world`, `--trust-types`, `--no-wasm`, `--emit=js|rust|wasm|report`. A hidden
+`trioxide strip <file>` prints types-stripped-only output for the differential suite.
 
 **npm:** `import { transform, build, explain } from 'trioxide'` and
 `import trioxide from 'trioxide/vite'`. The `trioxide` npm bin calls into the napi binding,
@@ -303,8 +317,9 @@ dependants). In dev, WASM is off unless `dev.wasm: true`.
 
 Parallel sessions rely on this to stay safe.
 
-- **Snapshot tests** (`insta`): `tests/fixtures/<case>/input.ts` → `output.js`,
-  `island_*.rs`, `report.json`. Every pass and lowering rule needs fixtures.
+- **Snapshot tests** (`insta`): `tests/fixtures/<case>/input.ts` → `output.snap` (every
+  module of the build), later also `island_*.rs` and `report.json`. Every pass and lowering
+  rule needs fixtures.
 - **Differential execution** (the core correctness gate): each fixture exports a `main()`
   that prints results. A Node runner executes three variants (types stripped only,
   trioxide JS, trioxide JS+WASM) and asserts identical output. CI fails on any divergence.
