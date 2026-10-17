@@ -231,6 +231,10 @@ fn array_element(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
     {
         return None;
     }
+    if sites.iter().any(|obj| obj.holey) {
+        // A hole reads as `undefined`, or as whatever a prototype holds at that index.
+        return Some(Type::Unknown);
+    }
     let mut element = Val::never();
     for obj in &sites {
         element = element.join(&obj.elem);

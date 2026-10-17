@@ -661,6 +661,17 @@ impl<'a> Cx<'_, '_, 'a> {
                                 })
                                 .collect()
                         });
+                        let copies = value.pts.sites().is_some_and(|sites| {
+                            sites.iter().all(|site| {
+                                self.an
+                                    .heap(*site)
+                                    .is_some_and(|obj| obj.kind == ObjKind::Array)
+                            })
+                        });
+                        if !copies {
+                            // Maybe a view of a buffer someone else holds (and may detach).
+                            self.an.escape(&Pts::site(object), Escape::Unknown);
+                        }
                         match lengths.as_deref() {
                             Some([Some(length)]) => Some(*length),
                             _ => None,
@@ -671,6 +682,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     self.escape_value(value, Escape::Unknown);
                     self.always(EffectKind::CallsUnknown);
                     self.always(EffectKind::Throws);
+                    self.an.escape(&Pts::site(object), Escape::Unknown);
                     None
                 }
             };
@@ -772,15 +784,16 @@ impl<'a> Cx<'_, '_, 'a> {
             Type::TypedArray(_) => Receiver::TypedArray,
             _ => return None,
         };
+        let prototype = match kind {
+            Receiver::String => "String",
+            Receiver::Number => "Number",
+            Receiver::Array => "Array",
+            _ => super::TYPED_ARRAY,
+        };
+        if self.an.patched.contains(prototype) {
+            return None;
+        }
         if matches!(kind, Receiver::Array | Receiver::TypedArray) {
-            let name = if kind == Receiver::Array {
-                "Array"
-            } else {
-                "Object"
-            };
-            if self.an.patched.contains(name) {
-                return None;
-            }
             // Proven only for objects the analysis made (an unknown object's prototype could be
             // anything); tracked arrays must not have had methods overwritten.
             if receiver.trust == Trust::Proven {
@@ -1065,6 +1078,13 @@ impl<'a> Cx<'_, '_, 'a> {
                     return Val::unknown();
                 };
                 let object = self.alloc(site, ObjKind::TypedArray(kind));
+                if builtin.name == "subarray"
+                    && let Some(receiver) = receiver
+                {
+                    // The view shares the receiver's buffer: whoever reaches it can detach
+                    // the receiver.
+                    self.an.escape(&receiver.pts, Escape::Unknown);
+                }
                 Val::object(Type::TypedArray(kind), object)
             }
         }

@@ -1552,12 +1552,22 @@ impl<'a> Cx<'_, '_, 'a> {
         }
     }
 
+    /// What reading an array index with no element gives: `undefined`, unless an index
+    /// could have been defined on `Array.prototype` or `Object.prototype`.
+    fn hole(&self) -> Val {
+        if self.an.patched.contains("Array") || self.an.patched.contains("Object") {
+            Val::unknown()
+        } else {
+            Val::proven(Type::Undefined)
+        }
+    }
+
     /// The elements of an array value (`in_bounds`: no `undefined` for out-of-range reads).
     pub fn element(&mut self, object: &Val, in_bounds: bool) -> Val {
         if is_never(object) {
             return Val::never();
         }
-        let undefined = Val::proven(Type::Undefined);
+        let undefined = self.hole();
         let mut value = Val::never();
         let Some(sites) = object.pts.sites().filter(|sites| !sites.is_empty()) else {
             // Untracked: what the type says.
@@ -1584,8 +1594,15 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             let read = match obj.kind {
                 ObjKind::TypedArray(kind) => {
-                    // Typed array elements always have the kind's type, whoever writes them.
-                    Val::proven(kind.element().map_or(Type::BigInt, Type::Number))
+                    // Typed array elements always have the kind's type, whoever writes them;
+                    // out of range they are `undefined` whatever the prototypes hold.
+                    let element = Val::proven(kind.element().map_or(Type::BigInt, Type::Number));
+                    // A detached typed array reads `undefined` everywhere.
+                    if in_bounds && obj.escape != Escape::Unknown {
+                        element
+                    } else {
+                        element.join(&Val::proven(Type::Undefined))
+                    }
                 }
                 ObjKind::Array if obj.escape != Escape::Unknown && !obj.dynamic => {
                     let mut element = obj.elem.clone();
@@ -1615,7 +1632,6 @@ impl<'a> Cx<'_, '_, 'a> {
         node: oxc_syntax::node::NodeId,
         depth: usize,
     ) -> Val {
-        let undefined = Val::proven(Type::Undefined);
         let Some(obj) = self.an.heap(site).cloned() else {
             return Val::unknown();
         };
@@ -1649,7 +1665,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         if in_range {
                             obj.elem.clone()
                         } else {
-                            obj.elem.join(&undefined)
+                            obj.elem.join(&self.hole())
                         }
                     }
                     // Array.prototype methods and unknown keys.
@@ -1658,6 +1674,11 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             ObjKind::TypedArray(kind) => {
                 return match key {
+                    Key::Name(name) if name == "buffer" => {
+                        // Whoever holds the buffer can detach the array.
+                        self.an.escape(&Pts::site(site), Escape::Unknown);
+                        Val::unknown()
+                    }
                     Key::Name(name) if name == "length" => match obj.length {
                         Some(length) => Val::number(NumberType::constant(length)),
                         None => Val::number(numeric::int_range(0.0, numeric::MAX_ARRAY_LENGTH)),
@@ -1708,9 +1729,15 @@ impl<'a> Cx<'_, '_, 'a> {
                 is_static,
             )
         {
-            return match getter {
+            let value = match getter {
                 Some(getter) => self.call_unit_as_getter(getter, receiver, node),
                 None => Val::proven(Type::Undefined),
+            };
+            // A field may define an own property of the same name, shadowing the accessor
+            // (`useDefineForClassFields`).
+            return match obj.props.get(name) {
+                Some(own) => value.join(own),
+                None => value,
             };
         }
         if obj.dynamic {
@@ -1797,7 +1824,13 @@ impl<'a> Cx<'_, '_, 'a> {
         node: oxc_syntax::node::NodeId,
         depth: usize,
     ) -> Val {
-        let undefined = Val::proven(Type::Undefined);
+        // Names no prototype in the chain defines give `undefined` only while
+        // `Object.prototype` (and `Function.prototype`) can't have been patched.
+        let undefined = if self.an.patched.contains("Object") {
+            Val::unknown()
+        } else {
+            Val::proven(Type::Undefined)
+        };
         let name = key.name().unwrap_or_default();
         match obj.kind {
             ObjKind::Object => {
@@ -1878,6 +1911,7 @@ impl<'a> Cx<'_, '_, 'a> {
             let name = key.name().unwrap_or_default();
             return if builtins::OBJECT_PROTOTYPE.contains(&name)
                 || !prototype && matches!(name, "name" | "length")
+                || self.an.patched.contains("Object")
             {
                 Val::unknown()
             } else {
@@ -2015,9 +2049,14 @@ impl<'a> Cx<'_, '_, 'a> {
                         match setter {
                             Some(setter) => self.call_unit_as_setter(setter, object, value, node),
                             // A getter without a setter: class code is strict, so this throws.
-                            None => self.always(EffectKind::Throws),
+                            None if !defining => self.always(EffectKind::Throws),
+                            None => {}
                         }
-                        continue;
+                        if !defining {
+                            continue;
+                        }
+                        // A field definition may define an own property instead (define
+                        // semantics) or assign through the setter: both are possible.
                     }
                     let name = name.to_string();
                     let defining_own = defining
@@ -2059,7 +2098,12 @@ impl<'a> Cx<'_, '_, 'a> {
         if is_never(value) {
             return Val::never();
         }
-        let array_like = value.trust == Trust::Proven
+        // Their iterators come from the prototypes.
+        let intact = ["Array", "String", "Object", super::TYPED_ARRAY]
+            .iter()
+            .all(|name| !self.an.patched.contains(*name));
+        let array_like = intact
+            && value.trust == Trust::Proven
             && value.ty.members().iter().all(|member| {
                 matches!(
                     member,
@@ -2067,7 +2111,8 @@ impl<'a> Cx<'_, '_, 'a> {
                 )
             })
             && !value.ty.may_be_nullish();
-        let declared_array_like = value.trust >= Trust::Declared
+        let declared_array_like = intact
+            && value.trust >= Trust::Declared
             && value.ty.members().iter().all(|member| {
                 matches!(
                     member,

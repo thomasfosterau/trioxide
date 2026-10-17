@@ -354,15 +354,35 @@ pub fn run(
 
 /// Builtin namespaces (`Math`, …) whose models can't be trusted: the program shadows them,
 /// writes to them, or lets the namespace object (or `NS.prototype`, or the global object)
-/// flow anywhere other than a plain `NS.name` read or call, where it could be patched.
+/// flow anywhere other than a plain `NS.name` read, call or construction, where it could be
+/// patched. `"TypedArray"` stands for the typed array constructors and their shared
+/// prototype. Any way of reaching a builtin prototype without naming it (`__proto__`,
+/// `Object.getPrototypeOf`, `.constructor`, `X.prototype` of anything but a program class,
+/// `Reflect`, `Function`, `eval`) turns every model off.
 fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
     use oxc_ast::AstKind;
     const GLOBAL_OBJECTS: [&str; 4] = ["globalThis", "window", "self", "global"];
+    /// Globals that reach any object, the global object or a builtin prototype.
+    const HATCH_GLOBALS: [&str; 3] = ["Reflect", "Function", "eval"];
+    /// Properties that reach a prototype (or define accessors on one).
+    const HATCH_PROPERTIES: [&str; 10] = [
+        "__proto__",
+        "constructor",
+        "getPrototypeOf",
+        "setPrototypeOf",
+        "__defineGetter__",
+        "__defineSetter__",
+        "__lookupGetter__",
+        "__lookupSetter__",
+        "getOwnPropertyDescriptor",
+        "getOwnPropertyDescriptors",
+    ];
     let mut patched = FxHashSet::default();
     let all = || {
         crate::builtins::NAMESPACES
             .iter()
             .map(|name| (*name).to_string())
+            .chain(std::iter::once(TYPED_ARRAY.to_string()))
     };
     for module in &world.modules {
         let scoping = module.semantic.scoping();
@@ -376,32 +396,95 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
                 patched.insert(name.to_string());
             }
         }
+        if scoping.symbol_ids().any(|symbol| {
+            TypedArrayKind::from_constructor_name(scoping.symbol_name(symbol))
+                .is_some()
+        }) {
+            patched.insert(TYPED_ARRAY.to_string());
+        }
         for reference in scoping.root_unresolved_references_ids().flatten() {
             let node = scoping.get_reference(reference).node_id();
             let AstKind::IdentifierReference(ident) = nodes.kind(node) else {
                 continue;
             };
             let name = ident.name.as_str();
+            if HATCH_GLOBALS.contains(&name) {
+                patched.extend(all());
+                continue;
+            }
+            let typed_array = TypedArrayKind::from_constructor_name(name).is_some();
             let namespace = crate::builtins::NAMESPACES.contains(&name);
             let global_object = GLOBAL_OBJECTS.contains(&name);
-            if !namespace && !global_object {
+            if !namespace && !global_object && !typed_array {
                 continue;
             }
             let safe = safe_namespace_use(nodes, node, name, global_object);
             if !safe {
                 if global_object {
                     patched.extend(all());
+                } else if typed_array {
+                    patched.insert(TYPED_ARRAY.to_string());
                 } else {
                     patched.insert(name.to_string());
                 }
             }
         }
+        let hatch = nodes.iter().any(|node| match node.kind() {
+            AstKind::StaticMemberExpression(member) => {
+                let property = member.property.name.as_str();
+                HATCH_PROPERTIES.contains(&property)
+                    || (property == "prototype" && !names_program_symbol(module, &member.object))
+            }
+            AstKind::ComputedMemberExpression(member) => match &member.expression {
+                oxc_ast::ast::Expression::StringLiteral(key) => {
+                    let key = key.value.as_str();
+                    HATCH_PROPERTIES.contains(&key) || key == "prototype"
+                }
+                _ => false,
+            },
+            AstKind::ObjectProperty(property) => {
+                !property.computed
+                    && property.key.static_name().is_some_and(|key| key == "__proto__")
+            }
+            AstKind::BindingProperty(property) => property
+                .key
+                .static_name()
+                .is_some_and(|key| HATCH_PROPERTIES.contains(&key.as_ref())),
+            AstKind::AssignmentTargetPropertyProperty(property) => property
+                .name
+                .static_name()
+                .is_some_and(|key| HATCH_PROPERTIES.contains(&key.as_ref())),
+            _ => false,
+        });
+        if hatch {
+            patched.extend(all());
+        }
     }
     patched
 }
 
+/// The name [`patched_builtins`] uses for the typed array constructors and prototypes.
+pub const TYPED_ARRAY: &str = "TypedArray";
+
+/// Whether `expression` is an identifier bound by the program (so `X.prototype` is a program
+/// function's or class's).
+fn names_program_symbol(module: &Module<'_>, expression: &oxc_ast::ast::Expression<'_>) -> bool {
+    let oxc_ast::ast::Expression::Identifier(ident) = expression.without_parentheses() else {
+        return false;
+    };
+    ident.reference_id.get().is_some_and(|reference| {
+        module
+            .semantic
+            .scoping()
+            .get_reference(reference)
+            .symbol_id()
+            .is_some()
+    })
+}
+
 /// Whether the reference `node` to a namespace (or the global object) only reads a member
-/// without handing anything out: `Math.floor(x)`, `Math.PI`, `globalThis.foo`.
+/// without handing anything out (`Math.floor(x)`, `Math.PI`, `globalThis.foo`), or calls or
+/// constructs it (`new Array(n)`, `x instanceof Uint8Array`).
 fn safe_namespace_use(
     nodes: &oxc_semantic::AstNodes<'_>,
     node: NodeId,
@@ -410,10 +493,24 @@ fn safe_namespace_use(
 ) -> bool {
     use oxc_ast::AstKind;
     let parent = nodes.parent_id(node);
+    let span = nodes.kind(node).span();
+    if !global_object {
+        match nodes.kind(parent) {
+            AstKind::CallExpression(call) if call.callee.span() == span => return true,
+            AstKind::NewExpression(new) if new.callee.span() == span => return true,
+            AstKind::BinaryExpression(binary)
+                if binary.operator == oxc_syntax::operator::BinaryOperator::Instanceof
+                    && binary.right.span() == span =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
     let AstKind::StaticMemberExpression(member) = nodes.kind(parent) else {
         return false;
     };
-    if member.object.span() != nodes.kind(node).span() {
+    if member.object.span() != span {
         return false;
     }
     let property = member.property.name.as_str();
