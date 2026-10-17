@@ -20,10 +20,11 @@ doctest = false
 [features]
 default = ["tsrs"]
 ## Embed the tsrs TypeScript checker (see trioxide_types).
-tsrs = ["trioxide/tsrs"]
+tsrs = ["trioxide/tsrs", "trioxide_cli/tsrs"]
 
 [dependencies]
 trioxide = { workspace = true, default-features = false }
+trioxide_cli.workspace = true
 napi.workspace = true
 napi-derive.workspace = true
 serde_json.workspace = true

@@ -113,6 +113,32 @@ pub fn transform(code: String, filename: String, options: Option<Value>) -> Resu
     project.transform(&path).map(module_output).map_err(to_napi)
 }
 
+/// Runs the `trioxide` command line with `argv` (program name first) and returns its exit
+/// code. This is what the npm package's `trioxide` bin calls, so the binary and the bin share
+/// one implementation. Output goes to the process's stdout and stderr.
+#[napi]
+pub fn run_cli(argv: Vec<String>) -> u32 {
+    u32::from(trioxide_cli::run(argv))
+}
+
+/// The nearest `trioxide.json` / `trioxide.jsonc` at or above `dir`, stopping at the
+/// repository root.
+#[napi]
+pub fn find_config(dir: String) -> Option<String> {
+    trioxide_cli::discover_config(Path::new(&dir)).map(|path| path.display().to_string())
+}
+
+/// Reads and validates a config file, returning its options as written (no defaults filled
+/// in) so they can be merged with other options.
+#[napi]
+pub fn load_config(path: String) -> Result<Value> {
+    trioxide_cli::read_config(Path::new(&path)).map_err(to_napi)
+}
+
+/// The string island glue uses in place of its `.wasm` URL; emitters replace it.
+#[napi]
+pub const WASM_URL_PLACEHOLDER: &str = trioxide::WASM_URL_PLACEHOLDER;
+
 /// The JSON schema of the options object (`trioxide.json`).
 #[napi]
 pub fn options_schema() -> Value {

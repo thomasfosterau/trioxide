@@ -39,7 +39,7 @@ pub use output::{BuildOutput, Invalidation, ModuleOutput, SourceMap};
 pub use project::{Project, strip_types};
 pub use report::{ExplainQuery, ModuleReport, Report};
 pub use trioxide_common::{Diagnostic, Label, Severity, Span, log};
-pub use trioxide_wasm::{IslandArtifact, IslandId, IslandRef, IslandSpec};
+pub use trioxide_wasm::{IslandArtifact, IslandId, IslandRef, IslandSpec, WASM_URL_PLACEHOLDER};
 
 /// Whether this build embeds the tsrs type checker (the `tsrs` Cargo feature).
 pub const HAS_TSRS: bool = trioxide_types::HAS_TSRS;
