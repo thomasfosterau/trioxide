@@ -166,10 +166,13 @@ impl Val {
         if self.ty == Type::Never && self.pts.is_none() {
             return other.clone();
         }
-        if other.ty == Type::Never && other.pts.is_none() {
+        if (other.ty == Type::Never && other.pts.is_none()) || self == other {
             return self.clone();
         }
-        let ty = self.ty.join(&other.ty).truncate(MAX_TYPE_DEPTH);
+        let mut ty = self.ty.join(&other.ty);
+        if ty.depth() > MAX_TYPE_DEPTH {
+            ty = ty.truncate(MAX_TYPE_DEPTH);
+        }
         Self {
             trust: if ty == Type::Unknown {
                 Trust::Unknown

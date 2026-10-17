@@ -77,7 +77,7 @@ struct GlobalArgs {
     /// Never produce WASM islands.
     #[arg(long, global = true)]
     no_wasm: bool,
-    /// What to emit.
+    /// What to emit. `facts` prints the analysis facts of a `transform`ed file.
     #[arg(long, global = true, value_enum, default_value = "js")]
     emit: Emit,
 }
@@ -101,6 +101,7 @@ enum Emit {
     Rust,
     Wasm,
     Report,
+    Facts,
 }
 
 /// A failure that ends the command.
@@ -138,6 +139,15 @@ fn run(cli: &Cli) -> Result<(), Failure> {
     let global = &cli.global;
     match global.emit {
         Emit::Js => {}
+        Emit::Facts => {
+            let Command::Transform { file } = &cli.command else {
+                return Err(Failure::Usage("--emit=facts only applies to `trioxide transform`".into()));
+            };
+            let file = std::path::absolute(file).map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
+            let mut project = open_project(global, Some(&file))?;
+            print_stdout(&project.facts(&file)?);
+            return Ok(());
+        }
         Emit::Rust | Emit::Wasm | Emit::Report => {
             return Err(not_implemented(&format!(
                 "--emit={}",
@@ -208,6 +218,7 @@ fn emit_name(emit: Emit) -> &'static str {
         Emit::Rust => "rust",
         Emit::Wasm => "wasm",
         Emit::Report => "report",
+        Emit::Facts => "facts",
     }
 }
 

@@ -199,6 +199,28 @@ impl Project {
         Ok(self.compile(id))
     }
 
+    /// The analysis facts for the module at `path`, rendered for humans
+    /// (`trioxide --emit=facts`). Analyses the program reachable from it (adding it as an
+    /// entry if it isn't in the graph yet) under the configured world assumption.
+    pub fn facts(&mut self, path: &Path) -> Result<String> {
+        let id = match self.graph.get(path) {
+            Some(id) => id,
+            None => self.graph.add_entries(&[path.to_path_buf()])?[0],
+        };
+        self.analyse();
+        let inputs = analysis_inputs(&self.graph);
+        let module = inputs
+            .iter()
+            .find(|input| input.id == id)
+            .expect("the module is in the graph");
+        Ok(trioxide_analysis::render(&self.analysis.facts, module, &inputs))
+    }
+
+    /// The analysis facts from the last build or [`facts`](Self::facts) call.
+    pub fn analysis(&self) -> &trioxide_analysis::Facts {
+        &self.analysis.facts
+    }
+
     /// The decision log, narrowed to `query`. Reflects the last
     /// [`build`](Self::build) or [`transform`](Self::transform) of each module.
     pub fn explain(&self, query: &ExplainQuery) -> Report {

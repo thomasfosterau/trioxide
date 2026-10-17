@@ -152,6 +152,8 @@ pub struct State {
     pub heap: FxHashMap<AllocId, Obj>,
     /// The value each class extends.
     pub supers: FxHashMap<NodeRef, Val>,
+    /// Classes with an instance site that escapes to unknown code.
+    pub open_instances: FxHashSet<NodeRef>,
     changed: bool,
 }
 
@@ -201,6 +203,21 @@ pub struct Results {
     pub converged: bool,
     /// Builtin namespaces the program writes to (their models are off).
     pub patched: FxHashSet<String>,
+    /// How the run went.
+    pub stats: Stats,
+}
+
+/// Counters for one analysis run.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Stats {
+    /// Rounds over every unit until nothing changed.
+    pub rounds: usize,
+    /// Type oracle queries (cache misses).
+    pub oracle_queries: usize,
+    /// Time spent in the oracle.
+    pub oracle_time: std::time::Duration,
+    /// Total interpretation time.
+    pub total_time: std::time::Duration,
 }
 
 /// Runs the interpreter to a fixed point.
@@ -220,7 +237,9 @@ pub fn run(
         round: 0,
         ts_cache: FxHashMap::default(),
         patched: patched_builtins(world),
+        stats: Stats::default(),
     };
+    let started = std::time::Instant::now();
     let mut converged = false;
     while analyzer.round < MAX_ROUNDS {
         analyzer.state.changed = false;
@@ -238,11 +257,14 @@ pub fn run(
             break;
         }
     }
+    analyzer.stats.rounds = analyzer.round;
+    analyzer.stats.total_time = started.elapsed();
     Results {
         state: analyzer.state,
         output: analyzer.output,
         converged,
         patched: analyzer.patched,
+        stats: analyzer.stats,
     }
 }
 
@@ -337,6 +359,7 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub round: usize,
     ts_cache: FxHashMap<NodeRef, Option<Type>>,
     pub patched: FxHashSet<String>,
+    stats: Stats,
 }
 
 /// A unit's flow-sensitive state.
@@ -376,7 +399,11 @@ impl Env {
         let mut vars = self.vars.clone();
         for (symbol, value) in &other.vars {
             vars.entry(*symbol)
-                .and_modify(|existing| *existing = existing.join(value))
+                .and_modify(|existing| {
+                if existing != value {
+                    *existing = existing.join(value);
+                }
+            })
                 .or_insert_with(|| value.clone());
         }
         Self {
@@ -555,6 +582,9 @@ impl<'w, 'a> Analyzer<'w, 'a> {
 
     /// Joins into a whole-program table entry, noting whether it changed.
     fn join_into(round: usize, changed: &mut bool, slot: &mut Val, value: &Val) {
+        if slot == value || (value.ty == Type::Never && value.pts.is_none()) {
+            return;
+        }
         let mut joined = slot.join(value);
         if round >= WIDEN_AFTER
             && let (Type::Number(old), Type::Number(new)) = (&slot.ty, &joined.ty)
@@ -634,6 +664,11 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             }
             obj.escape = level;
             self.state.changed = true;
+            if level == Escape::Unknown
+                && let ObjKind::Instance(class) = obj.kind
+            {
+                self.state.open_instances.insert(class);
+            }
             for value in obj.props.values().chain([&obj.elem]) {
                 if let Some(inner) = value.pts.sites() {
                     pending.extend_from_slice(inner);
@@ -711,7 +746,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         if let Some(cached) = self.ts_cache.get(&node) {
             return cached.clone();
         }
+        let started = std::time::Instant::now();
         let ty = self.oracle.type_at(node.module, span);
+        self.stats.oracle_queries += 1;
+        self.stats.oracle_time += started.elapsed();
         self.ts_cache.insert(node, ty.clone());
         ty
     }
@@ -1033,10 +1071,5 @@ pub fn class_open(world: &World<'_>, state: &State, class: NodeRef) -> bool {
             .get(site)
             .is_some_and(|obj| obj.escape == Escape::Unknown)
     };
-    escaped(&class)
-        || escaped(&info.init)
-        || state
-            .heap
-            .iter()
-            .any(|(site, obj)| obj.kind == ObjKind::Instance(class) && escaped(site))
+    escaped(&class) || escaped(&info.init) || state.open_instances.contains(&class)
 }

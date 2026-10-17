@@ -21,6 +21,7 @@ mod link;
 mod render;
 mod world;
 
+pub use interp::Stats;
 pub use render::render;
 pub use facts::{
     AllocKind, Allocation, CallEdge, CallGraph, ClassShape, Effects, Escape, Fact, Facts, FunctionInfo,
@@ -70,8 +71,10 @@ pub struct AnalysisOptions {
 pub struct Analysis {
     /// The fact tables.
     pub facts: Facts,
-    /// Problems found while analysing (none today).
+    /// Problems found while analysing.
     pub diagnostics: Vec<Diagnostic>,
+    /// How the run went.
+    pub stats: Stats,
 }
 
 impl Analysis {
@@ -80,6 +83,7 @@ impl Analysis {
         Self {
             facts: Facts::new(options.trust_types),
             diagnostics: Vec::new(),
+            stats: Stats::default(),
         }
     }
 }
@@ -105,7 +109,11 @@ pub fn analyze(modules: &[ModuleInput<'_>], oracle: &mut dyn TypeOracle, options
         );
     }
     let facts = summary::facts(&world, &links, &results, &options);
-    Analysis { facts, diagnostics }
+    Analysis {
+        facts,
+        diagnostics,
+        stats: results.stats,
+    }
 }
 
 /// Tells the oracle which oxc nodes declare classes and functions, keyed by name span (or

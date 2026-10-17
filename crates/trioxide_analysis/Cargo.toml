@@ -26,9 +26,14 @@ rustc-hash.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 insta.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 trioxide.workspace = true
 trioxide_project.workspace = true
 trioxide_types = { workspace = true, features = ["tsrs"] }
+
+[[bench]]
+name = "analysis"
+harness = false
