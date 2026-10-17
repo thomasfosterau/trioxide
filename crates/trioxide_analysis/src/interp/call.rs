@@ -268,6 +268,8 @@ impl<'a> Cx<'_, '_, 'a> {
     /// A call trioxide can't follow.
     fn unknown_call(&mut self, site: NodeId, function: &Val, this: &Val, args: &[Val]) -> Val {
         self.note_call();
+        let site_ref = self.node(site);
+        self.record.open_sites.insert(site_ref);
         for value in args {
             self.escape_value(value, Escape::Unknown);
         }
@@ -1244,15 +1246,19 @@ impl<'a> Cx<'_, '_, 'a> {
             value.is_some_and(|value| cx.length_is_stable(&value))
         };
         let bounds = std::mem::take(&mut self.env.bounds);
-        let bounds = bounds
+        let (bounds, dropped): (Vec<_>, Vec<_>) = bounds
             .into_iter()
-            .filter(|&(_, array)| stable(self, array))
-            .collect();
+            .partition(|&(_, array)| stable(self, array));
         let lengths = std::mem::take(&mut self.env.lengths);
-        let lengths = lengths
+        let (lengths, dropped_lengths): (Vec<_>, Vec<_>) = lengths
             .into_iter()
-            .filter(|&(_, array)| stable(self, array))
-            .collect();
+            .partition(|&(_, array)| stable(self, array));
+        self.dropped.extend(
+            dropped
+                .iter()
+                .chain(&dropped_lengths)
+                .map(|&(_, array)| array),
+        );
         self.env.bounds = bounds;
         self.env.lengths = lengths;
     }
@@ -1286,22 +1292,26 @@ impl<'a> Cx<'_, '_, 'a> {
                 .is_some_and(|own| own.iter().all(|site| !sites.contains(site))),
             _ => false,
         };
-        let bounds = self
+        let (bounds, dropped): (Vec<_>, Vec<_>) = self
             .env
             .bounds
             .iter()
             .copied()
-            .filter(|&(_, array)| unaffected(array))
-            .collect();
-        let lengths = self
+            .partition(|&(_, array)| unaffected(array));
+        let (lengths, dropped_lengths): (Vec<_>, Vec<_>) = self
             .env
             .lengths
             .iter()
             .copied()
-            .filter(|&(_, array)| unaffected(array))
-            .collect();
+            .partition(|&(_, array)| unaffected(array));
         self.env.bounds = bounds;
         self.env.lengths = lengths;
+        self.dropped.extend(
+            dropped
+                .iter()
+                .chain(&dropped_lengths)
+                .map(|&(_, array)| array),
+        );
     }
 
     /// Whether `object[index]` is in bounds: a tracked local index below the array's length

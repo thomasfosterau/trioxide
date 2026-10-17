@@ -319,6 +319,27 @@ fn instrument(
                 false,
             );
         }
+        // Code proven unreachable reports it if it runs.
+        if facts.reachable(node_ref).trust == Trust::Proven && !facts.reachable(node_ref).value {
+            let id = key(node.id());
+            let report = format!("globalThis.__dead({id:?});");
+            if let Some(body) = function_body(nodes, node.id()) {
+                edits.insert(body.start + 1, report, true);
+                count += 1;
+            } else if is_wrappable_statement(node.kind())
+                && !facts
+                    .reachable(NodeRef {
+                        module,
+                        node: nodes.parent_id(node.id()),
+                    })
+                    .trust
+                    .eq(&Trust::Proven)
+            {
+                edits.insert(span.start, format!("{{{report}"), true);
+                edits.insert(span.end, "}".into(), false);
+                count += 1;
+            }
+        }
         // Functions proven not to throw report it if they do.
         if let Some(body) = function_body(nodes, node.id()) {
             let effects = facts.effects(node_ref);
@@ -429,6 +450,21 @@ fn function_body(nodes: &AstNodes<'_>, id: NodeId) -> Option<Span> {
     .filter(|_| !matches!(kind, AstKind::Function(function) if function.r#type == oxc_ast::ast::FunctionType::TSDeclareFunction))
 }
 
+/// A statement that can sit inside a block without changing what it declares.
+fn is_wrappable_statement(kind: AstKind<'_>) -> bool {
+    matches!(
+        kind,
+        AstKind::ExpressionStatement(_)
+            | AstKind::ReturnStatement(_)
+            | AstKind::ThrowStatement(_)
+            | AstKind::IfStatement(_)
+            | AstKind::ForStatement(_)
+            | AstKind::WhileStatement(_)
+            | AstKind::DoWhileStatement(_)
+            | AstKind::BlockStatement(_)
+    ) || matches!(kind, AstKind::VariableDeclaration(declaration) if declaration.kind == oxc_ast::ast::VariableDeclarationKind::Var)
+}
+
 /// An arrow's body, if it is a block.
 fn block_body(body: &oxc_ast::ast::ArrowFunctionBody<'_>) -> Option<Span> {
     match body {
@@ -521,6 +557,7 @@ globalThis.__bi = (id, i) => {
   }
   return i;
 };
+globalThis.__dead = (id) => { violations.push(`${id}: proven unreachable, but ran`); };
 globalThis.__threw = (id) => { violations.push(`${id}: proven not to throw, but threw`); };
 globalThis.__c = (id, value) => {
   checks++;

@@ -240,6 +240,118 @@ pub struct UnitRecord {
     pub edges: Vec<Edge>,
     /// Allocation sites the unit evaluated.
     pub allocations: Vec<AllocId>,
+    /// Call sites (and implicit-call sites) where code trioxide doesn't see may run.
+    pub open_sites: FxHashSet<NodeRef>,
+    /// Each evaluated expression's own effects and the units it calls, where it has any.
+    pub expr_effects: FxHashMap<NodeRef, ExprRecord>,
+    /// What each loop does.
+    pub loops: FxHashMap<NodeRef, LoopRecord>,
+    /// Statements reached with a reachable environment.
+    pub reached: FxHashSet<NodeRef>,
+    /// Statements interpreted (or skipped) with an unreachable one.
+    pub skipped: FxHashSet<NodeRef>,
+}
+
+/// An expression's own effects (without its callees') and the units it calls.
+#[derive(Debug, Clone, Default)]
+pub struct ExprRecord {
+    /// Counting only proven facts.
+    pub proven: Effects,
+    /// Counting declared facts as proof.
+    pub declared: Effects,
+    /// Units it calls (directly or through implicit calls).
+    pub callees: Vec<NodeRef>,
+}
+
+impl ExprRecord {
+    fn join(&mut self, other: &Self) {
+        self.proven = union(self.proven, other.proven);
+        self.declared = union(self.declared, other.declared);
+        for callee in &other.callees {
+            if !self.callees.contains(callee) {
+                self.callees.push(*callee);
+            }
+        }
+    }
+}
+
+/// What a loop (its test, body and update) does.
+#[derive(Debug, Clone, Default)]
+pub struct LoopRecord {
+    /// Its own effects, counting only proven facts.
+    pub proven: Effects,
+    /// Counting declared facts as proof.
+    pub declared: Effects,
+    /// Units it calls.
+    pub callees: Vec<NodeRef>,
+    /// Tracked locals it assigns.
+    pub written: Vec<SymbolId>,
+    /// Arrays whose length relations (`i < a.length`) it broke.
+    pub length_changed: Vec<SymbolId>,
+    /// Numeric locals it assigns, with their values at the loop head.
+    pub induction: Vec<(SymbolId, Val)>,
+}
+
+impl LoopRecord {
+    fn join(&mut self, other: &Self) {
+        self.proven = union(self.proven, other.proven);
+        self.declared = union(self.declared, other.declared);
+        for (into, from) in [(&mut self.callees, &other.callees)] {
+            for item in from {
+                if !into.contains(item) {
+                    into.push(*item);
+                }
+            }
+        }
+        for (into, from) in [
+            (&mut self.written, &other.written),
+            (&mut self.length_changed, &other.length_changed),
+        ] {
+            for item in from {
+                if !into.contains(item) {
+                    into.push(*item);
+                }
+            }
+        }
+        for (symbol, value) in &other.induction {
+            match self.induction.iter_mut().find(|(own, _)| own == symbol) {
+                Some((_, own)) => *own = own.join(value),
+                None => self.induction.push((*symbol, value.clone())),
+            }
+        }
+    }
+}
+
+/// Either effect set.
+fn union(a: Effects, b: Effects) -> Effects {
+    Effects {
+        reads: a.reads || b.reads,
+        writes: a.writes || b.writes,
+        allocates: a.allocates || b.allocates,
+        throws: a.throws || b.throws,
+        calls_unknown: a.calls_unknown || b.calls_unknown,
+    }
+}
+
+/// Effects being collected for an expression or loop under interpretation.
+pub struct Frame {
+    /// Counting only proven facts.
+    pub proven: Effects,
+    /// Counting declared facts as proof.
+    pub declared: Effects,
+    /// Where its edges start in the unit's record.
+    pub edges: usize,
+}
+
+impl Frame {
+    /// A frame whose edges start at `edges`.
+    pub fn new(edges: usize) -> Self {
+        Self {
+            proven: Effects::PURE,
+            declared: Effects::PURE,
+            edges,
+        }
+    }
 }
 
 /// What interpretation recorded (for one unit, or merged for all).
@@ -851,6 +963,12 @@ pub(crate) struct Cx<'c, 'w, 'a> {
     pub record: UnitRecord,
     /// Where interpretation is (the start of the expression last entered).
     pub position: u32,
+    /// Effects of the expressions and loops being interpreted, innermost last.
+    pub frames: Vec<Frame>,
+    /// Locals assigned in each loop being interpreted.
+    pub loop_writes: Vec<FxHashSet<SymbolId>>,
+    /// Arrays whose length relations were dropped, in order.
+    pub dropped: Vec<SymbolId>,
 }
 
 impl<'w, 'a> Analyzer<'w, 'a> {
@@ -883,6 +1001,9 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             pending_length: None,
             record: UnitRecord::default(),
             position: 0,
+            frames: Vec::new(),
+            loop_writes: Vec::new(),
+            dropped: Vec::new(),
         };
         cx.enter();
         match unit.body {
@@ -1448,6 +1569,15 @@ impl Cx<'_, '_, '_> {
             EffectKind::CallsUnknown => effects.calls_unknown = true,
             EffectKind::Allocates => effects.allocates = true,
         };
+        // An expression's own effects count whether or not a `try` catches them.
+        for frame in &mut self.frames {
+            if !proven_free {
+                set(&mut frame.proven);
+            }
+            if !declared_free {
+                set(&mut frame.declared);
+            }
+        }
         if kind == EffectKind::Throws && self.catching > 0 {
             return;
         }
@@ -1457,6 +1587,17 @@ impl Cx<'_, '_, '_> {
         if !declared_free {
             set(&mut self.record.declared);
         }
+    }
+
+    /// The units called since edge `start` of this unit's record.
+    pub fn callees_since(&self, start: usize) -> Vec<NodeRef> {
+        let mut callees: Vec<NodeRef> = self.record.edges[start..]
+            .iter()
+            .map(|edge| edge.callee)
+            .collect();
+        callees.sort_unstable();
+        callees.dedup();
+        callees
     }
 
     /// Notes an effect that happens regardless of what types say.
@@ -1622,6 +1763,11 @@ impl Cx<'_, '_, '_> {
             writes.insert(symbol);
         }
         let own = info.unit == Some(self.unit.id);
+        if own {
+            for writes in &mut self.loop_writes {
+                writes.insert(symbol);
+            }
+        }
         if info.tracked && own {
             self.env.vars.insert(symbol, value.clone());
             self.env.forget(symbol);

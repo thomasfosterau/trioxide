@@ -21,10 +21,14 @@ use crate::{
 impl<'a> Cx<'_, '_, 'a> {
     /// Interprets statements in order.
     pub fn statements(&mut self, statements: &'a [Statement<'a>]) {
-        for statement in statements {
+        for (index, statement) in statements.iter().enumerate() {
             if !self.env.reachable {
                 // Dead code still gets facts (it can't run, so anything holds), but
                 // declarations hoisted into it are already bound.
+                for statement in &statements[index..] {
+                    let node = self.node(statement.node_id());
+                    self.record.skipped.insert(node);
+                }
                 break;
             }
             self.statement(statement);
@@ -78,6 +82,12 @@ impl<'a> Cx<'_, '_, 'a> {
     /// Interprets one statement.
     pub fn statement(&mut self, statement: &'a Statement<'a>) {
         self.position = oxc_span::GetSpan::span(statement).start;
+        let node = self.node(statement.node_id());
+        if self.env.reachable {
+            self.record.reached.insert(node);
+        } else {
+            self.record.skipped.insert(node);
+        }
         let labels = std::mem::take(&mut self.pending_labels);
         #[expect(
             clippy::match_same_arms,
@@ -151,6 +161,7 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             Statement::WhileStatement(statement) => {
                 self.run_loop(
+                    statement.node_id.get(),
                     &labels,
                     Some(&statement.test),
                     &statement.body,
@@ -161,6 +172,7 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             Statement::DoWhileStatement(statement) => {
                 self.run_loop(
+                    statement.node_id.get(),
                     &labels,
                     Some(&statement.test),
                     &statement.body,
@@ -182,6 +194,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     None => {}
                 }
                 self.run_loop(
+                    statement.node_id.get(),
                     &labels,
                     statement.test.as_ref(),
                     &statement.body,
@@ -201,6 +214,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     self.iterate(&iterable, statement.node_id.get())
                 };
                 self.run_loop(
+                    statement.node_id.get(),
                     &labels,
                     None,
                     &statement.body,
@@ -219,6 +233,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     object.trust >= Trust::Declared,
                 );
                 self.run_loop(
+                    statement.node_id.get(),
                     &labels,
                     None,
                     &statement.body,
@@ -549,8 +564,13 @@ impl<'a> Cx<'_, '_, 'a> {
     }
 
     /// A loop, iterated until its head environment is stable.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the parts every loop form supplies"
+    )]
     fn run_loop(
         &mut self,
+        node: oxc_syntax::node::NodeId,
         labels: &[&'a str],
         test: Option<&'a Expression<'a>>,
         body: &'a Statement<'a>,
@@ -558,6 +578,9 @@ impl<'a> Cx<'_, '_, 'a> {
         do_while: bool,
         binding: Option<(&'a ForStatementLeft<'a>, &Val)>,
     ) {
+        self.frames.push(super::Frame::new(self.record.edges.len()));
+        self.loop_writes.push(FxHashSet::default());
+        let dropped = self.dropped.len();
         let entry = self.env.clone();
         let mut head = entry.clone();
         let mut exit = if binding.is_some() {
@@ -632,6 +655,40 @@ impl<'a> Cx<'_, '_, 'a> {
         }
         self.breaks.extend(kept);
         self.env = exit;
+        // What the loop did, for loop facts.
+        let frame = self.frames.pop().expect("the loop's frame");
+        let written: Vec<oxc_syntax::symbol::SymbolId> = self
+            .loop_writes
+            .pop()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let mut length_changed: Vec<oxc_syntax::symbol::SymbolId> =
+            self.dropped[dropped..].to_vec();
+        length_changed.sort_unstable();
+        length_changed.dedup();
+        let induction = written
+            .iter()
+            .filter_map(|symbol| {
+                let value = head.vars.get(symbol)?;
+                matches!(value.ty, Type::Number(_)).then(|| (*symbol, value.clone()))
+            })
+            .collect();
+        let callees = self.callees_since(frame.edges);
+        let record = super::LoopRecord {
+            proven: frame.proven,
+            declared: frame.declared,
+            callees,
+            written,
+            length_changed,
+            induction,
+        };
+        let key = self.node(node);
+        self.record
+            .loops
+            .entry(key)
+            .and_modify(|existing| existing.join(&record))
+            .or_insert(record);
     }
 
     fn bind_left(&mut self, left: &'a ForStatementLeft<'a>, value: Val) {

@@ -73,7 +73,25 @@ impl<'a> Cx<'_, '_, 'a> {
     /// Evaluates an expression and records its value.
     pub fn expr(&mut self, expression: &'a Expression<'a>) -> Val {
         self.position = expression.span().start;
+        self.frames.push(super::Frame::new(self.record.edges.len()));
         let value = self.expr_inner(expression);
+        let frame = self.frames.pop().expect("the expression's frame");
+        if frame.proven != crate::facts::Effects::PURE
+            || frame.declared != crate::facts::Effects::PURE
+            || frame.edges < self.record.edges.len()
+        {
+            let record = super::ExprRecord {
+                proven: frame.proven,
+                declared: frame.declared,
+                callees: self.callees_since(frame.edges),
+            };
+            let key = self.node(expression.node_id());
+            self.record
+                .expr_effects
+                .entry(key)
+                .and_modify(|existing| existing.join(&record))
+                .or_insert(record);
+        }
         self.record_node(expression.node_id(), &value);
         value
     }
