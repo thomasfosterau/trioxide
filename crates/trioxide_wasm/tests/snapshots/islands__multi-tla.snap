@@ -47,6 +47,18 @@ function $trap(error, name) {
   return new Error(`trioxide: island "multi" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
+// The intrinsic length of a typed array: the island sees that many elements, so an argument
+// whose `length` property says otherwise (an own or inherited override) runs the JS version.
+const $typedLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), 'length').get;
+
+function $plainView(array) {
+  try {
+    return $typedLength.call(array) === array.length;
+  } catch {
+    return false;
+  }
+}
+
 // Copies a typed array into the arena as View elements. (A detached one has no elements,
 // and `set` would throw.)
 function $copyIn(array, View) {
@@ -82,6 +94,9 @@ export function identity(n) {
 }
 
 export function multiply(a, b, n) {
+  if (!$plainView(a) || !$plainView(b)) {
+    return $fallback.multiply(a, b, n);
+  }
   try {
     const $0 = $copyIn(a, Float64Array);
     const $1 = $copyIn(b, Float64Array);
@@ -95,6 +110,9 @@ export function multiply(a, b, n) {
 }
 
 export function power(m, n, k) {
+  if (!$plainView(m)) {
+    return $fallback.power(m, n, k);
+  }
   try {
     const $0 = $copyIn(m, Float64Array);
     const $ret = $wasm.power($0, m.length, n, k);
@@ -107,6 +125,9 @@ export function power(m, n, k) {
 }
 
 export function trace(m, n) {
+  if (!$plainView(m)) {
+    return $fallback.trace(m, n);
+  }
   try {
     const $0 = $copyIn(m, Float64Array);
     return $wasm.trace($0, m.length, n);
@@ -118,6 +139,9 @@ export function trace(m, n) {
 }
 
 export function determinant(m, n) {
+  if (!$plainView(m)) {
+    return $fallback.determinant(m, n);
+  }
   try {
     const $0 = $copyIn(m, Float64Array);
     return $wasm.determinant($0, m.length, n);
@@ -130,6 +154,9 @@ export function determinant(m, n) {
 
 export function axpy(y, x, alpha) {
   if ($overlaps(y, x)) {
+    return $fallback.axpy(y, x, alpha);
+  }
+  if (!$plainView(y) || !$plainView(x)) {
     return $fallback.axpy(y, x, alpha);
   }
   let $0;

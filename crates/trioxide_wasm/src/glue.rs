@@ -283,6 +283,18 @@ function $trap(error, name) {{
     if needs.copy_in {
         out.push_str(
             r"
+// The intrinsic length of a typed array: the island sees that many elements, so an argument
+// whose `length` property says otherwise (an own or inherited override) runs the JS version.
+const $typedLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), 'length').get;
+
+function $plainView(array) {
+  try {
+    return $typedLength.call(array) === array.length;
+  } catch {
+    return false;
+  }
+}
+
 // Copies a typed array into the arena as View elements. (A detached one has no elements,
 // and `set` would throw.)
 function $copyIn(array, View) {
@@ -606,6 +618,7 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
                 "!$plain{}({}, {})",
                 spec.structs[*index].name, param.name, param.mutated
             )),
+            AbiType::TypedArray { .. } => Some(format!("!$plainView({})", param.name)),
             _ => None,
         })
         .collect();
@@ -615,7 +628,7 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
             Some(_) => writeln!(out, "    return {}({params});", fallback(export)),
             None => writeln!(
                 out,
-                "    throw new TypeError('trioxide: {}() got an object whose fields aren\\'t plain data properties, which island \"{}\" cannot handle');",
+                "    throw new TypeError('trioxide: {}() got an argument with a `length` or fields that aren\\'t plain data properties, which island \"{}\" cannot handle');",
                 export.name, spec.id.0
             ),
         }
