@@ -7,7 +7,7 @@ use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
 use trioxide_project::{
     CompilerSettings, ContentCache, ContentHash, GraphOptions, ModuleGraph, find_tsconfig,
 };
-use trioxide_types::{NoopTypeOracle, OracleInput, SourceText, TypeOracle};
+use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
@@ -113,7 +113,7 @@ impl Project {
             options,
             settings,
             graph,
-            oracle: Box::new(NoopTypeOracle),
+            oracle: default_oracle(),
             analysis,
             compiler,
             options_hash,
@@ -285,6 +285,11 @@ impl Project {
             check: self.options.check,
         };
         let mut diagnostics = self.oracle.load(&input);
+        if self.options.check {
+            for module in modules {
+                diagnostics.extend(self.oracle.diagnostics(module.id));
+            }
+        }
 
         let world = self.options.world_or(self.built_from_entries);
         self.analysis = analyze(AnalysisOptions {

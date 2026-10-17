@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { Project, build, explain, optionsSchema, transform } from 'trioxide';
+import { Project, build, explain, hasTsrs, optionsSchema, transform } from 'trioxide';
 import trioxideVite from 'trioxide/vite';
 
 test('transform strips types and returns a sourcemap', () => {
@@ -42,7 +42,7 @@ test('Project builds, updates and transforms', () => {
     output.modules.map((module) => path.basename(module.path)),
     ['main.ts', 'two.ts'],
   );
-  assert.equal(output.report.typeOracle, 'noop');
+  assert.equal(output.report.typeOracle, hasTsrs ? 'tsrs' : 'noop');
 
   const invalidation = project.update(path.join(project.root, 'two.ts'), 'export const two: number = 3;\n');
   assert.equal(path.basename(invalidation.changed), 'two.ts');

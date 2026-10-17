@@ -32,7 +32,10 @@ fn build_update_transform_explain() {
             .as_json()
             .contains("main.ts")
     );
-    assert_eq!(build.report.type_oracle, "noop");
+    assert_eq!(
+        build.report.type_oracle,
+        if trioxide::HAS_TSRS { "tsrs" } else { "noop" }
+    );
 
     // Unchanged modules come from the cache.
     assert_eq!(
@@ -128,4 +131,42 @@ fn tsconfig_target_and_override() {
         project.transform(&root.join("a.ts")).unwrap().code,
         "export const f = (o) => o?.x ?? 0;\n"
     );
+}
+
+#[test]
+fn check_reports_type_errors() {
+    if !trioxide::HAS_TSRS {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    write(
+        &root,
+        "main.ts",
+        "import { n } from './n.js';\nexport const s: string = n;\n",
+    );
+    write(&root, "n.ts", "export const n: number = 1;\n");
+
+    let options = Options {
+        check: true,
+        ..Options::default()
+    };
+    let mut project = Project::new(root.clone(), options).unwrap();
+    let build = project.build(&[root.join("main.ts")]).unwrap();
+    let errors: Vec<_> = build
+        .report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("TS2322"))
+        .collect();
+    assert_eq!(errors.len(), 1, "{:?}", build.report.diagnostics);
+    assert_eq!(
+        errors[0].file.as_deref(),
+        Some(root.join("main.ts").as_path())
+    );
+
+    // Without `check`, type errors are not reported.
+    let mut project = Project::new(root.clone(), Options::default()).unwrap();
+    let build = project.build(&[root.join("main.ts")]).unwrap();
+    assert!(!build.has_errors(), "{:?}", build.report.diagnostics);
 }

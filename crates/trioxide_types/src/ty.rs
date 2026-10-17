@@ -94,6 +94,263 @@ impl Interval {
             max: value,
         }
     }
+
+    /// `[min, max]`.
+    pub const fn new(min: f64, max: f64) -> Self {
+        Self { min, max }
+    }
+
+    /// The smallest interval containing both.
+    #[must_use]
+    pub const fn hull(self, other: Self) -> Self {
+        Self {
+            min: self.min.min(other.min),
+            max: self.max.max(other.max),
+        }
+    }
+
+    /// Whether every value of `other` is in `self`.
+    pub fn contains(self, other: Self) -> bool {
+        self.min <= other.min && other.max <= self.max
+    }
+
+    /// Whether this is `[-inf, +inf]`.
+    pub fn is_full(self) -> bool {
+        self.min == f64::NEG_INFINITY && self.max == f64::INFINITY
+    }
+
+    /// The single value, if the interval holds exactly one.
+    pub fn as_point(self) -> Option<f64> {
+        #[expect(clippy::float_cmp, reason = "an exact point")]
+        (self.min == self.max).then_some(self.min)
+    }
+}
+
+impl NumberType {
+    /// Any number, NaN and `-0` included.
+    pub const ANY: Self = Self {
+        range: Interval::FULL,
+        int: false,
+        non_nan: false,
+        non_neg_zero: false,
+    };
+
+    /// Exactly `value`.
+    pub fn constant(value: f64) -> Self {
+        if value.is_nan() {
+            return Self::ANY;
+        }
+        Self {
+            range: Interval::point(value),
+            int: value.fract() == 0.0 || value.is_infinite(),
+            non_nan: true,
+            non_neg_zero: !(value == 0.0 && value.is_sign_negative()),
+        }
+    }
+
+    /// The single value this type allows, if any (NaN excluded).
+    pub fn as_constant(self) -> Option<f64> {
+        if !self.non_nan {
+            return None;
+        }
+        let value = self.range.as_point()?;
+        // `[0, 0]` without `nonNegZero` may be `-0`.
+        (value != 0.0 || self.non_neg_zero).then_some(value)
+    }
+
+    /// A number that is either of these.
+    #[must_use]
+    pub const fn join(self, other: Self) -> Self {
+        Self {
+            range: self.range.hull(other.range),
+            int: self.int && other.int,
+            non_nan: self.non_nan && other.non_nan,
+            non_neg_zero: self.non_neg_zero && other.non_neg_zero,
+        }
+    }
+
+    /// Whether every value of `other` is allowed by `self`.
+    pub fn contains(self, other: Self) -> bool {
+        self.range.contains(other.range)
+            && (!self.int || other.int)
+            && (!self.non_nan || other.non_nan)
+            && (!self.non_neg_zero || other.non_neg_zero)
+    }
+}
+
+impl Type {
+    /// Any number.
+    pub const NUMBER: Self = Self::Number(NumberType::ANY);
+
+    /// A value that is one of `types`: flattens nested unions, drops `Never` and duplicates,
+    /// merges every number into one [`NumberType`], and is `Unknown` if any member is.
+    pub fn union(types: impl IntoIterator<Item = Self>) -> Self {
+        let mut members: Vec<Self> = Vec::new();
+        let mut number: Option<NumberType> = None;
+        let mut pending: Vec<Self> = types.into_iter().collect();
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Unknown => return Self::Unknown,
+                Self::Never => {}
+                Self::Union(inner) => pending.extend(inner),
+                Self::Number(n) => number = Some(number.map_or(n, |m| m.join(n))),
+                other => {
+                    if !members.contains(&other) {
+                        members.push(other);
+                    }
+                }
+            }
+        }
+        if let Some(number) = number {
+            members.push(Self::Number(number));
+        }
+        members.reverse();
+        // A canonical order, so equal unions compare equal whatever order they were built in.
+        members.sort_by_key(Self::union_rank);
+        match members.len() {
+            0 => Self::Never,
+            1 => members.pop().expect("one member"),
+            _ => Self::Union(members),
+        }
+    }
+
+    fn union_rank(&self) -> u8 {
+        match self {
+            Self::Undefined => 0,
+            Self::Null => 1,
+            Self::Boolean => 2,
+            Self::Number(_) => 3,
+            Self::BigInt => 4,
+            Self::String => 5,
+            Self::Symbol => 6,
+            _ => 7,
+        }
+    }
+
+    /// The least type containing both (the lattice join). Arrays join element-wise; tuples of
+    /// one length join position-wise; anything else becomes a union.
+    #[must_use]
+    pub fn join(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Never, ty) | (ty, Self::Never) => ty.clone(),
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            (a, b) if a == b => a.clone(),
+            (Self::Number(a), Self::Number(b)) => Self::Number(a.join(*b)),
+            (Self::Array(a), Self::Array(b)) => Self::Array(Box::new(a.join(b))),
+            (Self::Tuple(a), Self::Tuple(b)) if a.len() == b.len() => {
+                Self::Tuple(a.iter().zip(b).map(|(a, b)| a.join(b)).collect())
+            }
+            (Self::Tuple(a), Self::Array(b)) | (Self::Array(b), Self::Tuple(a)) => Self::Array(
+                Box::new(a.iter().fold((**b).clone(), |acc, ty| acc.join(ty))),
+            ),
+            (a, b) => Self::union([a.clone(), b.clone()]),
+        }
+    }
+
+    /// The members of a union, or the type itself.
+    pub fn members(&self) -> &[Self] {
+        match self {
+            Self::Union(members) => members,
+            other => std::slice::from_ref(other),
+        }
+    }
+
+    /// The number part of the type, if every member is a number.
+    pub fn as_number(&self) -> Option<NumberType> {
+        match self {
+            Self::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// Whether every value of this type is a primitive other than a bigint (so arithmetic on it
+    /// never throws, runs user code or yields a bigint).
+    pub fn is_non_bigint_primitive(&self) -> bool {
+        self.members().iter().all(|ty| {
+            matches!(
+                ty,
+                Self::Number(_) | Self::Boolean | Self::String | Self::Null | Self::Undefined
+            )
+        }) && !matches!(self, Self::Never)
+    }
+
+    /// Whether the type allows `null` or `undefined`.
+    pub fn may_be_nullish(&self) -> bool {
+        self.members()
+            .iter()
+            .any(|ty| matches!(ty, Self::Unknown | Self::Null | Self::Undefined))
+    }
+
+    /// The type without `null` and `undefined`.
+    #[must_use]
+    pub fn non_nullish(&self) -> Self {
+        Self::union(
+            self.members()
+                .iter()
+                .filter(|ty| !matches!(ty, Self::Null | Self::Undefined))
+                .cloned(),
+        )
+    }
+
+    /// How deep the type nests (a primitive is 1).
+    pub fn depth(&self) -> usize {
+        match self {
+            Self::Array(elem) => 1 + elem.depth(),
+            Self::Tuple(items) | Self::Union(items) => {
+                1 + items.iter().map(Self::depth).max().unwrap_or(0)
+            }
+            Self::Object(shape) => {
+                1 + shape
+                    .properties
+                    .iter()
+                    .map(|(_, ty)| ty.depth())
+                    .max()
+                    .unwrap_or(0)
+            }
+            Self::Function(signature, _) => {
+                1 + signature
+                    .params
+                    .iter()
+                    .chain([&signature.ret])
+                    .map(Self::depth)
+                    .max()
+                    .unwrap_or(0)
+            }
+            _ => 1,
+        }
+    }
+
+    /// The type with everything nested deeper than `depth` replaced by `Unknown`, which keeps
+    /// recursive types finite.
+    #[must_use]
+    pub fn truncate(&self, depth: usize) -> Self {
+        if depth == 0 {
+            return Self::Unknown;
+        }
+        let inner = |ty: &Self| ty.truncate(depth - 1);
+        match self {
+            Self::Array(elem) => Self::Array(Box::new(inner(elem))),
+            Self::Tuple(items) => Self::Tuple(items.iter().map(inner).collect()),
+            Self::Union(items) => Self::union(items.iter().map(|ty| ty.truncate(depth))),
+            Self::Object(shape) => Self::Object(Shape {
+                properties: shape
+                    .properties
+                    .iter()
+                    .map(|(key, ty)| (key.clone(), inner(ty)))
+                    .collect(),
+                exact: shape.exact,
+            }),
+            Self::Function(signature, id) => Self::Function(
+                Box::new(Signature {
+                    params: signature.params.iter().map(inner).collect(),
+                    rest: signature.rest,
+                    ret: inner(&signature.ret),
+                }),
+                *id,
+            ),
+            other => other.clone(),
+        }
+    }
 }
 
 /// The element kind of a typed array.
@@ -124,6 +381,48 @@ pub enum TypedArrayKind {
 }
 
 impl TypedArrayKind {
+    /// Every kind, in declaration order.
+    pub const ALL: [Self; 11] = [
+        Self::Int8,
+        Self::Uint8,
+        Self::Uint8Clamped,
+        Self::Int16,
+        Self::Uint16,
+        Self::Int32,
+        Self::Uint32,
+        Self::Float32,
+        Self::Float64,
+        Self::BigInt64,
+        Self::BigUint64,
+    ];
+
+    /// The kind whose constructor is called `name`.
+    pub fn from_constructor_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.constructor_name() == name)
+    }
+
+    /// The values an element read yields, or `None` for the bigint kinds.
+    pub fn element(self) -> Option<NumberType> {
+        let int = |min: f64, max: f64| NumberType {
+            range: Interval::new(min, max),
+            int: true,
+            non_nan: true,
+            non_neg_zero: true,
+        };
+        Some(match self {
+            Self::Int8 => int(-128.0, 127.0),
+            Self::Uint8 | Self::Uint8Clamped => int(0.0, 255.0),
+            Self::Int16 => int(-32768.0, 32767.0),
+            Self::Uint16 => int(0.0, 65535.0),
+            Self::Int32 => int(-2_147_483_648.0, 2_147_483_647.0),
+            Self::Uint32 => int(0.0, 4_294_967_295.0),
+            Self::Float32 | Self::Float64 => NumberType::ANY,
+            Self::BigInt64 | Self::BigUint64 => return None,
+        })
+    }
+
     /// The global constructor's name, e.g. `"Float64Array"`.
     pub const fn constructor_name(self) -> &'static str {
         match self {
@@ -142,11 +441,18 @@ impl TypedArrayKind {
     }
 }
 
-/// The known properties of a closed object shape, in declaration order.
+/// The known properties of an object, in declaration order.
+///
+/// TypeScript object types are open (a value may carry more properties than its type names),
+/// so a shape from the type oracle is never `exact`. Only the analysis, which sees where an
+/// object literal is created and every use of it, can prove a shape exact.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Shape {
     /// `(key, type)` pairs. Keys are unique.
     pub properties: Vec<(String, Type)>,
+    /// The object has exactly these own properties, plain data (no getters or setters), and
+    /// `Object.prototype` as its prototype.
+    pub exact: bool,
 }
 
 /// A resolved call signature.
