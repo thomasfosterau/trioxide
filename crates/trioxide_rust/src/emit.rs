@@ -40,16 +40,32 @@ pub fn spec(island: &Island) -> IslandSpec {
                 .collect(),
         })
         .collect();
+    // Wasm symbols can't contain `$` or be the runtime's own names.
+    let mut wasm_names: Vec<String> = Vec::new();
+    for export in &island.exports {
+        let mut base = export.name.replace('$', "_");
+        if base == "memory" || base.starts_with("__trioxide_") {
+            base = format!("export_{base}");
+        }
+        let mut name = base.clone();
+        let mut n = 2;
+        while wasm_names.contains(&name) {
+            name = format!("{base}_{n}");
+            n += 1;
+        }
+        wasm_names.push(name);
+    }
     IslandSpec {
         id: IslandId(island.id.clone()),
         abi_version: ABI_VERSION,
         exports: island
             .exports
             .iter()
-            .map(|export| IslandExport {
+            .zip(wasm_names)
+            .map(|(export, wasm_name)| IslandExport {
                 fallback_name: None,
                 name: export.name.clone(),
-                wasm_name: export.name.clone(),
+                wasm_name,
                 params: export
                     .params
                     .iter()
@@ -207,8 +223,8 @@ impl Printer<'_> {
                 self.function(function, "");
             }
         }
-        for export in &island.exports {
-            self.shim(export);
+        for (export, abi) in island.exports.iter().zip(&spec.exports) {
+            self.shim(export, &abi.wasm_name);
         }
     }
 
@@ -888,7 +904,7 @@ impl Printer<'_> {
         }
     }
 
-    fn shim(&mut self, export: &Export) {
+    fn shim(&mut self, export: &Export, wasm_name: &str) {
         let function = &self.island.functions[export.func.0];
         let mut params = Vec::new();
         let mut decode = Vec::new();
@@ -996,8 +1012,8 @@ impl Printer<'_> {
         let _ = writeln!(
             self.out,
             "#[unsafe(export_name = {})]\n{qualifiers} fn __abi_{}({}){ret} {{\n{safety}{}\n{body}\n}}\n",
-            rust_string(&export.name),
-            export.name,
+            rust_string(wasm_name),
+            wasm_name,
             params.join(", "),
             decode.join("\n"),
         );

@@ -5,5 +5,5 @@ input_file: tests/wasm-errors/maybe-undefined/input.ts
 ---
 error[trioxide(wasm-ineligible)]: `element` is forced into WASM but can't be compiled: may return undefined (an unchecked array read)
   --> input.ts:2:10 `element`
-      `element` may return undefined (an unchecked array read)
-  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
+      may return undefined (an unchecked array read)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

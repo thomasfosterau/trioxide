@@ -350,7 +350,10 @@ impl<'a> FnCx<'_, '_, 'a> {
                 self.fail(b.span, format!("uses `{}`", op.as_str()))
             }
             BinaryOperator::Exponential => {
-                let base = self.number(&b.left)?;
+                let Some(base) = self.number(&b.left) else {
+                    let _ = self.expr(&b.right);
+                    return None;
+                };
                 self.power(base, &b.right, b.span)
             }
             BinaryOperator::BitwiseOR
@@ -361,8 +364,9 @@ impl<'a> FnCx<'_, '_, 'a> {
                 let Expression::BinaryExpression(division) = b.left.get_inner_expression() else {
                     unreachable!("matched above")
                 };
-                let x = self.number(&division.left)?;
-                let y = self.number(&division.right)?;
+                let x = self.number(&division.left);
+                let y = self.number(&division.right);
+                let (x, y) = (x?, y?);
                 if x.ty == Ty::I32 && y.ty == Ty::I32 {
                     return Some(V::new(
                         Expr::Binary(BinOp::DivTruncI32, Box::new(x.expr), Box::new(y.expr)),
@@ -380,12 +384,16 @@ impl<'a> FnCx<'_, '_, 'a> {
             | BinaryOperator::ShiftLeft
             | BinaryOperator::ShiftRight
             | BinaryOperator::ShiftRightZeroFill => {
-                let left = self.int32_operand(&b.left)?;
-                let right = self.int32_operand(&b.right)?;
-                self.bits(op, left, right, b.span)
+                // Both sides first, so every reason is reported.
+                let left = self.int32_operand(&b.left);
+                let right = self.int32_operand(&b.right);
+                self.bits(op, left?, right?, b.span)
             }
             _ => {
-                let left = self.expr(&b.left)?;
+                let Some(left) = self.expr(&b.left) else {
+                    let _ = self.expr(&b.right);
+                    return None;
+                };
                 let fact = self.num_fact(b.node_id());
                 self.binary_values(op, left, &b.right, fact, b.span)
             }
@@ -402,8 +410,9 @@ impl<'a> FnCx<'_, '_, 'a> {
                 BinaryOperator::Addition | BinaryOperator::Subtraction
             )
         {
-            let left = self.expr(&inner.left)?;
-            let right = self.expr(&inner.right)?;
+            let left = self.expr(&inner.left);
+            let right = self.expr(&inner.right);
+            let (left, right) = (left?, right?);
             if matches!(left.ty, Ty::I32 | Ty::U32) && matches!(right.ty, Ty::I32 | Ty::U32) {
                 let op = if inner.operator == BinaryOperator::Addition {
                     BinOp::WrapAdd
@@ -696,8 +705,9 @@ impl<'a> FnCx<'_, '_, 'a> {
             LogicalOperator::And => false,
             LogicalOperator::Coalesce => return self.fail(l.span, "uses `??`"),
         };
-        let left = self.expr(&l.left)?;
-        let right = self.expr(&l.right)?;
+        let left = self.expr(&l.left);
+        let right = self.expr(&l.right);
+        let (left, right) = (left?, right?);
         match (&left.kind, &right.kind) {
             (Kind::Bool, Kind::Bool) => Some(V::new(
                 Expr::Binary(
@@ -1058,6 +1068,15 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     fn math_call(&mut self, c: &'a CallExpression<'a>, name: &str) -> Option<V> {
+        if INEXACT_MATH.contains(&name) {
+            return self.fail(
+                c.span,
+                format!(
+                    "uses `Math.{name}`, whose result may differ from V8's in the last bit \
+                     (docs/ABI.md, \"Numerics\")"
+                ),
+            );
+        }
         let fact = self.facts().ty(self.node(c.node_id()));
         if !self.facts().is_usable(fact.trust) || !matches!(fact.value, Type::Number(_)) {
             return self.fail(c.span, format!("can't prove `Math.{name}` is the builtin"));
@@ -1157,13 +1176,6 @@ impl<'a> FnCx<'_, '_, 'a> {
                 self.power(base, exponent, c.span)
             }
             "random" => self.fail(c.span, "uses `Math.random` (host state)"),
-            name if INEXACT_MATH.contains(&name) => self.fail(
-                c.span,
-                format!(
-                    "uses `Math.{name}`, whose result may differ from V8's in the last bit \
-                     (docs/ABI.md, \"Numerics\")"
-                ),
-            ),
             name => self.fail(
                 c.span,
                 format!("uses `Math.{name}`, which the backend doesn't support"),

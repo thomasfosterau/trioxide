@@ -5,5 +5,5 @@ input_file: tests/wasm-errors/module-state/input.ts
 ---
 error[trioxide(wasm-ineligible)]: `counted` is forced into WASM but can't be compiled: assigns `calls`, which is not a local variable of the function
   --> input.ts:6:3 `calls`
-      `counted` assigns `calls`, which is not a local variable of the function
-  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
+      assigns `calls`, which is not a local variable of the function
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

@@ -5,5 +5,5 @@ input_file: tests/wasm-errors/async/input.ts
 ---
 error[trioxide(wasm-ineligible)]: `later` is forced into WASM but can't be compiled: is async or a generator
   --> input.ts:2:1 `async function later(n: number): Promise<number> {`
-      `later` is async or a generator
-  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
+      is async or a generator
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

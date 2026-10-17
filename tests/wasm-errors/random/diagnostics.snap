@@ -5,5 +5,5 @@ input_file: tests/wasm-errors/random/input.ts
 ---
 error[trioxide(wasm-ineligible)]: `noise` is forced into WASM but can't be compiled: uses `Math.random` (host state)
   --> input.ts:4:10 `Math.random()`
-      `noise` uses `Math.random` (host state)
-  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
+      uses `Math.random` (host state)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

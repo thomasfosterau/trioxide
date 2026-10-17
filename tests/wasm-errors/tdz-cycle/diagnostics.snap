@@ -5,5 +5,5 @@ input_file: tests/wasm-errors/tdz-cycle/input.ts
 ---
 error[trioxide(wasm-ineligible)]: `getN` is forced into WASM but can't be compiled: reads `N`, declared in a module in an import cycle, where code may run before the declaration (and JS would throw)
   --> kernel.ts:6:50 `N`
-      `getN` reads `N`, declared in a module in an import cycle, where code may run before the declaration (and JS would throw)
-  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
+      reads `N`, declared in a module in an import cycle, where code may run before the declaration (and JS would throw)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

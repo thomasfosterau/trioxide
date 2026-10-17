@@ -215,7 +215,7 @@ pub fn forced_islands(
             out.diagnostics.push(ineligible_diagnostic(
                 &world,
                 module.path,
-                &name,
+                (*root, &name),
                 info.func.span,
                 reasons,
             ));
@@ -373,27 +373,36 @@ fn never_called(
 fn ineligible_diagnostic(
     world: &World<'_>,
     path: &Path,
-    name: &str,
+    (function, name): (FunctionId, &str),
     span: Span,
     reasons: &[Reason],
 ) -> Diagnostic {
-    let module = span_module(world, reasons, path);
-    let mut diagnostic = Diagnostic::error(format!(
-        "`{name}` is forced into WASM but can't be compiled: {}",
-        reasons
-            .first()
-            .map_or("unknown reason", |r| r.message.as_str())
-    ))
-    .with_code("trioxide(wasm-ineligible)")
-    .with_file(path);
+    let header = match reasons {
+        [reason] => format!(
+            "`{name}` is forced into WASM but can't be compiled: {}",
+            reason.message
+        ),
+        _ => format!(
+            "`{name}` is forced into WASM but can't be compiled ({} reasons)",
+            reasons.len()
+        ),
+    };
+    let mut diagnostic = Diagnostic::error(header)
+        .with_code("trioxide(wasm-ineligible)")
+        .with_file(path);
     let mut elsewhere = Vec::new();
     for reason in reasons {
-        let message = format!(
-            "`{}` {}",
-            function_name(world, reason.function),
-            reason.message
-        );
-        if world.module(reason.function.module).map(|m| m.path) == Some(module) {
+        // Reasons in the function itself read on their own; others say where they are.
+        let message = if reason.function == function {
+            reason.message.clone()
+        } else {
+            format!(
+                "in `{}`: {}",
+                function_name(world, reason.function),
+                reason.message
+            )
+        };
+        if world.module(reason.function.module).map(|m| m.path) == Some(path) {
             diagnostic = diagnostic.with_label(reason.span, Some(message));
         } else if let Some(other) = world.module(reason.function.module) {
             let (line, column) = line_column(other.source, reason.span.start);
@@ -407,19 +416,13 @@ fn ineligible_diagnostic(
         diagnostic = diagnostic.with_label(span, None);
     }
     let mut help = String::from(
-        "only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control \
-         flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled \
-         (docs/PLAN.md §5); remove the directive to keep it in JS",
+        "remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain",
     );
     if !elsewhere.is_empty() {
         help.push_str("; also: ");
         help.push_str(&elsewhere.join("; "));
     }
     diagnostic.with_help(help)
-}
-
-fn span_module<'p>(_world: &World<'_>, _reasons: &[Reason], path: &'p Path) -> &'p Path {
-    path
 }
 
 fn function_name(world: &World<'_>, function: FunctionId) -> String {

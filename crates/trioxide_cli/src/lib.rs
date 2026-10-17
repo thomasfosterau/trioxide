@@ -228,7 +228,7 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             let islands = project.rust_islands(std::slice::from_ref(&file))?;
             let report = project.explain(&ExplainQuery::default());
             for diagnostic in &report.diagnostics {
-                renderer.diagnostic(diagnostic, None);
+                renderer.project_diagnostic(diagnostic);
             }
             if report
                 .diagnostics
@@ -332,7 +332,7 @@ fn build_once(
 ) -> Result<(), Failure> {
     let output = project.build(entries)?;
     for diagnostic in &output.report.diagnostics {
-        renderer.diagnostic(diagnostic, None);
+        renderer.project_diagnostic(diagnostic);
     }
     for module in &output.modules {
         renderer.module_diagnostics(module);

@@ -5,5 +5,5 @@ input_file: tests/wasm-errors/class-param/input.ts
 ---
 error[trioxide(wasm-ineligible)]: `total` is forced into WASM but can't be compiled: parameter `counter` is a class instance (only plain objects can cross the boundary)
   --> input.ts:6:16 `counter: Counter`
-      `total` parameter `counter` is a class instance (only plain objects can cross the boundary)
-  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
+      parameter `counter` is a class instance (only plain objects can cross the boundary)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

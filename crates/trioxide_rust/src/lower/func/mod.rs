@@ -396,6 +396,11 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
                         params: 0,
                     })
                 }
+                other if is_number_array_annotation(param) => Err(format!(
+                    "parameter `{name}` is an array of {}, not of numbers: TypeScript says \
+                     `number[]`, which counts as proof only with `trustTypes`",
+                    what(other)
+                )),
                 other => Err(format!(
                     "parameter `{name}` is an array of {}, not of numbers",
                     what(other)
@@ -820,11 +825,15 @@ fn describe_type(ty: &Type) -> String {
         Type::Object(_) => "an object".into(),
         Type::Instance(_) => "a class instance".into(),
         Type::Function(..) => "a function".into(),
-        Type::Union(members) => members
-            .iter()
-            .map(describe_type)
-            .collect::<Vec<_>>()
-            .join(" or "),
+        Type::Union(members) => {
+            let mut parts: Vec<String> = Vec::new();
+            for part in members.iter().map(describe_type) {
+                if !parts.contains(&part) {
+                    parts.push(part);
+                }
+            }
+            parts.join(" or ")
+        }
     }
 }
 

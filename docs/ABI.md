@@ -61,11 +61,12 @@ Contents: [Spec](#the-spec-islandjson) · [Types](#types-at-the-boundary) ·
 | `id` | Unique within a build; 1–64 bytes of `[A-Za-z0-9_-]`. Names the files (`<id>.wasm`, `<id>.js`) and the virtual module `\0trioxide:island/<id>`. |
 | `abiVersion` | Must equal `ABI_VERSION` (1). |
 | `exports[].name` | The JS name the glue exports: the original function's name. |
-| `exports[].wasmName` | The `.wasm` export implementing it. By convention equal to `name`. |
+| `exports[].wasmName` | The `.wasm` export implementing it. By convention equal to `name`; the Rust backend renames exports whose name has a `$` or is a reserved wasm name (`memory` becomes `export_memory`). |
 | `exports[].params[]` | In order: `name` (the JS parameter name), `ty`, and `mutated` (arrays and structs only: the island writes to it, so the glue copies it back). |
 | `exports[].ret` | The return type, or `null` for functions returning `undefined`. |
 | `structs[]` | Plain-data struct layouts referenced by `{ "kind": "struct", "index": i }`. |
-| `fallback` | Optional. A module specifier, relative to the glue, that exports the JS version of every island function under the same name. See [aliasing](#aliasing). |
+| `exports[].fallbackName` | Optional. The name the `fallback` module exports this function's JS version under, when it isn't `name` (`export { sq as cube }`). |
+| `fallback` | Optional. A module specifier, relative to the glue, that exports the JS version of every island function (under `name`, or `fallbackName`). The glue calls it for overlapping arguments ([aliasing](#aliasing)), for object arguments that aren't plain data ([structs](#plain-data-structs)), and until the island is instantiated in `ready()` mode ([glue](#glue)). The facade writes the module's absolute source path, which bundlers resolve; `trioxide build` rewrites it to the compiled module's path relative to the glue. |
 
 `IslandSpec::validate` enforces:
 
@@ -156,21 +157,30 @@ an allocation or a call.
 size and copies the argument with `TypedArray.prototype.set`:
 
 - A typed array is copied into a view of the same kind: a byte copy, NaN payloads and -0
-  included. A `subarray` view copies just its elements.
+  included (though see "NaN payloads" under [numerics](#numerics)). A `subarray` view copies just its elements.
 - A `number[]` is copied into a `Float64Array` view, which converts each element with
-  ToNumber. The analysis must prove the elements are numbers. A hole reads as `NaN`; the
-  island must not observe `undefined` other than through arithmetic (see
-  [`array`](../crates/trioxide_rt/src/array.rs)).
+  ToNumber. The analysis must prove the elements are numbers. An element that is `undefined`
+  (a hole) is written as the signalling NaN `array::HOLE`
+  (`0x7ff4_7472_696f_7869`), which arithmetic turns into an ordinary NaN, as `undefined`
+  does; the island must not observe `undefined` other than through arithmetic, and never
+  stores a possibly-`undefined` value in a `number[]` (`array::store_number` turns the hole
+  bits into NaN, which is what `+undefined` gives). See
+  [`array`](../crates/trioxide_rt/src/array.rs).
+- A detached typed array has length 0 and is passed as an empty array (`set` would throw on
+  it), as a JS loop over it sees no elements.
 
 Empty arrays pass `len = 0` with some aligned pointer; `abi::slice` returns `&[]` without
 touching it.
 
-**Copy-back** happens only for parameters marked `mutated`, after the call returns:
+**Copy-back** happens only for parameters marked `mutated`, once the call has started, in the
+wrapper's `finally`: also after a trap, since JS would have made the writes before the
+exception too (the island writes in program order).
 
 - typed arrays: `array.set(view)`, a bulk copy into the original object (so views and
-  `subarray`s update the right part of their buffer);
-- `number[]`: only elements whose value changed (compared with `Object.is` against the
-  element's numeric value) are assigned, so untouched holes stay holes. Lengths never change.
+  `subarray`s update the right part of their buffer); skipped for empty or detached arrays;
+- `number[]`: elements that still hold `array::HOLE` were never written and are left alone
+  (so holes stay holes); the others are assigned when their value changed (`Object.is`).
+  Lengths never change.
 
 The analysis sets `mutated` whenever the island may write to the array, directly or through
 a callee. Unmarked arrays get `&[E]`, so writing to them doesn't compile.
@@ -222,9 +232,14 @@ largest field alignment, and its size is rounded up to that. For example
 40 and `pinned` at 44, for a size of 48 with alignment 8.
 
 **Parameters** are copied in field by field (`DataView`, little-endian) into an arena block
-of the struct's size and alignment, and passed by address. A `mutated` struct is copied back
-by assigning every field to the original object in place: its identity and any other
-properties are kept, and nested structs are updated in place too.
+of the struct's size and alignment, and passed by address. Before that, the wrapper checks
+that each field is an own data property of the argument, and a writable one if the struct is
+`mutated` (`$plain<Name>`): otherwise (a getter, a frozen object, a missing field, not an
+object) it calls the `fallback`, or throws a `TypeError` without one, since copying in and
+back would read and write the fields when JS might not. A `mutated` struct is copied back by
+assigning, in place, only the fields whose bytes the island changed (the wrapper keeps a copy
+of the bytes it wrote in): the object's identity and other properties are kept, nested structs
+are updated in place, and a field the island didn't write is never assigned.
 
 **Returns**: the export returns the address of the struct in the arena
 (`abi::return_struct(value)`). The glue builds a new plain object with the fields in spec
@@ -247,6 +262,7 @@ An island module **imports nothing** (the glue instantiates it with `{}`) and ex
 | `__trioxide_alloc` | `(size: i32, align: i32) -> i32` | `trioxide_rt` |
 | `__trioxide_reset` | `() -> ()` | `trioxide_rt` |
 | `__trioxide_trap_code` | `() -> i32` | `trioxide_rt` |
+| `__trioxide_trap_value` | `() -> f64` | `trioxide_rt` |
 | each `exports[].wasmName` | per [the type table](#types-at-the-boundary) | the island |
 
 ## The Rust shape of an island
@@ -392,6 +408,11 @@ The runtime's golden tables (`crates/trioxide_rt/tests/golden/`, generated from 
 `generate.mjs`) check every helper below against V8 bit for bit, on NaN, ±0, ±Infinity,
 subnormals, 2^31 and 2^32 boundaries, rounding ties and pseudo-random values.
 
+**NaN payloads** are not preserved: a NaN an island computes (`x * 1`, `Math.max(NaN, 1)`,
+`Math.sqrt` of a signalling NaN, …) may carry different payload bits than V8's. ECMAScript
+leaves them implementation-defined and every NaN behaves the same; only storing one in a
+`Float64Array` and reading the bits back through another view can tell.
+
 | JS | Rust |
 |----|------|
 | `a + b`, `a - b`, `a * b`, `a / b` on numbers | the same `f64` operators (Rust never fuses or reorders float operations) |
@@ -450,8 +471,15 @@ apart from the cases below. A WebAssembly trap ends the call with a
 | Trap code | Raised by | The glue throws |
 |-----------|-----------|-----------------|
 | 1 `TRAP_OUT_OF_MEMORY` | an arena allocation inside the island failed (`alloc_array`, `new_array`, `return_*`) | `RangeError`, as JS does when an allocation is too large |
-| 2 `TRAP_INVALID_LENGTH` | `abi::new_array` got a negative or too-large length | `RangeError`, as the typed array constructor does |
-| 0 (anything else) | `unreachable`, a panic, a stack overflow: a trioxide bug | `Error("trioxide: island \"<id>\" trapped in <name>(); this is a trioxide bug")` with the `RuntimeError` as `cause` |
+| 2 `TRAP_INVALID_LENGTH` | `abi::new_array` got a negative or too-large length | `RangeError("Invalid typed array length: <length>")`, V8's message, with the length from `__trioxide_trap_value()` |
+| 0 (anything else) | `unreachable`, a panic: a trioxide bug | `Error("trioxide: island \"<id>\" trapped in <name>(); this is a trioxide bug")` with the `RuntimeError` as `cause` |
+
+**Recursion depth.** A recursive island function runs on the island's own stack, so it fails
+at a different depth than JS: V8 throws `RangeError: Maximum call stack size exceeded` in
+both cases (a WebAssembly stack overflow is not a `RuntimeError`), but an island typically
+recurses deeper first, so a call JS rejects can succeed. JS's own limit depends on the engine,
+its flags and the stack already in use, so programs can't rely on it; the backend still
+compiles recursion.
 
 `$alloc` failing during copy-in throws a `RangeError` before the call. Errors thrown while
 reading arguments (say, a struct argument that is `undefined`) propagate unchanged. The
@@ -484,14 +512,20 @@ is snapshotted in `crates/trioxide_wasm/tests/snapshots/`.
 - **Instantiation** with an empty import object, then a check that
   `__trioxide_abi_version()` equals the ABI version the glue was generated for (it throws
   otherwise).
-- **Modes.** `GlueMode::Tla` (default, `wasm.glue: "tla"`) awaits instantiation at the top
-  level, so the island is ready once the module is imported. `GlueMode::Ready`
-  (`wasm.glue: "ready"`) for targets without top-level await exports `ready()`, a promise.
-  Wrappers throw until it resolves.
+- **Modes.** `GlueMode::Ready` (default, `wasm.glue: "ready"`) starts instantiation without
+  awaiting it and exports `ready()`, a promise. Until it resolves, wrappers call the JS
+  version from the `fallback` (generated islands always have one in this mode), or throw
+  without one. Importing an island changes nothing about when modules evaluate, and the
+  module the glue falls back to may import the glue itself: `$wasm` is a `var` and the
+  wrappers are function declarations, so a call made before the glue's body has run also
+  falls back. `GlueMode::Tla` (`wasm.glue: "tla"`) awaits instantiation at the top level, so
+  islands run from the first call, but every module importing one finishes evaluating later,
+  after pending microtasks and I/O, which a program can observe.
 - **Wrappers.** One `export function <name>(<params>)` per export, with the original
   parameter names (so `name` and `length` match the original function). Each one checks
-  aliasing, then, in `try`, copies arguments in, calls the export, copies mutated arguments
-  back, and converts the result. `catch` converts traps; `finally` resets the arena.
+  aliasing and plain-data struct arguments, then, in `try`, copies arguments in, calls the
+  export and converts the result. `catch` converts traps; `finally` copies mutated arguments
+  back (once the call has started) and resets the arena.
 - **Size.** Helpers (`$copyIn`, `$copyBack`, `$takeArray`, struct readers and writers, …) are
   emitted only when some export needs them.
 

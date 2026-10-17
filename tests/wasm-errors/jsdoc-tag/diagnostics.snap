@@ -5,5 +5,5 @@ input_file: tests/wasm-errors/jsdoc-tag/input.ts
 ---
 error[trioxide(wasm-ineligible)]: `measure` is forced into WASM but can't be compiled: reads `.byteLength` of an array
   --> input.ts:5:10 `xs.byteLength`
-      `measure` reads `.byteLength` of an array
-  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
+      reads `.byteLength` of an array
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain
