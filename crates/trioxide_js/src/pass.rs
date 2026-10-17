@@ -328,6 +328,112 @@ mod tests {
         assert_eq!(log.passes.len(), 1);
     }
 
+    /// Counts refreshes.
+    struct Counting {
+        facts: Facts,
+        refreshes: usize,
+    }
+
+    impl FactSource for Counting {
+        fn facts(&self) -> &Facts {
+            &self.facts
+        }
+
+        fn refresh(&mut self, _module: ModuleId, _program: &Program<'_>, _scoping: &Scoping) {
+            self.refreshes += 1;
+        }
+    }
+
+    /// Changes the AST on its first `budget` runs, reading facts or not.
+    struct Changes {
+        name: &'static str,
+        reads: bool,
+        budget: usize,
+    }
+
+    impl Pass for Changes {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn reads_facts(&self) -> bool {
+            self.reads
+        }
+
+        fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool {
+            ctx.traverse(&mut Double, program, ());
+            if self.budget == 0 {
+                return false;
+            }
+            self.budget -= 1;
+            true
+        }
+    }
+
+    fn refreshes(groups: Vec<PassGroup>) -> usize {
+        let allocator = Allocator::default();
+        let mut program = Parser::new(&allocator, "let x = 1;", SourceType::ts())
+            .parse()
+            .program;
+        let scoping = rebuild_scoping(&program);
+        let mut manager = PassManager::new(PassOptions::default());
+        for group in groups {
+            manager.add_group(group);
+        }
+        let mut facts = Counting {
+            facts: Facts::new(false),
+            refreshes: 0,
+        };
+        let mut log = ModuleLog::default();
+        manager.run(
+            &allocator,
+            &mut program,
+            scoping,
+            ModuleId::new(0),
+            &mut facts,
+            &mut log,
+        );
+        assert_eq!(manager.refreshes(), facts.refreshes);
+        facts.refreshes
+    }
+
+    fn group(name: &'static str, reads: bool, budget: usize, fixpoint: bool) -> PassGroup {
+        PassGroup {
+            name,
+            passes: vec![Box::new(Changes {
+                name,
+                reads,
+                budget,
+            })],
+            fixpoint,
+        }
+    }
+
+    #[test]
+    fn refreshes_only_before_groups_that_read_facts() {
+        // The default shape: facts, then a syntactic fixpoint. Nothing reads stale facts.
+        assert_eq!(
+            refreshes(vec![
+                group("facts", true, 1, false),
+                group("cleanup", false, 3, true)
+            ]),
+            0
+        );
+        // A fact-reading group after a change refreshes once, however many groups changed
+        // the module before it.
+        assert_eq!(
+            refreshes(vec![
+                group("first", true, 1, false),
+                group("syntax", false, 2, true),
+                group("second", true, 1, false),
+            ]),
+            1
+        );
+        // A fact-reading fixpoint refreshes before each iteration after a change, not after
+        // the last.
+        assert_eq!(refreshes(vec![group("loop", true, 2, true)]), 2);
+    }
+
     #[test]
     fn skips_disabled_passes() {
         let options = PassOptions {

@@ -218,7 +218,10 @@ Beyond types, the `Facts` API answers per call site (callees and whether that is
 can run there), per expression (effects including callees and implicit calls, `is_pure`,
 points-to sites), per loop (effects, written locals, arrays whose length the body may change,
 induction ranges, invariant expressions), per unit (callers, reachability distinct from
-`never`).
+`never`), and per declaration: `const` bindings with literal values (`symbol_constant`; the
+type lattice has no string, boolean or bigint literals), enum members (`enum_member`:
+`Proven` when nothing can change the enum object, `Declared` when only TypeScript's read-only
+members say so) and exports no module can use (`export_used`, app world).
 
 **Refreshing facts.** Facts are keyed by `NodeId`s, which a rewrite invalidates. For v1 the
 facade's `FactRefresher` (the `trioxide_js::FactSource` the pipeline runs passes with)
@@ -319,6 +322,29 @@ reuse `oxc_ecmascript`; trioxide does not run the oxc minifier.
 
 Every pass has a pre-condition expressed in analysis facts. A pass whose facts are only
 `Declared` is skipped unless `trustTypes` is on, and the skip is logged for `explain`.
+
+**Pipeline** (`trioxide_js::passes`). Passes 1–4 run as one fact-driven group, once, in the
+order inline (1), checks (4), fold (2), dce (3): checks turn guards into literals that fold
+then takes, and dce removes what the others left unused. Within the group node ids are
+stable, so later passes read facts about the nodes earlier ones kept. A syntactic cleanup
+group follows and runs to a fixed point without reading facts (`Pass::reads_facts`, so it
+never triggers a refresh): `oxc_ecmascript` constant evaluation (plus exact int32 bitwise
+folding, which it leaves alone), branches with literal tests, `null?.x`, statements after a
+`return`/`throw`/`break`/`continue`, empty statements, and unused bindings with inert
+initialisers. With these two groups no module is refreshed at all (refreshes happen only
+before a fact-reading group that follows a change); S5's groups pay for refreshes when they
+read facts after a change. An import guard brackets both groups: when the passes remove an
+import's last value use, the TypeScript strip would elide the whole declaration and its module
+might not run, so a side-effect `import "…"` is added in its place.
+
+Rules every pass follows: facts inside proven-unreachable code are not used; nodes a pass
+creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await` or `yield`
+are never dropped, whatever their purity says (binding `this` and suspending are not effects
+in the facts); `var` and function declarations are never removed with the branch or dead code
+that contains them while referenced; literals are printed as unary minus over a literal, and as
+`0 / 0`, `1 / 0`, `void 0` where `NaN`, `Infinity` or `undefined` is shadowed; strings over 32
+bytes are not copied into uses; detached comments (separated by a blank line) of a removed
+statement move to the next one.
 
 ---
 

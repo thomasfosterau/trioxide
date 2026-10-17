@@ -164,6 +164,54 @@ impl Position {
     }
 }
 
+/// Where the leading comments of removed statements go: a comment separated from the statement
+/// by a blank line is about the code around it (a file header, a section title), not the
+/// statement, so it moves to the next statement that stays.
+#[derive(Default)]
+struct Comments(Vec<(u32, u32)>);
+
+impl Comments {
+    /// Removes the statements `keep` says go, noting where their comments move.
+    fn remove<'a>(
+        &mut self,
+        statements: &mut oxc_allocator::ArenaVec<'a, Statement<'a>>,
+        keep: &[bool],
+    ) {
+        use oxc_span::GetSpan;
+        let mut next = None;
+        for (statement, &kept) in statements.iter().zip(keep).rev() {
+            let start = statement.span().start;
+            if kept {
+                next = Some(start);
+            } else if let Some(next) = next {
+                self.0.push((start, next));
+            }
+        }
+        let mut keep = keep.iter();
+        statements.retain(|_| *keep.next().expect("a flag per statement"));
+    }
+
+    /// Re-attaches the comments of `program` as noted.
+    fn apply(self, program: &mut oxc_ast::ast::Program<'_>) {
+        if self.0.is_empty() {
+            return;
+        }
+        let moved: rustc_hash::FxHashMap<u32, u32> = self.0.into_iter().collect();
+        let source = program.source_text;
+        for comment in &mut program.comments {
+            let Some(&to) = moved.get(&comment.attached_to) else {
+                continue;
+            };
+            let between = source
+                .get(comment.span.end as usize..comment.attached_to as usize)
+                .unwrap_or("");
+            if comment.is_leading() && between.matches('\n').count() >= 2 {
+                comment.attached_to = to;
+            }
+        }
+    }
+}
+
 /// Blocks a pass made out of an `if` it folded (`if (true) { … }` → `{ … }`), to splice into
 /// the statement list they are in once the list is visited. Blocks the source wrote stay.
 #[derive(Default)]

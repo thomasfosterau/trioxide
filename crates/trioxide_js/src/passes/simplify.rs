@@ -21,7 +21,7 @@ use oxc_traverse::{Traverse, TraverseCtx};
 use trioxide_analysis::Facts;
 
 use super::{
-    Decisions, Position, Unwrapped, track_position,
+    Comments, Decisions, Position, Unwrapped, track_position,
     util::{
         EvalCtx, Query, constant_expr, declares_hoisted, from_ecmascript, is_canonical_literal,
         is_inert, is_protected_position, parenthesize_for, small_enough,
@@ -54,8 +54,11 @@ impl Pass for Simplify {
             position: Position::default(),
             decisions: Decisions::new(self.name()),
             unwrapped: Unwrapped::default(),
+            comments: Comments::default(),
         };
         ctx.traverse(&mut visitor, program, ());
+        let comments = std::mem::take(&mut visitor.comments);
+        comments.apply(program);
         let folded = visitor.decisions.flush(ctx.log);
         // Unused bindings with inert initialisers, inert statements.
         let removed = super::dce::run(self.name(), program, ctx, None);
@@ -68,6 +71,7 @@ struct Visitor<'f> {
     position: Position,
     decisions: Decisions,
     unwrapped: Unwrapped,
+    comments: Comments,
 }
 
 impl<'a> Traverse<'a, ()> for Visitor<'_> {
@@ -100,33 +104,38 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
                     | Statement::ContinueStatement(_)
             )
         }) {
-            let mut index = end + 1;
-            while index < statements.len() {
-                // Bindings declared there are still visible (or in their dead zone) elsewhere.
-                if declares_hoisted(&statements[index])
-                    || super::declares_block_scoped(&statements[index])
-                {
-                    index += 1;
-                } else {
-                    self.decisions.applied(statements[index].span());
-                    statements.remove(index);
-                }
-            }
+            let keep: Vec<bool> = statements
+                .iter()
+                .enumerate()
+                .map(|(index, statement)| {
+                    // Bindings declared there are still visible (or in their dead zone)
+                    // elsewhere.
+                    let keep = index <= end
+                        || declares_hoisted(statement)
+                        || super::declares_block_scoped(statement);
+                    if !keep {
+                        self.decisions.applied(statement.span());
+                    }
+                    keep
+                })
+                .collect();
+            self.comments.remove(statements, &keep);
         }
-        let mut index = 0;
-        while index < statements.len() {
-            match &mut statements[index] {
-                Statement::EmptyStatement(empty) => {
-                    self.decisions.applied(empty.span);
-                    statements.remove(index);
+        let keep: Vec<bool> = statements
+            .iter()
+            .map(|statement| {
+                let empty = match statement {
+                    Statement::EmptyStatement(_) => true,
+                    Statement::BlockStatement(block) => block.body.is_empty(),
+                    _ => false,
+                };
+                if empty {
+                    self.decisions.applied(statement.span());
                 }
-                Statement::BlockStatement(block) if block.body.is_empty() => {
-                    self.decisions.applied(block.span);
-                    statements.remove(index);
-                }
-                _ => index += 1,
-            }
-        }
+                !empty
+            })
+            .collect();
+        self.comments.remove(statements, &keep);
     }
 }
 

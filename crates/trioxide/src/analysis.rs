@@ -139,6 +139,7 @@ pub struct FactRefresher<'p> {
     /// Each rewritten module's printed text, and how its ids map back.
     rewritten: FxHashMap<ModuleId, (String, Option<Alignment>)>,
     refreshes: usize,
+    refresh_time: std::time::Duration,
     /// The analysis before the first refresh, for [`restore`](Self::restore).
     original: Option<(Facts, trioxide_analysis::Stats)>,
 }
@@ -160,6 +161,7 @@ impl<'p> FactRefresher<'p> {
             analysis,
             rewritten: FxHashMap::default(),
             refreshes: 0,
+            refresh_time: std::time::Duration::ZERO,
             original: None,
         }
     }
@@ -178,6 +180,11 @@ impl<'p> FactRefresher<'p> {
     pub fn refreshes(&self) -> usize {
         self.refreshes
     }
+
+    /// The time spent recomputing them.
+    pub fn refresh_time(&self) -> std::time::Duration {
+        self.refresh_time
+    }
 }
 
 impl FactSource for FactRefresher<'_> {
@@ -186,6 +193,7 @@ impl FactSource for FactRefresher<'_> {
     }
 
     fn refresh(&mut self, module: ModuleId, program: &Program<'_>, _scoping: &Scoping) {
+        let started = std::time::Instant::now();
         let text = oxc_codegen::Codegen::new().build(program).code;
         let source_type = self.graph.module(module).source_type;
         let alignment = {
@@ -218,6 +226,7 @@ impl FactSource for FactRefresher<'_> {
         }
         *self.analysis = analysis;
         self.refreshes += 1;
+        self.refresh_time += started.elapsed();
     }
 }
 

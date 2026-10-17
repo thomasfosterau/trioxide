@@ -51,6 +51,8 @@ pub struct Project {
     diagnostics: Vec<Diagnostic>,
     debug_islands: Vec<IslandSource>,
     island_builder: Option<Box<dyn IslandBuilder>>,
+    /// Fact refreshes during compilation, and the time they took.
+    refreshes: (usize, std::time::Duration),
 }
 
 impl std::fmt::Debug for Project {
@@ -134,6 +136,7 @@ impl Project {
             diagnostics: warnings,
             debug_islands: Vec::new(),
             island_builder: None,
+            refreshes: (0, std::time::Duration::ZERO),
         })
     }
 
@@ -387,6 +390,13 @@ impl Project {
         diagnostics
     }
 
+    /// How many times compiling modules has re-analysed the program to refresh facts after a
+    /// pass group rewrote one (PLAN §3 "Refreshing facts"), and the time that took, since the
+    /// project was created.
+    pub fn refresh_stats(&self) -> (usize, std::time::Duration) {
+        self.refreshes
+    }
+
     /// The id of the graph module at `path`, if it is in the graph.
     pub fn module_id(&self, path: &Path) -> Option<ModuleId> {
         self.graph.get(path)
@@ -430,6 +440,8 @@ impl Project {
         let mut facts =
             FactRefresher::new(&mut *self.oracle, &self.graph, setup, &mut self.analysis);
         let mut output = self.compiler.compile(&input, &mut facts, log, true);
+        self.refreshes.0 += facts.refreshes();
+        self.refreshes.1 += facts.refresh_time();
         facts.restore();
         let mut diagnostics = module.diagnostics.clone();
         diagnostics.append(&mut output.diagnostics);

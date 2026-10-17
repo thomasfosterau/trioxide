@@ -30,7 +30,7 @@ use rustc_hash::FxHashMap;
 use trioxide_common::SymbolRef;
 
 use super::{
-    Decisions, Position, track_position,
+    Comments, Decisions, Position, track_position,
     util::{
         Query, binds_or_suspends, declares_hoisted, has_dynamic_scope, is_inert, live_references,
         weak,
@@ -76,8 +76,10 @@ pub(super) fn run<'a>(
             decisions: Decisions::new(name),
             references,
             dynamic_scope,
+            comments: Comments::default(),
         };
         ctx.traverse(&mut visitor, program, ());
+        visitor.comments.apply(program);
         if !visitor.decisions.flush(ctx.log) {
             break;
         }
@@ -94,6 +96,7 @@ struct Visitor<'f> {
     decisions: Decisions,
     references: FxHashMap<SymbolId, Vec<Span>>,
     dynamic_scope: bool,
+    comments: Comments,
 }
 
 impl<'a> Traverse<'a, ()> for Visitor<'_> {
@@ -109,15 +112,11 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
         }
         let top_level = matches!(ctx.parent(), Ancestor::ProgramBody(_));
         let live = self.position.live();
-        let mut index = 0;
-        while index < statements.len() {
-            let keep = self.statement(&mut statements[index], top_level, live, ctx);
-            if keep {
-                index += 1;
-            } else {
-                statements.remove(index);
-            }
-        }
+        let keep: Vec<bool> = statements
+            .iter_mut()
+            .map(|statement| self.statement(statement, top_level, live, ctx))
+            .collect();
+        self.comments.remove(statements, &keep);
     }
 }
 

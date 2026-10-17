@@ -1,0 +1,22 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/checks/hot-loop
+input_file: tests/fixtures/passes/checks/hot-loop/input.ts
+---
+//- input.ts
+15:23 inline applied
+33:28 inline applied
+27:11 checks applied
+27:30 checks applied
+30:11 checks applied
+30:38 checks applied
+33:15 checks applied
+33:15 checks applied
+34:16 checks applied
+34:16 checks applied
+27:11 fold applied
+27:7 fold applied
+30:11 fold applied
+30:7 fold applied
+10:7 dce applied
+11:7 dce applied

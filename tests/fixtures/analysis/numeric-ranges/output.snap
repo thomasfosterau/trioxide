@@ -4,6 +4,7 @@ description: tests/fixtures/analysis/numeric-ranges
 input_file: tests/fixtures/analysis/numeric-ranges/input.ts
 ---
 //- input.ts
+// Interval, integer, NaN and -0 facts through arithmetic and Math.
 export function main() {
 	const r = Math.random();
 	const unsigned = 4294967295;

@@ -4,6 +4,7 @@ description: tests/fixtures/analysis/narrowing-values
 input_file: tests/fixtures/analysis/narrowing-values/input.ts
 ---
 //- input.ts
+// Equality and truthiness narrowing on locals.
 const config = JSON.parse("null");
 export function main() {
 	const items = ["a", null];
