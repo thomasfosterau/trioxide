@@ -22,11 +22,19 @@ Also useful:
 - `cargo insta review` after changing output; snapshots live next to each fixture as
   `tests/fixtures/<case>/output.snap`.
 - `TRIOXIDE_UPDATE_SCHEMA=1 cargo test -p trioxide schema` regenerates
-  `schema/trioxide.schema.json` after changing `Options`. Keep `TrioxideOptions` in
-  `packages/trioxide/src/index.d.ts` in step (a test checks the top-level keys).
+  `schema/trioxide.schema.json` after changing `Options`; then `pnpm --filter trioxide generate`
+  regenerates `packages/trioxide/src/options.d.ts` and `schema.json` (a test checks both).
+- Browser tests (plugin HMR, `examples/dom-app`) use Playwright's Chromium if installed, else
+  `CHROMIUM_PATH` or a system Chrome. Never run `playwright install`.
+- `cargo run -p trioxide_cli -- check-toolchain` reports what WASM islands need.
 - `FIXTURE=enums pnpm --filter trioxide-differential test` runs one differential fixture.
   `TRIOXIDE_BIN=…` skips the cargo build it otherwise does first.
 - `cargo check -p trioxide_cli --no-default-features` builds without tsrs.
+- `FIXTURE=islands/nbody pnpm --filter trioxide-differential test` runs one hand-written
+  island through all legs, including JS+WASM. Islands are cached in
+  `tests/differential/.out/.cache`; `docs/ABI.md` is the island contract.
+- `node crates/trioxide_rt/tests/golden/generate.mjs` regenerates the runtime's golden
+  tables from V8.
 - The first build compiles tsrs (a few minutes). Dependencies are built at `opt-level = 2`
   even in dev because tsrs is very slow unoptimised.
 
@@ -84,4 +92,6 @@ Sessions and waves are listed in `docs/sessions/README.md`.
   `Project::analyse`.
 - Passes: implement `trioxide_js::Pass`, register in `PassManager::from_options`.
 - Partitioning: `trioxide_partition::Partitioner::partition`.
-- Islands: `trioxide_wasm::IslandSpec` + `IslandBuilder`; results go in `BuildOutput.islands`.
+- Islands: `trioxide_wasm::IslandSource` (an `IslandSpec` plus Rust files, shaped as
+  `docs/ABI.md` says) built by an `IslandBuilder`; results go in `BuildOutput.islands`.
+  Hand-written islands live in `tests/islands/<case>/island/`.

@@ -24,6 +24,7 @@
 //! Analysis, optimisation passes and WASM islands plug in behind the same API.
 
 mod error;
+mod islands;
 mod options;
 mod output;
 mod pipeline;
@@ -39,7 +40,13 @@ pub use output::{BuildOutput, Invalidation, ModuleOutput, SourceMap};
 pub use project::{Project, strip_types};
 pub use report::{ExplainQuery, ModuleReport, Report};
 pub use trioxide_common::{Diagnostic, Label, Severity, Span, log};
-pub use trioxide_wasm::{IslandArtifact, IslandId, IslandRef, IslandSpec};
+/// The WASM island contract, builder, glue generator and toolchain detection
+/// (`trioxide check-toolchain` uses [`wasm::toolchain::Toolchain`]).
+pub use trioxide_wasm as wasm;
+pub use trioxide_wasm::{
+    BuildError as IslandBuildError, IslandArtifact, IslandBuilder, IslandId, IslandRef,
+    IslandSource, IslandSpec, WASM_URL_PLACEHOLDER,
+};
 
 /// Whether this build embeds the tsrs type checker (the `tsrs` Cargo feature).
 pub const HAS_TSRS: bool = trioxide_types::HAS_TSRS;

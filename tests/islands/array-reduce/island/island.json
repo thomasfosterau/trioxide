@@ -1,0 +1,134 @@
+{
+  "id": "array-reduce",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "sum",
+      "wasmName": "sum",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "kind": "numberArray"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "stats",
+      "wasmName": "stats",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "kind": "numberArray"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "struct",
+        "index": 0
+      }
+    },
+    {
+      "name": "dot",
+      "wasmName": "dot",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "numberArray"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "numberArray"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "normalize",
+      "wasmName": "normalize",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "kind": "numberArray"
+          },
+          "mutated": true
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "prefixSums",
+      "wasmName": "prefixSums",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "kind": "numberArray"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "numberArray"
+      }
+    },
+    {
+      "name": "weightedMean",
+      "wasmName": "weightedMean",
+      "params": [
+        {
+          "name": "values",
+          "ty": {
+            "kind": "numberArray"
+          }
+        },
+        {
+          "name": "weights",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    }
+  ],
+  "structs": [
+    {
+      "name": "Stats",
+      "fields": [
+        {
+          "name": "min",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "max",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "mean",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ]
+    }
+  ]
+}

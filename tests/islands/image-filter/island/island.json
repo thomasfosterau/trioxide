@@ -1,0 +1,94 @@
+{
+  "id": "image-filter",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "brighten",
+      "wasmName": "brighten",
+      "params": [
+        {
+          "name": "pixels",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8Clamped"
+          },
+          "mutated": true
+        },
+        {
+          "name": "factor",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "grayscale",
+      "wasmName": "grayscale",
+      "params": [
+        {
+          "name": "pixels",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8Clamped"
+          },
+          "mutated": true
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "boxBlur",
+      "wasmName": "boxBlur",
+      "params": [
+        {
+          "name": "src",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8Clamped"
+          }
+        },
+        {
+          "name": "width",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "height",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "typedArray",
+        "element": "u8Clamped"
+      }
+    },
+    {
+      "name": "histogram",
+      "wasmName": "histogram",
+      "params": [
+        {
+          "name": "pixels",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8Clamped"
+          }
+        },
+        {
+          "name": "bins",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u32"
+          },
+          "mutated": true
+        }
+      ],
+      "ret": null
+    }
+  ],
+  "fallback": "../kernel.fallback.js"
+}

@@ -1,0 +1,405 @@
+{
+  "id": "math-edge",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "round",
+      "wasmName": "round",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "sign",
+      "wasmName": "sign",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "trunc",
+      "wasmName": "trunc",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "fround",
+      "wasmName": "fround",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "max",
+      "wasmName": "max",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "min3",
+      "wasmName": "min3",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "c",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "hypot",
+      "wasmName": "hypot",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "c",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "rem",
+      "wasmName": "rem",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "clz32",
+      "wasmName": "clz32",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "imul",
+      "wasmName": "imul",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "toInt32",
+      "wasmName": "toInt32",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "toUint32",
+      "wasmName": "toUint32",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    },
+    {
+      "name": "mix",
+      "wasmName": "mix",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "idiv",
+      "wasmName": "idiv",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "i32"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "i32"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "irem",
+      "wasmName": "irem",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "i32"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "i32"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "wrapAdd",
+      "wasmName": "wrapAdd",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "u32"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "u32"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    },
+    {
+      "name": "isPositive",
+      "wasmName": "isPositive",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "notLess",
+      "wasmName": "notLess",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "choose",
+      "wasmName": "choose",
+      "params": [
+        {
+          "name": "flag",
+          "ty": {
+            "kind": "bool"
+          }
+        },
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "truthy",
+      "wasmName": "truthy",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "clampByte",
+      "wasmName": "clampByte",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    }
+  ]
+}

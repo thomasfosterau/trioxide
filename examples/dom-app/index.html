@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>trioxide dom-app</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <h1>Tasks</h1>
+      <form id="new-task">
+        <input id="title" name="title" placeholder="What needs doing?" autocomplete="off" />
+        <select id="priority" name="priority">
+          <option value="low">Low</option>
+          <option value="normal" selected>Normal</option>
+          <option value="high">High</option>
+        </select>
+        <button type="submit">Add</button>
+      </form>
+      <nav id="filters"></nav>
+      <ul id="tasks"></ul>
+      <p id="summary"></p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

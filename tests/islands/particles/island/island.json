@@ -1,0 +1,201 @@
+{
+  "id": "particles",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "centroid",
+      "wasmName": "centroid",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "ys",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "struct",
+        "index": 1
+      }
+    },
+    {
+      "name": "spread",
+      "wasmName": "spread",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        },
+        {
+          "name": "ys",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "step",
+      "wasmName": "step",
+      "params": [
+        {
+          "name": "body",
+          "ty": {
+            "kind": "struct",
+            "index": 0
+          },
+          "mutated": true
+        },
+        {
+          "name": "ax",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "ay",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "dt",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "collide",
+      "wasmName": "collide",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "struct",
+            "index": 0
+          },
+          "mutated": true
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "struct",
+            "index": 0
+          },
+          "mutated": true
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "momentum",
+      "wasmName": "momentum",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "struct",
+            "index": 0
+          }
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "struct",
+            "index": 0
+          }
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    }
+  ],
+  "structs": [
+    {
+      "name": "Body",
+      "fields": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "y",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "vx",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "vy",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "mass",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "layer",
+          "ty": {
+            "kind": "i32"
+          }
+        },
+        {
+          "name": "pinned",
+          "ty": {
+            "kind": "bool"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Point",
+      "fields": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          }
+        },
+        {
+          "name": "y",
+          "ty": {
+            "kind": "f64"
+          }
+        }
+      ]
+    }
+  ],
+  "fallback": "../kernel.fallback.js"
+}
