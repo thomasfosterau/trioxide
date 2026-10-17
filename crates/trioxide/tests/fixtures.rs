@@ -44,6 +44,15 @@ fn options_for(dir: &Path) -> Options {
         .map_or_else(Options::default, |path| Options::from_file(&path).unwrap())
 }
 
+/// The diagnostic with its file relative to `root`, so snapshots don't depend on the checkout.
+fn relative(root: &Path, diagnostic: &trioxide::Diagnostic) -> trioxide::Diagnostic {
+    let mut diagnostic = diagnostic.clone();
+    if let Some(file) = &diagnostic.file {
+        diagnostic.file = Some(file.strip_prefix(root).unwrap_or(file).to_path_buf());
+    }
+    diagnostic
+}
+
 /// Renders a build: each module's path relative to the fixture, its code, then diagnostics.
 fn render(root: &Path, output: &trioxide::BuildOutput) -> String {
     let mut text = String::new();
@@ -52,12 +61,12 @@ fn render(root: &Path, output: &trioxide::BuildOutput) -> String {
         writeln!(text, "//- {}", path.display()).unwrap();
         text.push_str(&module.code);
         for diagnostic in &module.diagnostics {
-            writeln!(text, "//! {diagnostic}").unwrap();
+            writeln!(text, "//! {}", relative(root, diagnostic)).unwrap();
         }
         text.push('\n');
     }
     for diagnostic in &output.report.diagnostics {
-        writeln!(text, "//! {diagnostic}").unwrap();
+        writeln!(text, "//! {}", relative(root, diagnostic)).unwrap();
     }
     text.trim_end().to_string() + "\n"
 }

@@ -40,4 +40,4 @@ export function main() {
 	Counter();
 	console.log(Counter.calls);
 }
-//! /home/user/trioxide/tests/fixtures/namespaces/input.ts:550: warning: Namespaces exporting non-const are not supported by Oxc. Change to const or see: https://oxc.rs/docs/guide/usage/transformer/typescript.html#partial-namespace-support
+//! input.ts:550: warning: Namespaces exporting non-const are not supported by Oxc. Change to const or see: https://oxc.rs/docs/guide/usage/transformer/typescript.html#partial-namespace-support
