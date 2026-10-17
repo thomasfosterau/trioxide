@@ -932,8 +932,17 @@ impl<'a> Cx<'_, '_, 'a> {
         let grows = matches!(builtin.name, "push" | "unshift");
         for site in sites {
             if builtin.effects.retains_args {
-                for value in args {
-                    self.store_elem(site, value);
+                if builtin.name == "fill" {
+                    // `fill(value, start, end)` stores only the value.
+                    let value = args
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| Val::proven(Type::Undefined));
+                    self.store_elem(site, &value);
+                } else {
+                    for value in args {
+                        self.store_elem(site, value);
+                    }
                 }
             }
             if shrinks || grows {

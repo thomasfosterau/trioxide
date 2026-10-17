@@ -261,8 +261,9 @@ impl Type {
         }
     }
 
-    /// A total order on types that agrees with `==`: primitives first, in a fixed order, then
-    /// structured types by variant and contents.
+    /// A total order on types: primitives first, in a fixed order, then structured types by
+    /// variant and contents. It agrees with `==` except on number bounds, which it compares
+    /// with `f64::total_cmp` (so `-0` sorts before `0`, which `==` treats as equal).
     fn canonical_cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         fn number(a: &NumberType, b: &NumberType) -> Ordering {

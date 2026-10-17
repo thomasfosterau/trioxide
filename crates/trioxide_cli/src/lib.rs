@@ -232,8 +232,11 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
 
     match &cli.command {
         Command::Transform { file } => {
-            let mut project = open_project(global, Some(file), renderer)?;
-            let out = project.transform(file)?;
+            // Resolved once, against the working directory (not again against the root).
+            let file = std::path::absolute(file)
+                .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
+            let mut project = open_project(global, Some(&file), renderer)?;
+            let out = project.transform(&file)?;
             renderer.module_diagnostics(&out);
             if out.has_errors() {
                 return Err(Failure::Error(String::new()));
@@ -388,11 +391,9 @@ fn resolve_config(
             WorldArg::App => trioxide::World::App,
             WorldArg::Library => trioxide::World::Library,
         });
-        ignored.push("--world");
     }
     if global.trust_types {
         options.trust_types = true;
-        ignored.push("--trust-types");
     }
     if global.no_wasm {
         options.wasm.enabled = false;
