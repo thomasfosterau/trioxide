@@ -1,0 +1,4 @@
+{
+  // The analysis types object parameters' fields from TypeScript only.
+  "trustTypes": true
+}

@@ -382,6 +382,31 @@ function $overlaps(a, b) {
 ",
         );
     }
+    if needs.structs.iter().any(|s| s.write) {
+        out.push_str(
+            r"
+// An own data property (a writable one if the island may write it): copying it in and back
+// then reads and writes it as JS would. Otherwise the call runs the JS version.
+function $isData(object, name, writable) {
+  const property =
+    typeof object === 'object' && object !== null ? Object.getOwnPropertyDescriptor(object, name) : undefined;
+  return property !== undefined && 'value' in property && (!writable || property.writable);
+}
+",
+        );
+    }
+    if needs.structs.iter().any(|s| s.update) {
+        out.push_str(
+            r"
+// Whether the island changed `size` bytes at `at` since `before` (from `from`) was taken: only
+// fields it wrote are copied back.
+function $changed(view, at, before, from, size) {
+  for (let i = 0; i < size; i++) if (view.getUint8(at + i) !== before[from + i]) return true;
+  return false;
+}
+",
+        );
+    }
     for (index, struct_needs) in needs.structs.iter().enumerate() {
         write_struct_helpers(out, spec, index, *struct_needs);
     }
@@ -402,6 +427,29 @@ fn write_struct_helpers(out: &mut String, spec: &IslandSpec, index: usize, needs
     let name = &spec.structs[index].name;
     let layout = spec.struct_layout(index);
     if needs.write {
+        let checks: Vec<String> = layout
+            .fields
+            .iter()
+            .map(|field| match &field.ty {
+                AbiType::Struct { index } => format!(
+                    "$isData(value, {0}, false) && $plain{1}(value.{2}, writable)",
+                    js_string(&field.name),
+                    spec.structs[*index].name,
+                    field.name
+                ),
+                _ => format!("$isData(value, {}, writable)", js_string(&field.name)),
+            })
+            .collect();
+        writeln!(
+            out,
+            "\nfunction $plain{name}(value, writable) {{\n  return {};\n}}",
+            if checks.is_empty() {
+                "typeof value === 'object' && value !== null".to_string()
+            } else {
+                checks.join(" && ")
+            }
+        )
+        .unwrap();
         writeln!(out, "\nfunction $write{name}(view, ptr, value) {{").unwrap();
         for field in &layout.fields {
             let at = offset(field.offset);
@@ -435,21 +483,38 @@ fn write_struct_helpers(out: &mut String, spec: &IslandSpec, index: usize, needs
         out.push_str("  };\n}\n");
     }
     if needs.update {
-        writeln!(out, "\nfunction $update{name}(view, ptr, value) {{").unwrap();
+        writeln!(
+            out,
+            "\nfunction $update{name}(view, ptr, value, before, base) {{"
+        )
+        .unwrap();
         for field in &layout.fields {
+            let at = offset(field.offset);
             match &field.ty {
                 AbiType::Struct { index } => writeln!(
                     out,
-                    "  $update{}(view, ptr{}, value.{});",
-                    spec.structs[*index].name,
-                    offset(field.offset),
-                    field.name
+                    "  $update{}(view, ptr{at}, value.{}, before, base{at});",
+                    spec.structs[*index].name, field.name
                 ),
-                _ => writeln!(out, "  value.{} = {};", field.name, read_field(spec, field)),
+                ty => writeln!(
+                    out,
+                    "  if ($changed(view, ptr{at}, before, base{at}, {})) value.{} = {};",
+                    scalar_size(ty),
+                    field.name,
+                    read_field(spec, field)
+                ),
             }
             .unwrap();
         }
         out.push_str("}\n");
+    }
+}
+
+fn scalar_size(ty: &AbiType) -> u32 {
+    match ty {
+        AbiType::F64 => 8,
+        AbiType::Bool => 1,
+        _ => 4,
     }
 }
 
@@ -533,6 +598,31 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
         out.push_str("  }\n");
     }
 
+    let plain: Vec<String> = export
+        .params
+        .iter()
+        .filter_map(|param| match &param.ty {
+            AbiType::Struct { index } => Some(format!(
+                "!$plain{}({}, {})",
+                spec.structs[*index].name, param.name, param.mutated
+            )),
+            _ => None,
+        })
+        .collect();
+    if !plain.is_empty() {
+        writeln!(out, "  if ({}) {{", plain.join(" || ")).unwrap();
+        match &spec.fallback {
+            Some(_) => writeln!(out, "    return {}({params});", fallback(export)),
+            None => writeln!(
+                out,
+                "    throw new TypeError('trioxide: {}() got an object whose fields aren\\'t plain data properties, which island \"{}\" cannot handle');",
+                export.name, spec.id.0
+            ),
+        }
+        .unwrap();
+        out.push_str("  }\n");
+    }
+
     let mut body = String::new();
     let mut args = Vec::new();
     let mut copy_back = Vec::new();
@@ -575,8 +665,14 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
                 .unwrap();
                 args.push(format!("${index}"));
                 if param.mutated {
+                    writeln!(
+                        body,
+                        "    ${index}b = new Uint8Array($wasm.memory.buffer, ${index}, {}).slice();",
+                        layout.size
+                    )
+                    .unwrap();
                     copy_back.push(format!(
-                        "$update{struct_name}(new DataView($wasm.memory.buffer), ${index}, {name});"
+                        "$update{struct_name}(new DataView($wasm.memory.buffer), ${index}, {name}, ${index}b, 0);"
                     ));
                 }
             }
@@ -621,7 +717,11 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
             .iter()
             .enumerate()
             .filter(|(_, param)| param.mutated)
-            .map(|(index, _)| format!("${index}"))
+            .flat_map(|(index, param)| {
+                let before =
+                    matches!(param.ty, AbiType::Struct { .. }).then(|| format!("${index}b"));
+                std::iter::once(format!("${index}")).chain(before)
+            })
             .collect();
         writeln!(out, "  let {};\n  let $called = false;", temps.join(", ")).unwrap();
         cleanup.push_str("    if ($called) {\n");

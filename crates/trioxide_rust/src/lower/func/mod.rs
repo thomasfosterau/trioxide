@@ -27,7 +27,7 @@ use trioxide_common::SymbolRef;
 use trioxide_types::{ClassId, FunctionId, NumberType, Type, TypedArrayKind};
 use trioxide_wasm::TypedArrayElement;
 
-use super::{FieldRead, Group, Lowerer, Reason, StructSlot};
+use super::{FieldRead, Group, GroupKey, Lowerer, Reason, StructSlot};
 use crate::{
     kinds::{Kind, StructKey, is_index, is_int32, is_uint32},
     names,
@@ -401,9 +401,16 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
                     what(other)
                 )),
             },
-            [Type::Object(_)] if !undefined => Ok(Kind::ParamStruct {
-                group: self.group_for(param),
-            }),
+            // Several object shapes too: the fields' types come from the reads' facts.
+            objects
+                if !undefined
+                    && !objects.is_empty()
+                    && objects.iter().all(|t| matches!(t, Type::Object(_))) =>
+            {
+                Ok(Kind::ParamStruct {
+                    group: self.group_for(param),
+                })
+            }
             [] => Err(format!(
                 "parameter `{name}` receives no value the analysis can see (its callers are unknown)"
             )),
@@ -422,8 +429,24 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
     fn group_for(&mut self, param: &'a FormalParameter<'a>) -> usize {
         let annotation = param.type_annotation.as_ref().map(|a| &a.type_annotation);
         let type_name = annotation.and_then(names::type_reference_name);
-        let name = if let Some(name) = &type_name {
-            names::type_name(name)
+        let (key, name) = if let Some(type_name) = &type_name {
+            let declaration = match annotation {
+                Some(oxc_ast::ast::TSType::TSTypeReference(reference)) => {
+                    match &reference.type_name {
+                        oxc_ast::ast::TSTypeName::IdentifierReference(id) => self
+                            .module
+                            .reference_symbol(id.reference_id.get())
+                            .map(|symbol| self.resolve(self.module.symbol(symbol))),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            let key = declaration.map_or_else(
+                || GroupKey::TypeName(self.module.id, type_name.clone()),
+                GroupKey::Type,
+            );
+            (key, names::type_name(type_name))
         } else {
             let function = self.lw.display_name(self.id);
             let param_name = param
@@ -431,9 +454,12 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
                 .get_identifier_name()
                 .map(|n| n.to_string())
                 .unwrap_or_default();
-            names::type_name(&format!("{function}_{param_name}"))
+            (
+                GroupKey::Param(self.node(param.node_id())),
+                names::type_name(&format!("{function}_{param_name}")),
+            )
         };
-        if let Some(index) = self.lw.env.groups.iter().position(|g| g.name == name) {
+        if let Some(index) = self.lw.env.groups.iter().position(|g| g.key == key) {
             return index;
         }
         let order = match (&type_name, annotation) {
@@ -444,6 +470,7 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
             _ => Vec::new(),
         };
         self.lw.env.groups.push(Group {
+            key,
             name,
             order,
             fields: Vec::new(),

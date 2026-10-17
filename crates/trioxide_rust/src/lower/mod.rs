@@ -64,12 +64,26 @@ pub(crate) enum FieldRead {
 }
 
 /// One boundary struct type: parameters that share it.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct Group {
+    /// What makes two parameters share it.
+    pub key: GroupKey,
+    /// The struct name it asks for (made unique when structs are named).
     pub name: String,
     /// Declared field order, from the TS type when it is a local interface or type literal.
     pub order: Vec<String>,
     pub fields: Vec<GroupField>,
+}
+
+/// The identity of a boundary struct group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GroupKey {
+    /// Parameters of a named type: its declaration.
+    Type(SymbolRef),
+    /// A named type that doesn't resolve to a declaration: its module and name.
+    TypeName(trioxide_common::ModuleId, String),
+    /// A parameter with an inline object type, or none.
+    Param(NodeRef),
 }
 
 impl Group {

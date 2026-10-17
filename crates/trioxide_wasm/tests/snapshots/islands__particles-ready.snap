@@ -70,6 +70,25 @@ function $copyIn(array, View) {
   return ptr;
 }
 
+// An own data property (a writable one if the island may write it): copying it in and back
+// then reads and writes it as JS would. Otherwise the call runs the JS version.
+function $isData(object, name, writable) {
+  const property =
+    typeof object === 'object' && object !== null ? Object.getOwnPropertyDescriptor(object, name) : undefined;
+  return property !== undefined && 'value' in property && (!writable || property.writable);
+}
+
+// Whether the island changed `size` bytes at `at` since `before` (from `from`) was taken: only
+// fields it wrote are copied back.
+function $changed(view, at, before, from, size) {
+  for (let i = 0; i < size; i++) if (view.getUint8(at + i) !== before[from + i]) return true;
+  return false;
+}
+
+function $plainBody(value, writable) {
+  return $isData(value, "x", writable) && $isData(value, "y", writable) && $isData(value, "vx", writable) && $isData(value, "vy", writable) && $isData(value, "mass", writable) && $isData(value, "layer", writable) && $isData(value, "pinned", writable);
+}
+
 function $writeBody(view, ptr, value) {
   view.setFloat64(ptr, value.x, true);
   view.setFloat64(ptr + 8, value.y, true);
@@ -80,14 +99,14 @@ function $writeBody(view, ptr, value) {
   view.setUint8(ptr + 44, value.pinned ? 1 : 0);
 }
 
-function $updateBody(view, ptr, value) {
-  value.x = view.getFloat64(ptr, true);
-  value.y = view.getFloat64(ptr + 8, true);
-  value.vx = view.getFloat64(ptr + 16, true);
-  value.vy = view.getFloat64(ptr + 24, true);
-  value.mass = view.getFloat64(ptr + 32, true);
-  value.layer = view.getInt32(ptr + 40, true);
-  value.pinned = view.getUint8(ptr + 44) !== 0;
+function $updateBody(view, ptr, value, before, base) {
+  if ($changed(view, ptr, before, base, 8)) value.x = view.getFloat64(ptr, true);
+  if ($changed(view, ptr + 8, before, base + 8, 8)) value.y = view.getFloat64(ptr + 8, true);
+  if ($changed(view, ptr + 16, before, base + 16, 8)) value.vx = view.getFloat64(ptr + 16, true);
+  if ($changed(view, ptr + 24, before, base + 24, 8)) value.vy = view.getFloat64(ptr + 24, true);
+  if ($changed(view, ptr + 32, before, base + 32, 8)) value.mass = view.getFloat64(ptr + 32, true);
+  if ($changed(view, ptr + 40, before, base + 40, 4)) value.layer = view.getInt32(ptr + 40, true);
+  if ($changed(view, ptr + 44, before, base + 44, 1)) value.pinned = view.getUint8(ptr + 44) !== 0;
 }
 
 function $readPoint(view, ptr) {
@@ -126,18 +145,22 @@ export function spread(xs, ys) {
 
 export function step(body, ax, ay, dt) {
   if ($wasm === undefined) return $fallback.step(body, ax, ay, dt);
-  let $0;
+  if (!$plainBody(body, true)) {
+    return $fallback.step(body, ax, ay, dt);
+  }
+  let $0, $0b;
   let $called = false;
   try {
     $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, body);
+    $0b = new Uint8Array($wasm.memory.buffer, $0, 48).slice();
     $called = true;
     $wasm.step($0, ax, ay, dt);
   } catch ($error) {
     throw $trap($error, "step");
   } finally {
     if ($called) {
-      $updateBody(new DataView($wasm.memory.buffer), $0, body);
+      $updateBody(new DataView($wasm.memory.buffer), $0, body, $0b, 0);
     }
     $wasm.__trioxide_reset();
   }
@@ -148,13 +171,18 @@ export function collide(a, b) {
   if (a === b) {
     return $fallback.collide(a, b);
   }
-  let $0, $1;
+  if (!$plainBody(a, true) || !$plainBody(b, true)) {
+    return $fallback.collide(a, b);
+  }
+  let $0, $0b, $1, $1b;
   let $called = false;
   try {
     $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, a);
+    $0b = new Uint8Array($wasm.memory.buffer, $0, 48).slice();
     $1 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $1, b);
+    $1b = new Uint8Array($wasm.memory.buffer, $1, 48).slice();
     $called = true;
     const $ret = $wasm.collide($0, $1);
     return $ret !== 0;
@@ -162,8 +190,8 @@ export function collide(a, b) {
     throw $trap($error, "collide");
   } finally {
     if ($called) {
-      $updateBody(new DataView($wasm.memory.buffer), $0, a);
-      $updateBody(new DataView($wasm.memory.buffer), $1, b);
+      $updateBody(new DataView($wasm.memory.buffer), $0, a, $0b, 0);
+      $updateBody(new DataView($wasm.memory.buffer), $1, b, $1b, 0);
     }
     $wasm.__trioxide_reset();
   }
@@ -171,6 +199,9 @@ export function collide(a, b) {
 
 export function momentum(a, b) {
   if ($wasm === undefined) return $fallback.momentum(a, b);
+  if (!$plainBody(a, false) || !$plainBody(b, false)) {
+    return $fallback.momentum(a, b);
+  }
   try {
     const $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, a);

@@ -243,7 +243,7 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     /// Follows an import to the binding it names.
-    fn resolve(&self, symbol: SymbolRef) -> SymbolRef {
+    pub(super) fn resolve(&self, symbol: SymbolRef) -> SymbolRef {
         self.facts().resolve_import(symbol).unwrap_or(symbol)
     }
 

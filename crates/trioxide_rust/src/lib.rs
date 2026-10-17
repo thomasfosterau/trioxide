@@ -278,6 +278,8 @@ pub fn forced_islands(
             );
             continue;
         }
+        // The glue calls the JS version for overlapping arguments, and for object arguments
+        // whose fields aren't plain data properties.
         let needs_fallback = island.exports.iter().any(|export| {
             let aggregates = export
                 .params
@@ -285,6 +287,10 @@ pub fn forced_islands(
                 .filter(|(_, ty, _)| !ty.is_scalar())
                 .count();
             aggregates > 1 && export.params.iter().any(|(_, _, mutated)| *mutated)
+                || export
+                    .params
+                    .iter()
+                    .any(|(_, ty, _)| matches!(ty, trioxide_wasm::AbiType::Struct { .. }))
         });
         for &member in &lowered.members {
             let Some(info) = world.functions.get(&member) else {
