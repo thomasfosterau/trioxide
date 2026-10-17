@@ -1,0 +1,5 @@
+{
+  // The analysis only has TypeScript's word (Declared) for what main passes in here:
+  // arrays with holes, values from for…of over literals, objects kept in arrays.
+  "trustTypes": true
+}

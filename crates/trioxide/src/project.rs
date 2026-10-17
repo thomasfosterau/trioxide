@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use trioxide_analysis::{Analysis, AnalysisOptions, ModuleInput, analyze};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
-use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
+use trioxide_partition::{Partition, PartitionMode, PartitionOptions, Partitioner, SourceModule};
 use trioxide_project::{
     CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, JsxMode, ModuleGraph,
     find_tsconfig,
@@ -43,6 +43,9 @@ pub struct Project {
     diagnostics: Vec<Diagnostic>,
     debug_islands: Vec<IslandSource>,
     island_builder: Option<Box<dyn IslandBuilder>>,
+    partition: Partition,
+    /// Islands from the partition that built: calls to their exports go to their glue.
+    links: Vec<islands::IslandLink>,
 }
 
 impl std::fmt::Debug for Project {
@@ -124,6 +127,8 @@ impl Project {
             diagnostics: warnings,
             debug_islands: Vec::new(),
             island_builder: None,
+            partition: Partition::default(),
+            links: Vec::new(),
         })
     }
 
@@ -156,12 +161,13 @@ impl Project {
         self.built_from_entries = true;
         self.analyse();
 
+        // Islands first: modules only call the islands that built.
+        let islands = self.build_islands();
         let mut modules = Vec::with_capacity(self.graph.modules().len());
         for index in 0..self.graph.modules().len() {
             let id = ModuleId::new(u32::try_from(index).expect("module count fits u32"));
             modules.push(self.compile(id));
         }
-        let islands = self.build_islands();
         Ok(BuildOutput {
             modules,
             islands,
@@ -202,13 +208,23 @@ impl Project {
             })
     }
 
-    /// The islands this build compiles: debug islands for now; S8's plan later.
+    /// The islands this build compiles: debug islands and the partition's.
     fn island_sources(&self) -> Vec<IslandSource> {
-        if self.options.wasm.enabled {
-            self.debug_islands.clone()
-        } else {
-            Vec::new()
+        if !self.options.wasm.enabled {
+            return Vec::new();
         }
+        let mut sources = self.debug_islands.clone();
+        for plan in &self.partition.islands {
+            let Some(mut source) = plan.source.clone() else { continue };
+            if plan.needs_fallback
+                && let Some(module) = plan.module
+            {
+                let path = &self.graph.module(module).path;
+                source.spec.fallback = Some(islands::fallback_specifier(&self.root, path));
+            }
+            sources.push(source);
+        }
+        sources
     }
 
     /// Builds the planned islands, recording fallbacks and failures as diagnostics.
@@ -223,6 +239,23 @@ impl Project {
         let (artifacts, diagnostics) =
             islands::build(builder.as_ref(), &sources, self.options.wasm.require);
         self.diagnostics.extend(diagnostics);
+        self.links = self
+            .partition
+            .islands
+            .iter()
+            .filter(|plan| artifacts.iter().any(|a| a.spec.id == plan.id))
+            .filter_map(|plan| {
+                Some(islands::IslandLink {
+                    id: plan.id.clone(),
+                    module: plan.module?,
+                    exports: plan.exports.clone(),
+                    members: plan.functions.clone(),
+                    needs_fallback: plan.needs_fallback,
+                })
+            })
+            .collect();
+        // Outputs compiled before now don't call the islands.
+        self.outputs.clear();
         artifacts
     }
 
@@ -351,8 +384,18 @@ impl Project {
             },
             wasm: self.options.wasm.enabled,
         });
-        let partition = partitioner.partition(&self.analysis.facts);
-        debug_assert!(partition.is_all_js(), "island emission is not wired up yet");
+        let sources: Vec<SourceModule<'_>> = modules
+            .iter()
+            .map(|module| SourceModule {
+                id: module.id,
+                path: &module.path,
+                source: &module.source,
+                source_type: module.source_type,
+            })
+            .collect();
+        self.partition = partitioner.partition_sources(&self.analysis.facts, &sources);
+        diagnostics.extend(self.partition.diagnostics.iter().cloned());
+        self.links.clear();
 
         // The facts changed, so outputs computed against older facts are stale.
         self.outputs.clear();
@@ -378,9 +421,42 @@ impl Project {
             source: &module.source,
             source_type: module.source_type,
         };
-        let mut output = self
-            .compiler
-            .compile(&input, &mut self.analysis.facts, log, true);
+        let rewrite = (!self.links.is_empty()).then(|| islands::Rewrite {
+            module: id,
+            links: &self.links,
+            imports: module
+                .imports
+                .iter()
+                .map(|import| {
+                    let target = match import.target {
+                        ImportTarget::Module(id) => Some(id),
+                        _ => None,
+                    };
+                    (import.specifier.clone(), target)
+                })
+                .collect(),
+            member_spans: self
+                .links
+                .iter()
+                .flat_map(|link| &link.members)
+                .filter(|member| member.module == id)
+                .filter_map(|&member| self.analysis.facts.function(member).map(|f| f.span))
+                .collect(),
+        });
+        let mut output = self.compiler.compile(
+            &input,
+            &mut self.analysis.facts,
+            log,
+            true,
+            rewrite.as_ref(),
+        );
+        log.functions.extend(
+            self.partition
+                .decisions
+                .iter()
+                .filter(|(module, _)| *module == id)
+                .map(|(_, decision)| decision.clone()),
+        );
         let mut diagnostics = module.diagnostics.clone();
         diagnostics.append(&mut output.diagnostics);
         output.diagnostics = diagnostics;
@@ -457,5 +533,5 @@ pub fn strip_types(
     };
     Ok(project
         .compiler
-        .compile(&input, &mut facts, &mut log, false))
+        .compile(&input, &mut facts, &mut log, false, None))
 }

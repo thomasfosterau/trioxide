@@ -456,6 +456,17 @@ fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<()
         std::fs::create_dir_all(parent).map_err(io_error)?;
     }
     let mut code = module.code.clone();
+    // Island glue lives at `<out_dir>/_islands/<id>.js`.
+    let depth = relative.components().count().saturating_sub(1);
+    for island in &module.islands {
+        let target = format!(
+            "{}{ISLANDS_DIR}/{}.js",
+            if depth == 0 { "./".to_string() } else { "../".repeat(depth) },
+            island.id
+        );
+        let escaped = island.specifier.replace('\0', "\\0");
+        code = code.replace(&escaped, &target).replace(&island.specifier, &target);
+    }
     if let Some(map) = &module.map {
         let map_path = destination.with_extension(format!(
             "{}.map",

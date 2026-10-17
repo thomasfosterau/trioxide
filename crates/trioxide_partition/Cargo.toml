@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 trioxide_analysis.workspace = true
 trioxide_common.workspace = true
+trioxide_rust.workspace = true
 trioxide_types.workspace = true
 trioxide_wasm.workspace = true
 serde.workspace = true

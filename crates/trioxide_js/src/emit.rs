@@ -102,8 +102,23 @@ pub fn emit<'a>(
     path: &Path,
     options: &EmitOptions,
 ) -> EmitOutput {
+    emit_with(allocator, program, scoping, path, options, &mut |_, _, _| {})
+}
+
+/// [`emit`], running `after_strip` on the JavaScript AST between stripping TypeScript and
+/// printing. The facade uses it to point call sites at WASM island glue; nodes it adds need
+/// no semantic ids (printing falls back to their names).
+pub fn emit_with<'a>(
+    allocator: &'a Allocator,
+    program: &mut Program<'a>,
+    scoping: Scoping,
+    path: &Path,
+    options: &EmitOptions,
+    after_strip: &mut dyn FnMut(&'a Allocator, &mut Program<'a>, &Scoping),
+) -> EmitOutput {
     let transformed =
         Transformer::new(allocator, path, &options.transform).build_with_scoping(scoping, program);
+    after_strip(allocator, program, &transformed.scoping);
     let diagnostics = transformed
         .diagnostics
         .iter()
