@@ -963,6 +963,23 @@ impl<'a> Cx<'_, '_, 'a> {
             B::Addition => {
                 self.coerce(left, false);
                 self.coerce(right, false);
+                // A bigint plus anything but a bigint or a string throws.
+                let mixes = |declared: bool| {
+                    let bigint = |value: &Val| {
+                        !value.is_primitive(declared) || value.ty.members().contains(&Type::BigInt)
+                    };
+                    let other = |value: &Val| {
+                        !value.is_primitive(declared)
+                            || value
+                                .ty
+                                .members()
+                                .iter()
+                                .any(|member| !matches!(member, Type::BigInt | Type::String))
+                    };
+                    (bigint(left) && other(right)) || (bigint(right) && other(left))
+                };
+                let (proven_mixes, declared_mixes) = (mixes(false), mixes(true));
+                self.effect(EffectKind::Throws, !proven_mixes, !declared_mixes);
                 let string =
                     |value: &Val| value.trust >= Trust::Declared && value.ty == Type::String;
                 if (string(left) || string(right))

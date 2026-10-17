@@ -8,17 +8,28 @@
 //!   instances with `instanceof` against every evaluation of their class, and functions by
 //!   identity against every evaluation of their definition;
 //! - in-bounds accesses: the index is an integer below the length, and not a hole;
-//! - effects: a function proven not to throw reports any throw; one proven not to write
-//!   (and not async or a generator) reports any write, while it runs, to a top-level binding
-//!   or a property of one;
+//! - unit effects: a function, arrow (expression-bodied ones included), constructor (unless
+//!   it has parameter properties) or static block proven not to throw reports any throw; one
+//!   proven not to write (and not async or a generator) reports any write, while it runs, to
+//!   a top-level binding or an object reached from one; instance field initialisers are
+//!   checked against their class's init unit;
+//! - expression effects: every expression proven not to write reports a write while it
+//!   evaluates to a binding of its own function's activation, to an object reached from one,
+//!   or to module-level state; one proven not to throw reports a throw (expressions around an
+//!   `await` or `yield` are skipped);
+//! - call sites proven complete: the first unit to run after the arguments are evaluated (or
+//!   a builtin it calls) is one of the site's callees;
+//! - loop invariants: each invariant expression has the same value (`Object.is`) on every
+//!   iteration of one entry into its loop;
 //! - shapes: objects from allocation sites with a proven stable shape, and instances of
 //!   classes with a proven stable shape, end the run with the own keys they had when made,
 //!   in order, and a class's proven fields come first in that order;
 //! - reachability: units and statements proven unreachable report it if they run.
 //!
-//! Not checked: escape levels, call edges and site completeness, points-to sets, loop facts,
-//! writes through objects other than top-level bindings, the parts of a `?.` chain, member
-//! callees and assignment targets themselves.
+//! Not checked: escape levels, `new` sites, sites with spread arguments or a member callee
+//! and no arguments, points-to sets, the other loop facts, writes through `this` or a call
+//! result outside the writing unit, writes by builtins (`push`), the parts of a `?.` chain,
+//! member callees and assignment targets themselves.
 //!
 //! Skipped (with a message) when `node` is not on PATH; a fixture that imports a package is
 //! skipped when the differential suite's dependencies aren't installed.
@@ -34,6 +45,7 @@ use oxc_ast::AstKind;
 use oxc_parser::Parser;
 use oxc_semantic::{AstNodes, SemanticBuilder};
 use oxc_span::{GetSpan, Span};
+use rustc_hash::FxHashSet;
 use trioxide_analysis::{AllocKind, Facts, Trust};
 use trioxide_common::{ModuleId, NodeId, NodeRef};
 use trioxide_types::Type;
@@ -310,6 +322,18 @@ fn instrument(
         )
         .unwrap();
     };
+    let mut activations: FxHashSet<NodeId> = FxHashSet::default();
+    // `await` and `yield`, with their unit: expressions around them may suspend.
+    let suspensions: Vec<(Span, NodeId)> = nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind(),
+                AstKind::AwaitExpression(_) | AstKind::YieldExpression(_)
+            )
+        })
+        .map(|node| (node.kind().span(), unit_of(nodes, node.id(), false)))
+        .collect();
     for node in nodes.iter() {
         let node_ref = NodeRef {
             module,
@@ -333,11 +357,12 @@ fn instrument(
             );
         }
         // Code proven unreachable reports it if it runs.
+        let mut dead_unit = false;
         if facts.reachable(node_ref).trust == Trust::Proven && !facts.reachable(node_ref).value {
             let id = key(node.id());
             let report = format!("globalThis.__dead({id:?});");
-            if let Some(body) = function_body(nodes, node.id()) {
-                edits.insert(body.start + 1, report, true);
+            if unit_body(nodes, node.id(), source).is_some() {
+                dead_unit = true;
                 count += 1;
             } else if is_wrappable_statement(node.kind())
                 && !facts
@@ -353,9 +378,10 @@ fn instrument(
                 count += 1;
             }
         }
-        // Functions proven not to throw report a throw; ones proven not to write (outside
-        // their locals) report a write to module-level state while they run.
-        if let Some(body) = function_body(nodes, node.id()) {
+        // Units report their activation (for site checks and local writes), a throw when
+        // proven not to throw, and a write to module-level state while they run when proven
+        // not to write (outside their locals).
+        if let Some(body) = unit_body(nodes, node.id(), source) {
             let effects = facts.effects(node_ref);
             let id = key(node.id());
             let no_throw = effects.trust == Trust::Proven && !effects.value.throws;
@@ -364,6 +390,16 @@ fn instrument(
             let no_write = effects.trust == Trust::Proven && !effects.value.writes && !suspends;
             let mut open = String::new();
             let mut close = String::new();
+            if dead_unit {
+                write!(open, "globalThis.__dead({id:?});").unwrap();
+            }
+            write!(
+                open,
+                "const __A{} = globalThis.__ran({id:?});",
+                node.id().index()
+            )
+            .unwrap();
+            activations.insert(node.id());
             if no_throw {
                 open.push_str("try {");
                 count += 1;
@@ -380,16 +416,132 @@ fn instrument(
                 )
                 .unwrap();
             }
-            if !open.is_empty() {
-                edits.insert(body.start + 1, open, false);
-                edits.insert(body.end - 1, close, true);
+            match body {
+                UnitBody::Block(body) => {
+                    edits.insert(body.start + 1, open, true);
+                    edits.insert(body.end - 1, close, true);
+                }
+                UnitBody::Expression(body) => {
+                    edits.wrap(body, format!("{{{open}return ("), &format!(");{close}}}"));
+                }
             }
         }
-        // Writes to module-level state (a top-level binding, or a property of one).
-        if let Some(target) = written_module_binding(node.kind(), scoping)
+        // Instance field initialisers, against their class's init unit.
+        if let AstKind::PropertyDefinition(property) = node.kind()
+            && !property.r#static
+            && let Some(value) = &property.value
+        {
+            let init = NodeRef {
+                module,
+                node: nodes.parent_id(node.id()),
+            };
+            let effects = facts.effects(init);
+            if effects.trust == Trust::Proven && (!effects.value.writes || !effects.value.throws) {
+                edits.wrap(
+                    value.span(),
+                    format!(
+                        "globalThis.__x(globalThis.__xpush({:?}, {}, {}, null), (",
+                        key(init.node),
+                        !effects.value.writes,
+                        !effects.value.throws
+                    ),
+                    "))",
+                );
+                count += 1;
+            }
+        }
+        // Writes, with the activation whose state they change (`'M'`: module-level state).
+        if let Some((target, root)) = written_target(node.kind(), scoping)
             && !must_not_wrap(nodes, node.id())
         {
-            edits.wrap(span, format!("(globalThis.__wrote({target:?}), "), ")");
+            let act = match root {
+                WriteRoot::Module => "'M'".to_string(),
+                WriteRoot::Scope(scope) => {
+                    let declared = unit_of(nodes, scoping.get_node_id(scope), true);
+                    activation(nodes, node.id(), declared, &activations)
+                }
+                WriteRoot::Here => activation(
+                    nodes,
+                    node.id(),
+                    unit_of(nodes, node.id(), false),
+                    &activations,
+                ),
+            };
+            edits.wrap(
+                span,
+                format!("(globalThis.__wrote({target:?}, {act}), "),
+                ")",
+            );
+        }
+        // Calls at sites proven complete check which unit runs.
+        if let AstKind::CallExpression(call) = node.kind()
+            && let resolution = facts.site_resolution(node_ref)
+            && resolution.complete.trust == Trust::Proven
+            && resolution.complete.value
+            && !matches!(call.callee, oxc_ast::ast::Expression::Super(_))
+            && !must_not_wrap(nodes, node.id())
+            && !call.arguments.iter().any(oxc_ast::ast::Argument::is_spread)
+        {
+            let allowed: Vec<String> = resolution
+                .callees
+                .iter()
+                .map(|callee| {
+                    format!(
+                        "{:?}",
+                        format!("m{}:{}", callee.module.index(), callee.node.index())
+                    )
+                })
+                .collect();
+            let allowed = format!("[{}]", allowed.join(", "));
+            let id = key(node.id());
+            let armed = if let Some(last) = call.arguments.last() {
+                edits.wrap(
+                    last.span(),
+                    format!("globalThis.__last({id:?}, {allowed}, ("),
+                    "))",
+                );
+                true
+            } else if let oxc_ast::ast::Expression::Identifier(_) = &call.callee {
+                edits.wrap(
+                    call.callee.span(),
+                    format!("(globalThis.__site({id:?}, {allowed}), "),
+                    ")",
+                );
+                true
+            } else {
+                false
+            };
+            if armed {
+                edits.wrap(span, format!("globalThis.__done({id:?}, ("), "))");
+                count += 1;
+            }
+        }
+        // Loop-invariant expressions keep their value across a loop entry's iterations.
+        if let Some(loop_facts) = facts.loop_facts(node_ref)
+            && !loop_facts.invariant.is_empty()
+        {
+            let mut statement = node.id();
+            // A label stays on its loop.
+            while matches!(nodes.parent_kind(statement), AstKind::LabeledStatement(_)) {
+                statement = nodes.parent_id(statement);
+            }
+            let map = format!("__L{}", node.id().index());
+            edits.wrap(
+                nodes.kind(statement).span(),
+                format!("{{const {map} = new Map();"),
+                "}",
+            );
+            for expression in &loop_facts.invariant {
+                if must_not_wrap(nodes, expression.node) {
+                    continue;
+                }
+                edits.wrap(
+                    nodes.kind(expression.node).span(),
+                    format!("globalThis.__inv({map}, {:?}, (", key(expression.node)),
+                    "))",
+                );
+                count += 1;
+            }
         }
         // Function objects register themselves, for identity checks.
         match node.kind() {
@@ -476,6 +628,35 @@ fn instrument(
         {
             continue;
         }
+        // Expressions proven not to write or not to throw.
+        if effect_checked_kind(node.kind())
+            && !suspensions.iter().any(|&(at, unit)| {
+                span.start <= at.start
+                    && at.end <= span.end
+                    && unit == unit_of(nodes, node.id(), false)
+            })
+            && let effects = facts.expr_effects(node_ref)
+            && effects.trust == Trust::Proven
+            && (!effects.value.writes || !effects.value.throws)
+        {
+            let act = activation(
+                nodes,
+                node.id(),
+                unit_of(nodes, node.id(), false),
+                &activations,
+            );
+            edits.wrap(
+                span,
+                format!(
+                    "globalThis.__x(globalThis.__xpush({:?}, {}, {}, {act}), (",
+                    key(node.id()),
+                    !effects.value.writes,
+                    !effects.value.throws
+                ),
+                "))",
+            );
+            count += 1;
+        }
         let fact = facts.ty(node_ref);
         if fact.trust == Trust::Proven && *fact.value != Type::Unknown {
             let id = key(node.id());
@@ -531,49 +712,201 @@ fn instrument(
     (out, count)
 }
 
-/// The block body of a function that may be wrapped in a `try` (not a constructor, whose
-/// `super()` and parameter properties must come first).
-fn function_body(nodes: &AstNodes<'_>, id: NodeId) -> Option<Span> {
-    let kind = nodes.kind(id);
-    if matches!(nodes.parent_kind(id), AstKind::MethodDefinition(method) if method.kind.is_constructor())
-    {
-        return None;
-    }
-    match kind {
-        AstKind::Function(function) => {
-            let body = function.body.as_ref()?;
-            Some(body.span)
-        }
-        AstKind::ArrowFunctionExpression(arrow) => block_body(&arrow.body),
-        _ => None,
-    }
-    .filter(|_| !matches!(kind, AstKind::Function(function) if function.r#type == oxc_ast::ast::FunctionType::TSDeclareFunction))
+/// The code of a unit that the harness can wrap.
+enum UnitBody {
+    /// A block, braces included.
+    Block(Span),
+    /// An arrow's expression body.
+    Expression(Span),
 }
 
-/// For an assignment or update whose target is a top-level binding (or a property of one),
-/// that binding's name.
-fn written_module_binding(kind: AstKind<'_>, scoping: &oxc_semantic::Scoping) -> Option<String> {
+/// The body of the unit `id` (a function, arrow or static block) that may be wrapped in a
+/// `try`: not a constructor with parameter properties (they must follow `super()`), nor a
+/// declaration without a body.
+fn unit_body(nodes: &AstNodes<'_>, id: NodeId, source: &str) -> Option<UnitBody> {
+    match nodes.kind(id) {
+        AstKind::Function(function) => {
+            if function.r#type == oxc_ast::ast::FunctionType::TSDeclareFunction {
+                return None;
+            }
+            if matches!(nodes.parent_kind(id), AstKind::MethodDefinition(method) if method.kind.is_constructor())
+                && function
+                    .params
+                    .items
+                    .iter()
+                    .any(oxc_ast::ast::FormalParameter::has_modifier)
+            {
+                return None;
+            }
+            function
+                .body
+                .as_ref()
+                .map(|body| UnitBody::Block(body.span))
+        }
+        AstKind::ArrowFunctionExpression(arrow) => Some(match &arrow.body {
+            oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) => UnitBody::Block(body.span),
+            body => UnitBody::Expression(body.as_expression()?.span()),
+        }),
+        AstKind::StaticBlock(block) => {
+            let brace = source[block.span.start as usize..].find('{')?;
+            Some(UnitBody::Block(Span::new(
+                block.span.start + u32::try_from(brace).ok()?,
+                block.span.end,
+            )))
+        }
+        _ => None,
+    }
+}
+
+/// The unit (function, arrow, static block or program) around `id`, or `id` itself when
+/// `inclusive`.
+fn unit_of(nodes: &AstNodes<'_>, id: NodeId, inclusive: bool) -> NodeId {
+    let mut candidates = inclusive
+        .then_some(id)
+        .into_iter()
+        .chain(nodes.ancestor_ids(id));
+    candidates
+        .find(|&candidate| {
+            matches!(
+                nodes.kind(candidate),
+                AstKind::Function(_)
+                    | AstKind::ArrowFunctionExpression(_)
+                    | AstKind::StaticBlock(_)
+                    | AstKind::PropertyDefinition(_)
+                    | AstKind::AccessorProperty(_)
+                    | AstKind::Program(_)
+            )
+        })
+        .unwrap_or(id)
+}
+
+/// The JS expression for the activation of `unit` as seen from `at`: `'M'` for the module,
+/// its `__A` binding when it has one and `at` is past its parameters, else `null`.
+fn activation(
+    nodes: &AstNodes<'_>,
+    at: NodeId,
+    unit: NodeId,
+    activations: &FxHashSet<NodeId>,
+) -> String {
+    if matches!(nodes.kind(unit), AstKind::Program(_)) {
+        return "'M'".into();
+    }
+    if !activations.contains(&unit) {
+        return "null".into();
+    }
+    let in_params = nodes
+        .ancestor_ids(at)
+        .take_while(|&ancestor| ancestor != unit)
+        .any(|ancestor| matches!(nodes.kind(ancestor), AstKind::FormalParameters(_)));
+    if in_params {
+        "null".into()
+    } else {
+        format!("__A{}", unit.index())
+    }
+}
+
+/// Whose state a write changes.
+enum WriteRoot {
+    /// A top-level binding, or an object reached from one.
+    Module,
+    /// A binding declared in this scope, or an object reached from one.
+    Scope(oxc_semantic::ScopeId),
+    /// Something else (`this.x`, `f().x`, a pattern): taken as the writing unit's own.
+    Here,
+}
+
+/// For an assignment, update or `delete`, what it writes and whose state that is.
+fn written_target(
+    kind: AstKind<'_>,
+    scoping: &oxc_semantic::Scoping,
+) -> Option<(String, WriteRoot)> {
     use oxc_ast::ast::{Expression, SimpleAssignmentTarget};
     let target = match kind {
-        AstKind::AssignmentExpression(assign) => assign.left.as_simple_assignment_target()?,
+        AstKind::AssignmentExpression(assign) => match assign.left.as_simple_assignment_target() {
+            Some(target) => target,
+            None => return Some(("a pattern".into(), WriteRoot::Here)),
+        },
         AstKind::UpdateExpression(update) => &update.argument,
+        AstKind::UnaryExpression(unary) if unary.operator.is_delete() => {
+            let (Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)) =
+                unary.argument.without_parentheses()
+            else {
+                return None;
+            };
+            let mut object = unary.argument.without_parentheses();
+            while let Some(member) = object.as_member_expression() {
+                object = member.object().without_parentheses();
+            }
+            return Some(match object {
+                Expression::Identifier(ident) => root(ident, scoping),
+                _ => ("delete".into(), WriteRoot::Here),
+            });
+        }
         _ => return None,
     };
     let ident = match target {
         SimpleAssignmentTarget::AssignmentTargetIdentifier(ident) => &**ident,
-        target => match target
-            .as_member_expression()?
-            .object()
-            .without_parentheses()
-        {
-            Expression::Identifier(ident) => &**ident,
-            _ => return None,
-        },
+        target => {
+            let mut object = target
+                .as_member_expression()?
+                .object()
+                .without_parentheses();
+            while let Some(member) = object.as_member_expression() {
+                object = member.object().without_parentheses();
+            }
+            match object {
+                Expression::Identifier(ident) => &**ident,
+                _ => return Some(("a property".into(), WriteRoot::Here)),
+            }
+        }
     };
-    let symbol = scoping
-        .get_reference(ident.reference_id.get()?)
-        .symbol_id()?;
-    (scoping.symbol_scope_id(symbol) == scoping.root_scope_id()).then(|| ident.name.to_string())
+    Some(root(ident, scoping))
+}
+
+/// The binding `ident` refers to, as a write root.
+fn root(
+    ident: &oxc_ast::ast::IdentifierReference<'_>,
+    scoping: &oxc_semantic::Scoping,
+) -> (String, WriteRoot) {
+    let name = ident.name.to_string();
+    let Some(symbol) = ident
+        .reference_id
+        .get()
+        .and_then(|reference| scoping.get_reference(reference).symbol_id())
+    else {
+        // A global.
+        return (name, WriteRoot::Module);
+    };
+    let scope = scoping.symbol_scope_id(symbol);
+    if scope == scoping.root_scope_id() {
+        (name, WriteRoot::Module)
+    } else {
+        (name, WriteRoot::Scope(scope))
+    }
+}
+
+/// Kinds whose effects are checked while they evaluate (not plain references, literals or
+/// function and class values, whose evaluation does nothing).
+fn effect_checked_kind(kind: AstKind<'_>) -> bool {
+    matches!(
+        kind,
+        AstKind::StaticMemberExpression(_)
+            | AstKind::ComputedMemberExpression(_)
+            | AstKind::PrivateFieldExpression(_)
+            | AstKind::CallExpression(_)
+            | AstKind::NewExpression(_)
+            | AstKind::BinaryExpression(_)
+            | AstKind::LogicalExpression(_)
+            | AstKind::UnaryExpression(_)
+            | AstKind::UpdateExpression(_)
+            | AstKind::AssignmentExpression(_)
+            | AstKind::ConditionalExpression(_)
+            | AstKind::ArrayExpression(_)
+            | AstKind::ObjectExpression(_)
+            | AstKind::TemplateLiteral(_)
+            | AstKind::SequenceExpression(_)
+            | AstKind::ChainExpression(_)
+    )
 }
 
 /// A statement that can sit inside a block without changing what it declares.
@@ -683,11 +1016,65 @@ globalThis.__bi = (id, i) => {
   }
   return i;
 };
+const show = (value) => {
+  try { return typeof value === 'object' && value !== null ? JSON.stringify(value) : Object.is(value, -0) ? '-0' : String(value); } catch { return typeof value; }
+};
 globalThis.__quiet = [];
-globalThis.__wrote = (name) => {
-  if (globalThis.__quiet.length > 0) {
+// Expressions being evaluated: an entry left behind by a newer one threw.
+const xs = [];
+let tokens = 0;
+globalThis.__xpush = (id, w, t, act) => {
+  xs.push({ token: ++tokens, id, w, t, act: act ?? {}, wrote: null });
+  return tokens;
+};
+globalThis.__x = (token, v) => {
+  checks++;
+  while (xs.length > 0) {
+    const e = xs.pop();
+    if (e.token === token) {
+      if (e.wrote !== null) violations.push(`${e.id}: proven not to write, but wrote ${e.wrote}`);
+      return v;
+    }
+    if (e.t) violations.push(`${e.id}: proven not to throw, but threw`);
+  }
+  return v;
+};
+globalThis.__wrote = (name, act) => {
+  if (act === 'M' && globalThis.__quiet.length > 0) {
     violations.push(`${globalThis.__quiet.at(-1)}: proven not to write, but wrote ${name}`);
   }
+  for (const e of xs) {
+    if (e.w && e.wrote === null && (act === 'M' || e.act === act)) e.wrote = name;
+  }
+};
+// Call sites proven complete: the first unit to run must be one of their callees.
+const sites = [];
+globalThis.__ran = (id) => {
+  const top = sites.at(-1);
+  if (top && !top.done) {
+    if (top.allowed.includes(id)) top.done = true;
+    else top.bad.push(id);
+  }
+  return {};
+};
+globalThis.__site = (key, allowed) => { sites.push({ key, allowed, done: false, bad: [] }); };
+globalThis.__last = (key, allowed, v) => { globalThis.__site(key, allowed); return v; };
+globalThis.__done = (key, v) => {
+  checks++;
+  while (sites.length > 0) {
+    const s = sites.pop();
+    if (s.key === key) {
+      if (!s.done && s.bad.length > 0) violations.push(`${key}: complete with callees [${s.allowed}] but ran ${s.bad}`);
+      return v;
+    }
+  }
+  return v;
+};
+globalThis.__inv = (m, key, v) => {
+  checks++;
+  if (!m.has(key)) m.set(key, v);
+  else if (!Object.is(m.get(key), v)) violations.push(`${key}: loop-invariant, but was ${show(m.get(key))} then ${show(v)}`);
+  return v;
 };
 const functions = new Map();
 const register = (id, f) => {
@@ -734,6 +1121,9 @@ for (let [id, fields, v, keys] of instances) {
   if (now.slice(0, fields.length).join(',') !== fields.join(',')) {
     violations.push(`${id}: fields [${fields}] first, but has [${now}]`);
   }
+}
+for (const e of xs) {
+  if (e.t) violations.push(`${e.id}: proven not to throw, but threw`);
 }
 for (const [id, v, keys] of objects) {
   const now = Object.getOwnPropertyNames(v).join(',');

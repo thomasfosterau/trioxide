@@ -163,6 +163,16 @@ function coerced(): string {
   return `${o}`;
 }
 
+function converted(): number {
+  const o = {
+    valueOf(): number {
+      log += 1;
+      return 2.5;
+    },
+  };
+  return Math.floor(o as unknown as number) + [o].join().length;
+}
+
 function promised(): Promise<number> {
   return new Promise((resolve) => {
     log += 1;
@@ -180,6 +190,6 @@ export function main(): void {
   console.log(guarded([1, 2], { x: 3 }), guarded([1], null), clock([1, 2]), boxed([1, 2, 3]));
   void thenable();
   void promised();
-  console.log(coerced(), log, locals(), getter());
+  console.log(coerced(), converted(), log, locals(), getter());
   console.log(captured([1, 2, 3]), method([1, 2], new Scale()), exits([1, 2, 3, 4, 5, 6], 2));
 }

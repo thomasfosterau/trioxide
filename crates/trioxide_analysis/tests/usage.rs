@@ -88,6 +88,8 @@ fn usage_queries() {
     for site in [
         fixture.node("r(1)", call),
         fixture.node("this.k()", call),
+        fixture.node("Math.floor(o as unknown as number)", call),
+        fixture.node("[o].join()", call),
         fixture.node(
             "new Promise((resolve) => {\n    log += 1;\n    resolve(1);\n  })",
             |kind| matches!(kind, AstKind::NewExpression(_)),

@@ -898,7 +898,12 @@ impl<'a> Cx<'_, '_, 'a> {
                     | "Math.imul"
                     | "Math.clz32"
             );
+        // Whether user code may run here (a conversion's `valueOf`, a getter).
+        let mut runs_code = false;
         for value in &args.values {
+            if (coerces || runs_argument_code(builtin)) && !value.is_primitive(false) {
+                runs_code = true;
+            }
             if coerces {
                 self.coerce(
                     value,
@@ -922,7 +927,12 @@ impl<'a> Cx<'_, '_, 'a> {
             && (builtin.name == "join" || (builtin.name == "sort" && args.values.is_empty()))
         {
             let element = self.element(receiver, true);
+            runs_code |= !element.is_primitive(false);
             self.coerce(&element, false);
+        }
+        if runs_code {
+            let site = self.node(site);
+            self.record.open_sites.insert(site);
         }
         let own_receiver = receiver.is_some_and(|receiver| self.owns(receiver));
         let free = |flag: bool| !flag;

@@ -1,9 +1,12 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
 description: tests/fixtures/analysis/usage-facts
 input_file: tests/fixtures/analysis/usage-facts/input.ts
 ---
 //- input.ts
+// Call-site completeness, expression and loop effects, points-to and reachability.
+const external = JSON.parse("{}");
 let log = 0;
 function bump(n) {
 	log += n;
@@ -104,6 +107,63 @@ function exits(values, k) {
 	}
 	return total;
 }
+function locals() {
+	const arr = [
+		1,
+		2,
+		3
+	];
+	let t = 0;
+	for (let i = 0; i < 3; i++) {
+		t += arr[0] * 2;
+		arr[0] = i + 10;
+		arr.push(i);
+	}
+	return t;
+}
+function getter() {
+	let k = 0;
+	const getK = () => k;
+	let t = 0;
+	for (let i = 0; i < 3; i++) {
+		t += getK() * 1;
+		k++;
+	}
+	return t;
+}
+// Units the engine calls: their sites must not read as complete.
+async function thenable() {
+	const t = { then(r) {
+		log += 3;
+		r(1);
+	} };
+	return await t;
+}
+function coerced() {
+	const o = {
+		toString() {
+			this.k();
+			return "o";
+		},
+		k() {
+			log += 1;
+		}
+	};
+	return `${o}`;
+}
+function converted() {
+	const o = { valueOf() {
+		log += 1;
+		return 2.5;
+	} };
+	return Math.floor(o) + [o].join().length;
+}
+function promised() {
+	return new Promise((resolve) => {
+		log += 1;
+		resolve(1);
+	});
+}
 export function main() {
 	const point = { x: 1 };
 	const pure = square(3);
@@ -124,6 +184,9 @@ export function main() {
 		2,
 		3
 	]));
+	void thenable();
+	void promised();
+	console.log(coerced(), converted(), log, locals(), getter());
 	console.log(captured([
 		1,
 		2,
