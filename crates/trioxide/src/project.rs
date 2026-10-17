@@ -42,6 +42,12 @@ pub struct Project {
     outputs: ContentCache<ModuleOutput>,
     logs: Vec<ModuleLog>,
     built_from_entries: bool,
+    /// Whether the analysis has run (else every fact is unknown, which is safe).
+    analysed: bool,
+    /// Whether the facts may not match the graph: a source changed, an entry was added, or
+    /// they were computed from other text. The next [`transform`](Self::transform)
+    /// re-analyses first.
+    stale: bool,
     diagnostics: Vec<Diagnostic>,
     debug_islands: Vec<IslandSource>,
     island_builder: Option<Box<dyn IslandBuilder>>,
@@ -123,6 +129,8 @@ impl Project {
             outputs: ContentCache::default(),
             logs: Vec::new(),
             built_from_entries: false,
+            analysed: false,
+            stale: false,
             diagnostics: warnings,
             debug_islands: Vec::new(),
             island_builder: None,
@@ -241,6 +249,7 @@ impl Project {
             path: &module.path,
             source: &module.source,
         });
+        self.stale = true;
         let dependants = self.graph.dependants(id);
         Ok(Invalidation {
             changed: Some(module.path.clone()),
@@ -255,12 +264,19 @@ impl Project {
     /// The compiled form of one module, for per-file consumers such as the Vite plugin.
     ///
     /// Served from cache when the module and options are unchanged. A module that isn't in
-    /// the graph yet is added as an entry (with everything it imports).
+    /// the graph yet is added as an entry (with everything it imports). Once the program has
+    /// been analysed, a transform after an [`update`](Self::update) or a new entry analyses
+    /// it again first, so passes never see facts about other text.
     pub fn transform(&mut self, path: &Path) -> Result<ModuleOutput> {
-        let id = match self.graph.get(path) {
-            Some(id) => id,
-            None => self.graph.add_entries(&[path.to_path_buf()])?[0],
+        let id = if let Some(id) = self.graph.get(path) {
+            id
+        } else {
+            self.stale = true;
+            self.graph.add_entries(&[path.to_path_buf()])?[0]
         };
+        if self.analysed && self.stale {
+            self.analyse();
+        }
         Ok(self.compile(id))
     }
 
@@ -303,6 +319,10 @@ impl Project {
     /// fresh parse of each source gets (`Parser::new(..)` with the module's source type, then
     /// `SemanticBuilder`), so a pass manager continues on a reparse of the text it passed.
     /// Modules not listed keep their graph sources; a path that isn't in the graph is ignored.
+    ///
+    /// The project keeps these facts (and the oracle the replaced text) until the next
+    /// [`build`](Self::build), [`facts`](Self::facts) or [`transform`](Self::transform), which
+    /// analyse the graph's own sources again. Cached outputs are dropped.
     pub fn reanalyse(&mut self, sources: &[(PathBuf, String)]) -> &trioxide_analysis::Facts {
         let overrides: FxHashMap<ModuleId, &str> = sources
             .iter()
@@ -311,12 +331,16 @@ impl Project {
         let diagnostics = self.run_analysis(&overrides);
         self.diagnostics.extend(diagnostics);
         self.outputs.clear();
+        self.analysed = true;
+        self.stale = true;
         &self.analysis.facts
     }
 
     /// Runs the whole-program stages: type oracle, analysis and partitioning.
     fn analyse(&mut self) {
         let diagnostics = self.run_analysis(&FxHashMap::default());
+        self.analysed = true;
+        self.stale = false;
         let partitioner = Partitioner::new(PartitionOptions {
             mode: match self.options.mode {
                 Mode::JsOnly => PartitionMode::JsOnly,
@@ -370,8 +394,14 @@ impl Project {
 
     /// The project's facts as a [`FactSource`](trioxide_js::FactSource) whose `refresh`
     /// re-analyses a rewritten module (see [`FactRefresher`]), for a pass manager to run with.
-    /// The facts it refreshes replace the project's.
+    ///
+    /// The facts it refreshes replace the project's (and the oracle keeps the rewritten
+    /// text) until the next [`build`](Self::build), [`facts`](Self::facts) or
+    /// [`transform`](Self::transform), which analyse the graph's own sources again. Cached
+    /// outputs are dropped.
     pub fn fact_refresher(&mut self) -> FactRefresher<'_> {
+        self.stale = true;
+        self.outputs.clear();
         let setup = self.setup();
         FactRefresher::new(&mut *self.oracle, &self.graph, setup, &mut self.analysis)
     }

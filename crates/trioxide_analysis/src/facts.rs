@@ -1,6 +1,6 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use trioxide_common::{ModuleId, NodeRef, Span, SymbolRef};
+use trioxide_common::{ModuleId, NodeId, NodeRef, Span, SymbolRef};
 use trioxide_types::{ClassId, FunctionId, NumberType, Type};
 
 /// How far a fact can be relied on (PLAN D1).
@@ -615,6 +615,116 @@ impl Facts {
             .filter(|scc| !scc.is_empty())
             .collect();
         self.call_graph = CallGraph::new(units, edges, sccs);
+    }
+
+    /// Renumbers `module`'s nodes, e.g. after a pass rewrote it and the facts were computed
+    /// from its printed text: `map` takes each node id the facts use to the one it now has.
+    /// Facts about nodes `map` doesn't cover are dropped, and so are facts elsewhere whose
+    /// values name them (a type naming a dropped function, a points-to set with a dropped
+    /// site); call sites in other modules that called a dropped unit become open.
+    pub fn remap_module(&mut self, module: ModuleId, map: &FxHashMap<NodeId, NodeId>) {
+        fn table<V>(
+            table: &mut FxHashMap<NodeRef, V>,
+            node: &impl Fn(NodeRef) -> Option<NodeRef>,
+            value: impl Fn(V) -> Option<V>,
+        ) {
+            *table = std::mem::take(table)
+                .into_iter()
+                .filter_map(|(key, entry)| Some((node(key)?, value(entry)?)))
+                .collect();
+        }
+        let node = |node: NodeRef| -> Option<NodeRef> {
+            if node.module == module {
+                map.get(&node.node).map(|&id| NodeRef { module, node: id })
+            } else {
+                Some(node)
+            }
+        };
+        let ty = |fact: Fact<Type>| -> Option<Fact<Type>> {
+            Some(Fact {
+                value: fact.value.try_map_ids(&node)?,
+                trust: fact.trust,
+            })
+        };
+        table(&mut self.node_types, &node, ty);
+        self.symbol_types = std::mem::take(&mut self.symbol_types)
+            .into_iter()
+            .filter_map(|(symbol, fact)| Some((symbol, ty(fact)?)))
+            .collect();
+        table(&mut self.effects, &node, Some);
+        table(&mut self.in_bounds, &node, Some);
+        table(&mut self.allocations, &node, |allocation| {
+            Some(Allocation {
+                kind: match allocation.kind {
+                    AllocKind::Instance(class) => AllocKind::Instance(node(class)?),
+                    kind => kind,
+                },
+                ..allocation
+            })
+        });
+        table(&mut self.class_shapes, &node, Some);
+        table(&mut self.functions, &node, Some);
+        table(&mut self.expr_effects, &node, Some);
+        table(&mut self.loops, &node, |mut facts| {
+            facts.invariant = facts.invariant.into_iter().filter_map(node).collect();
+            Some(facts)
+        });
+        table(&mut self.points_to, &node, |sites| {
+            sites.into_iter().map(node).collect()
+        });
+        let nodes = |set: FxHashSet<NodeRef>| set.into_iter().filter_map(node).collect();
+        self.unreachable = nodes(std::mem::take(&mut self.unreachable));
+        let mut open_sites: FxHashSet<NodeRef> = nodes(std::mem::take(&mut self.open_sites));
+        let graph = std::mem::take(&mut self.call_graph);
+        let units = graph.units.into_iter().filter_map(node).collect();
+        let mut edges = Vec::new();
+        for edge in graph.edges {
+            match (node(edge.site), node(edge.caller), node(edge.callee)) {
+                (Some(site), Some(caller), Some(callee)) => edges.push(CallEdge {
+                    site,
+                    caller,
+                    callee,
+                    ..edge
+                }),
+                (Some(site), Some(_), None) => {
+                    open_sites.insert(site);
+                }
+                _ => {}
+            }
+        }
+        let sccs = graph
+            .sccs
+            .into_iter()
+            .map(|scc| scc.into_iter().filter_map(node).collect::<Vec<_>>())
+            .filter(|scc| !scc.is_empty())
+            .collect();
+        self.call_graph = CallGraph::new(units, edges, sccs);
+        self.open_sites = open_sites;
+    }
+
+    /// Gives `alias` the facts about the value of `node` (a parenthesized expression and its
+    /// contents, for example).
+    pub fn alias(&mut self, alias: NodeRef, node: NodeRef) {
+        if let Some(fact) = self.node_types.get(&node).cloned() {
+            self.node_types.insert(alias, fact);
+        }
+        if let Some(&effects) = self.expr_effects.get(&node) {
+            self.expr_effects.insert(alias, effects);
+        }
+        if let Some(sites) = self.points_to.get(&node).cloned() {
+            self.points_to.insert(alias, sites);
+        }
+        if self.unreachable.contains(&node) {
+            self.unreachable.insert(alias);
+        }
+    }
+
+    /// Sets the span recorded for `function` (after [`remap_module`](Self::remap_module), its
+    /// span in the source it now has).
+    pub fn set_function_span(&mut self, function: FunctionId, span: Span) {
+        if let Some(info) = self.functions.get_mut(&function) {
+            info.span = span;
+        }
     }
 
     pub(crate) fn set_open_sites(&mut self, sites: FxHashSet<NodeRef>) {

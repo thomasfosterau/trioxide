@@ -332,3 +332,162 @@ fn refreshed_facts_match_a_fresh_analysis() {
     assert_ne!(refreshed, before, "the rewrite changed what is known");
     assert_eq!(refreshed, facts_of(fresh.analysis()));
 }
+
+/// Refreshed facts survive printing that drops parentheses and folds a number to `-1`: they
+/// are mapped back onto the rewritten AST, and a parenthesized expression has its contents'.
+#[test]
+fn refreshed_facts_follow_parentheses_and_folded_numbers() {
+    use oxc_ast::{
+        AstKind,
+        ast::{Expression, Statement},
+    };
+    use trioxide_analysis::Trust;
+    use trioxide_common::NodeRef;
+    use trioxide_js::{FactSource, Pass, PassContext, PassGroup, PassManager, PassOptions};
+    use trioxide_types::Type;
+
+    /// Negates the `const k = <number>` initialiser, once.
+    struct NegateK(bool);
+
+    impl Pass for NegateK {
+        fn name(&self) -> &'static str {
+            "negate-k"
+        }
+
+        fn run<'a>(
+            &mut self,
+            program: &mut oxc_ast::ast::Program<'a>,
+            _ctx: &mut PassContext<'a, '_>,
+        ) -> bool {
+            if self.0 {
+                return false;
+            }
+            let Some(Statement::VariableDeclaration(declaration)) = program.body.first_mut() else {
+                return false;
+            };
+            let Some(Expression::NumericLiteral(literal)) = &mut declaration.declarations[0].init
+            else {
+                return false;
+            };
+            literal.value = -literal.value;
+            literal.raw = None;
+            self.0 = true;
+            true
+        }
+    }
+
+    let source = "const k = 1;\nfunction twice(x: number): number {\n  return ((x * 2));\n}\nexport function main(): void {\n  console.log(twice(k), (k + 1));\n}\n";
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    write(&root, "main.ts", source);
+    let mut project = Project::new(
+        root.clone(),
+        Options {
+            world: Some(trioxide::World::App),
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    project.facts(&root.join("main.ts")).unwrap();
+    let module = project.module_id(&root.join("main.ts")).unwrap();
+
+    let allocator = oxc_allocator::Allocator::default();
+    let mut program = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::ts())
+        .parse()
+        .program;
+    let scoping = trioxide_js::rebuild_scoping(&program);
+    let mut manager = PassManager::new(PassOptions::default());
+    manager.add_group(PassGroup {
+        name: "test",
+        passes: vec![Box::new(NegateK(false))],
+        fixpoint: true,
+    });
+    let mut refresher = project.fact_refresher();
+    let mut log = trioxide::log::ModuleLog::default();
+    manager.run(
+        &allocator,
+        &mut program,
+        scoping,
+        module,
+        &mut refresher,
+        &mut log,
+    );
+    assert_eq!(refresher.refreshes(), 1);
+
+    let semantic = oxc_semantic::SemanticBuilder::new()
+        .with_build_nodes(true)
+        .build(&program);
+    let nodes = semantic.semantic.nodes();
+    let find = |text: &str, wanted: fn(AstKind<'_>) -> bool| {
+        let node = nodes
+            .iter()
+            .filter(|node| {
+                wanted(node.kind())
+                    && oxc_span::GetSpan::span(&node.kind()).source_text(source) == text
+            })
+            .max_by_key(|node| oxc_span::GetSpan::span(&node.kind()).size())
+            .unwrap_or_else(|| panic!("no `{text}`"));
+        NodeRef {
+            module,
+            node: node.id(),
+        }
+    };
+    let facts = refresher.facts();
+    let k = find("k", |kind| matches!(kind, AstKind::BindingIdentifier(_)));
+    let k = facts.ty(k);
+    assert_eq!(k.trust, Trust::Proven);
+    let Type::Number(number) = k.value else {
+        panic!("{k:?}");
+    };
+    assert_eq!((number.range.min, number.range.max), (-1.0, -1.0));
+    let inner = facts.ty(find("x * 2", |kind| {
+        matches!(kind, AstKind::BinaryExpression(_))
+    }));
+    assert_eq!(inner.trust, Trust::Proven);
+    for parens in ["(x * 2)", "((x * 2))"] {
+        let outer = facts.ty(find(parens, |kind| {
+            matches!(kind, AstKind::ParenthesizedExpression(_))
+        }));
+        assert_eq!(outer, inner, "{parens}");
+    }
+    let sum = facts.ty(find("k + 1", |kind| {
+        matches!(kind, AstKind::BinaryExpression(_))
+    }));
+    assert_eq!(sum.trust, Trust::Proven, "{sum:?}");
+}
+
+/// After an update, a transform analyses the program again instead of compiling against
+/// facts about the old text.
+#[test]
+fn transform_after_update_reanalyses() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let main = root.join("main.ts");
+    write(
+        &root,
+        "main.ts",
+        "export const k = 1;\nexport function main(): void {\n  console.log(k);\n}\n",
+    );
+    let mut project = Project::new(root.clone(), Options::default()).unwrap();
+    project.build(std::slice::from_ref(&main)).unwrap();
+    let strings = |project: &Project| {
+        project
+            .analysis()
+            .node_types()
+            .into_iter()
+            .filter(|(_, fact)| fact.value == trioxide_types::Type::String)
+            .count()
+    };
+    assert_eq!(strings(&project), 0);
+    project
+        .update(
+            &main,
+            Some(
+                "export const k = \"one\";\nexport function main(): void {\n  console.log(k);\n}\n"
+                    .into(),
+            ),
+        )
+        .unwrap();
+    project.transform(&main).unwrap();
+    assert!(strings(&project) > 0);
+}

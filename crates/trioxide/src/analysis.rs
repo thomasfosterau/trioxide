@@ -4,12 +4,15 @@
 use std::path::PathBuf;
 
 use oxc_allocator::Allocator;
-use oxc_ast::ast::Program;
+use oxc_ast::AstKind;
+use oxc_ast::ast::{Program, UnaryOperator};
 use oxc_parser::Parser;
 use oxc_semantic::{AstNodes, Scoping, SemanticBuilder};
+use oxc_span::{GetSpan, Span};
+
 use rustc_hash::FxHashMap;
 use trioxide_analysis::{Analysis, AnalysisOptions, Facts, ModuleInput, analyze};
-use trioxide_common::{Diagnostic, ModuleId};
+use trioxide_common::{Diagnostic, ModuleId, NodeId, NodeRef};
 use trioxide_js::FactSource;
 use trioxide_project::{CompilerSettings, ImportTarget, JsxMode, ModuleGraph};
 use trioxide_types::{OracleInput, SourceText, TypeOracle};
@@ -111,25 +114,33 @@ pub(crate) fn analyse_graph(
 
 /// The facts of a [`Project`](crate::Project), refreshed whenever a pass group rewrites a
 /// module: the module is printed back out (passes run before the TypeScript strip, so it is
-/// still TypeScript), and the oracle and analysis run again over the program with that text.
+/// still TypeScript), and the oracle and analysis run again over the program with that text
+/// (without TypeScript's diagnostics).
 ///
-/// Cost: every refresh is a whole-program analysis, oracle load included, as costly as the
-/// build's own. That is acceptable for v1 with few pass groups; NodeId-stable incremental
-/// analysis (PLAN §3) is where this gets cheap.
+/// Cost: every refresh is a whole-program analysis, oracle load included, about as costly as
+/// the build's own. The pass manager refreshes only when facts are next read, so a module
+/// costs one re-analysis per pass-group iteration that changed it and is followed by another
+/// iteration (PLAN §3 "Refreshing facts" has the formula). NodeId-stable incremental analysis
+/// is where this gets cheap.
 ///
-/// Facts are keyed by node ids, which a semantic build assigns in traversal order; the
-/// printed text, parsed again, numbers its nodes the same way exactly when it has the same
-/// shape as the rewritten AST. When printing changes the shape (parentheses a pass didn't
-/// create, for example), the module's facts are dropped instead: unknown is always safe.
+/// Facts are keyed by node ids, which a semantic build assigns in traversal order. The
+/// printed text, parsed again, is numbered the same way except where printing changed the
+/// tree: parentheses it added or dropped, and folded numbers (`-1`, `NaN`, `Infinity`) it
+/// prints as an operator or a name. The refreshed facts are mapped back to the rewritten
+/// AST's ids across those differences; a parenthesized expression gets its contents' facts.
+/// When the trees differ in any other way the module's facts are dropped instead: unknown is
+/// always safe. Function spans are the rewritten AST's (the original source's, for nodes the
+/// passes kept).
 pub struct FactRefresher<'p> {
     oracle: &'p mut dyn TypeOracle,
     graph: &'p ModuleGraph,
     setup: Setup,
     analysis: &'p mut Analysis,
-    overrides: FxHashMap<ModuleId, String>,
+    /// Each rewritten module's printed text, and how its ids map back.
+    rewritten: FxHashMap<ModuleId, (String, Option<Alignment>)>,
     refreshes: usize,
-    /// The facts before the first refresh, for [`restore`](Self::restore).
-    original: Option<Facts>,
+    /// The analysis before the first refresh, for [`restore`](Self::restore).
+    original: Option<(Facts, trioxide_analysis::Stats)>,
 }
 
 impl<'p> FactRefresher<'p> {
@@ -142,39 +153,25 @@ impl<'p> FactRefresher<'p> {
         Self {
             oracle,
             graph,
-            setup,
+            setup: Setup {
+                check: false,
+                ..setup
+            },
             analysis,
-            overrides: FxHashMap::default(),
+            rewritten: FxHashMap::default(),
             refreshes: 0,
             original: None,
         }
     }
 
-    /// Puts back the facts from before any refresh (for compiling one module without
-    /// changing what the others compile against).
+    /// Puts back the facts and stats from before any refresh (for compiling one module
+    /// without changing what the others compile against). The oracle keeps the rewritten
+    /// text; every analysis loads it afresh.
     pub(crate) fn restore(self) {
-        let Some(original) = self.original else {
-            return;
-        };
-        self.analysis.facts = original;
-        // The oracle saw the rewritten text: give it back the graph's, which incremental
-        // updates build on.
-        let sources: Vec<SourceText<'_>> = self
-            .graph
-            .modules()
-            .iter()
-            .map(|module| SourceText {
-                module: module.id,
-                path: &module.path,
-                source: &module.source,
-            })
-            .collect();
-        let _ = self.oracle.load(&OracleInput {
-            root: &self.setup.root,
-            tsconfig: self.setup.tsconfig.as_deref(),
-            modules: &sources,
-            check: self.setup.check,
-        });
+        if let Some((facts, stats)) = self.original {
+            self.analysis.facts = facts;
+            self.analysis.stats = stats;
+        }
     }
 
     /// How many times the facts were recomputed.
@@ -191,9 +188,7 @@ impl FactSource for FactRefresher<'_> {
     fn refresh(&mut self, module: ModuleId, program: &Program<'_>, _scoping: &Scoping) {
         let text = oxc_codegen::Codegen::new().build(program).code;
         let source_type = self.graph.module(module).source_type;
-        // The rewritten AST's node ids, in traversal order (as the pass manager's semantic
-        // rebuild assigned them), against the printed text's.
-        let aligned = {
+        let alignment = {
             let allocator = Allocator::default();
             let reparsed = Parser::new(&allocator, &text, source_type).parse();
             let reparsed = allocator.alloc(reparsed.program);
@@ -201,32 +196,130 @@ impl FactSource for FactRefresher<'_> {
             let theirs = SemanticBuilder::new()
                 .with_build_nodes(true)
                 .build(reparsed);
-            same_shape(ours.semantic.nodes(), theirs.semantic.nodes())
+            align(ours.semantic.nodes(), theirs.semantic.nodes())
         };
         if self.original.is_none() {
-            self.original = Some(self.analysis.facts.clone());
+            self.original = Some((self.analysis.facts.clone(), self.analysis.stats));
         }
-        self.overrides.insert(module, text);
+        self.rewritten.insert(module, (text, alignment));
         let overrides: FxHashMap<ModuleId, &str> = self
-            .overrides
+            .rewritten
             .iter()
-            .map(|(module, text)| (*module, text.as_str()))
+            .map(|(module, (text, _))| (*module, text.as_str()))
             .collect();
         let (mut analysis, _) =
             analyse_graph(&mut *self.oracle, self.graph, &self.setup, &overrides);
-        if !aligned {
-            analysis.facts.forget_module(module);
+        // Every rewritten module was analysed from its printed text again.
+        for (&module, (_, alignment)) in &self.rewritten {
+            match alignment {
+                Some(alignment) => alignment.apply(&mut analysis.facts, module),
+                None => analysis.facts.forget_module(module),
+            }
         }
         *self.analysis = analysis;
         self.refreshes += 1;
     }
 }
 
-/// Whether two semantic builds visited the same kinds of nodes in the same order.
-fn same_shape(ours: &AstNodes<'_>, theirs: &AstNodes<'_>) -> bool {
-    ours.len() == theirs.len()
-        && ours
-            .iter()
-            .zip(theirs.iter())
-            .all(|(a, b)| std::mem::discriminant(&a.kind()) == std::mem::discriminant(&b.kind()))
+/// How the node ids of a module's printed and reparsed text map to the rewritten AST's.
+struct Alignment {
+    /// Reparsed id to rewritten id.
+    ids: FxHashMap<NodeId, NodeId>,
+    /// Rewritten parenthesized expressions, with the rewritten node whose value they have.
+    aliases: Vec<(NodeId, NodeId)>,
+    /// The rewritten AST's units and their spans.
+    spans: Vec<(NodeId, Span)>,
+}
+
+impl Alignment {
+    fn apply(&self, facts: &mut Facts, module: ModuleId) {
+        facts.remap_module(module, &self.ids);
+        let node = |node| NodeRef { module, node };
+        for &(alias, of) in &self.aliases {
+            facts.alias(node(alias), node(of));
+        }
+        for &(unit, span) in &self.spans {
+            facts.set_function_span(node(unit), span);
+        }
+    }
+}
+
+/// Walks two semantic builds in step, skipping parentheses and matching a folded number to
+/// how it prints. `None` when the trees differ otherwise.
+fn align(ours: &AstNodes<'_>, theirs: &AstNodes<'_>) -> Option<Alignment> {
+    let ours: Vec<_> = ours.iter().collect();
+    let theirs: Vec<_> = theirs.iter().collect();
+    let paren = |kind: AstKind<'_>| matches!(kind, AstKind::ParenthesizedExpression(_));
+    let mut alignment = Alignment {
+        ids: FxHashMap::default(),
+        aliases: Vec::new(),
+        spans: Vec::new(),
+    };
+    let mut parens = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    loop {
+        while i < ours.len() && paren(ours[i].kind()) {
+            parens.push(ours[i].id());
+            i += 1;
+        }
+        while j < theirs.len() && paren(theirs[j].kind()) {
+            j += 1;
+        }
+        if i == ours.len() || j == theirs.len() {
+            return (i == ours.len() && j == theirs.len()).then_some(alignment);
+        }
+        let (our, their) = (ours[i], theirs[j]);
+        alignment
+            .aliases
+            .extend(parens.drain(..).map(|alias| (alias, our.id())));
+        if matches!(
+            our.kind(),
+            AstKind::Function(_)
+                | AstKind::ArrowFunctionExpression(_)
+                | AstKind::StaticBlock(_)
+                | AstKind::ClassBody(_)
+                | AstKind::Program(_)
+        ) {
+            alignment.spans.push((our.id(), our.kind().span()));
+        }
+        alignment.ids.insert(their.id(), our.id());
+        i += 1;
+        j += 1;
+        if std::mem::discriminant(&our.kind()) == std::mem::discriminant(&their.kind()) {
+            continue;
+        }
+        let AstKind::NumericLiteral(literal) = our.kind() else {
+            return None;
+        };
+        match their.kind() {
+            AstKind::IdentifierReference(name)
+                if (literal.value.is_nan() && name.name == "NaN")
+                    || (literal.value == f64::INFINITY && name.name == "Infinity") => {}
+            AstKind::UnaryExpression(unary)
+                if unary.operator == UnaryOperator::UnaryNegation
+                    && literal.value.is_sign_negative() =>
+            {
+                // The operand: the magnitude, or `Infinity`.
+                while j < theirs.len() && paren(theirs[j].kind()) {
+                    j += 1;
+                }
+                let operand = theirs.get(j)?;
+                let magnitude = -literal.value;
+                let fits = match operand.kind() {
+                    AstKind::NumericLiteral(operand) => {
+                        operand.value.to_bits() == magnitude.to_bits()
+                    }
+                    AstKind::IdentifierReference(name) => {
+                        magnitude == f64::INFINITY && name.name == "Infinity"
+                    }
+                    _ => false,
+                };
+                if !fits {
+                    return None;
+                }
+                j += 1;
+            }
+            _ => return None,
+        }
+    }
 }

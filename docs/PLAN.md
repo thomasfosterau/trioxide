@@ -222,25 +222,42 @@ induction ranges, invariant expressions), per unit (callers, reachability distin
 
 **Refreshing facts.** Facts are keyed by `NodeId`s, which a rewrite invalidates. For v1 the
 facade's `FactRefresher` (the `trioxide_js::FactSource` the pipeline runs passes with)
-refreshes them after every pass group that changes a module: it prints the module back out
-(passes run before the TS strip, so it is still TypeScript), reloads the oracle and re-runs the
-whole analysis with that text. Node ids line up because a semantic build numbers nodes in
-traversal order: the reparsed text and the rewritten AST get the same ids exactly when they
-have the same shape, which the refresher checks; when they don't (printing added parentheses
-a pass didn't create, say), that module's facts are dropped to `Unknown`. After the module is
-compiled the program's own facts come back for the others. Cost: one whole-program analysis,
-oracle load included, per refresh, so pass groups should be few. `Project::reanalyse` does the
-same for given sources. NodeId-stable incremental analysis (re-interpreting only the units a
-rewrite touched, and the dev/HMR path's per-update re-analysis) will replace this inside
-`FactRefresher::refresh` and `Project::update`, keeping the `FactSource` interface.
+refreshes them for a module that a pass group changed, when the next group (or fixpoint
+iteration) reads them, so never after the last change: it prints the module back out (passes
+run before the TS strip, so it is still TypeScript), reloads the oracle and re-runs the whole
+analysis with that text, without TypeScript's diagnostics. A semantic build numbers nodes in
+traversal order, so the reparsed text and the rewritten AST line up node for node except where
+printing changed the tree: parentheses added or dropped, and folded numbers (`-1`, `-0`, `NaN`,
+`Infinity`) printed as `-` and a literal or as a name. The refresher walks both trees in step
+across those differences and maps the new facts back to the rewritten AST's ids (a
+parenthesized expression gets its contents' facts, and units keep the rewritten AST's spans);
+any other difference drops that module's facts to `Unknown`, and opens the sites elsewhere
+that called into it. After the module is compiled the program's own facts (and stats) come
+back for the others.
+
+Cost: each refresh is one whole-program analysis plus an oracle load, about 1.1× the build's
+first analysis. A build costs `A × (1 + Σ_m r_m)`, where `A` is one analysis and `r_m` is the
+number of pass-group iterations that changed module `m` and were followed by another
+iteration (up to `max_iterations` per fixpoint group): quadratic in program size when every
+module changes. Pass groups must stay few until NodeId-stable incremental analysis
+(re-interpreting only the units a rewrite touched) replaces this inside
+`FactRefresher::refresh`, keeping the `FactSource` interface. Refreshing once per group across
+all modules, instead of per module, would need the pipeline to run groups program-wide.
+
+`Project::reanalyse` analyses given sources the same way, and leaves those facts in place
+until the next build, `facts` or `transform`. On the dev/HMR path `Project::update` marks the
+facts stale; the next `transform` re-analyses the whole program (a new entry does too), so
+passes never see facts about other text. Per-update incremental analysis will replace that
+re-run.
 
 Correctness is tested two ways: `/*@trust …*/` annotations in the analysis fixtures state the
 expected trust of particular expressions, and a runtime checker instruments every fixture and
 runs it under node, failing on any violation (the exact list is in `tests/runtime.rs`): proven
 types of expressions, parameters, bindings and symbols (instances with `instanceof`,
-functions by identity), in-bounds accesses, functions proven not to throw or not to write
-top-level state, stable object and class shapes, and proven-unreachable code. Escape levels,
-call edges, points-to sets and loop facts are not checked at run time.
+functions by identity), in-bounds accesses, units and expressions proven not to throw or not
+to write, the callee that runs at sites proven complete, loop invariants, stable object and
+class shapes, and proven-unreachable code. Escape levels, points-to sets and the other loop
+facts are not checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
 The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work
