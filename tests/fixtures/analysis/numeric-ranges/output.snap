@@ -5,15 +5,17 @@ input_file: tests/fixtures/analysis/numeric-ranges/input.ts
 ---
 //- input.ts
 // Interval, integer, NaN and -0 facts through arithmetic and Math.
+/** Uses a value without printing it (it depends on `Math.random()`). */
+function sink(..._values) {}
 export function main() {
 	const r = Math.random();
 	const byte = r * 256 | 0;
-	console.log(
+	sink(
 		byte
 		/*@proven number int nonNaN*/
 	);
 	const masked = r * 1e9 & 255;
-	console.log(
+	sink(
 		masked
 		/*@proven number int*/
 	);
@@ -23,7 +25,7 @@ export function main() {
 		/*@proven number int nonNaN*/
 	);
 	const half = byte / 2;
-	console.log(
+	sink(
 		half,
 		Math.floor(half)
 		/*@proven number int*/
@@ -47,7 +49,7 @@ export function main() {
 		/*@proven number int*/
 	);
 	const clamped = Math.min(255, Math.max(0, byte * 2));
-	console.log(
+	sink(
 		clamped
 		/*@proven number int nonNaN*/
 	);
@@ -66,7 +68,7 @@ export function main() {
 		/*@proven number int*/
 	);
 	const remainder = byte % 7;
-	console.log(
+	sink(
 		remainder
 		/*@proven number int*/
 	);

@@ -5,6 +5,8 @@ input_file: tests/fixtures/analysis/narrowing-values/input.ts
 ---
 //- input.ts
 // Equality and truthiness narrowing on locals.
+/** Uses a value without printing it (it depends on `Math.random()`). */
+function sink(..._values) {}
 const config = JSON.parse("null");
 export function main() {
 	const items = ["a", null];
@@ -24,13 +26,13 @@ export function main() {
 	let count = Math.floor(Math.random() * 3);
 	if (count) {
 		// Truthy: not 0 (and not NaN).
-		console.log(
+		sink(
 			count
 			/*@proven number int nonNaN*/
 		);
 	}
 	if (count === 2) {
-		console.log(
+		sink(
 			count
 			/*@proven number int*/
 		);
@@ -43,12 +45,12 @@ export function main() {
 	);
 	const flag = Math.random() > .5 ? "on" : undefined;
 	if (flag == null) {
-		console.log(
+		sink(
 			flag
 			/*@proven undefined*/
 		);
 	} else {
-		console.log(
+		sink(
 			flag
 			/*@proven string*/
 		);

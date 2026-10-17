@@ -5,53 +5,56 @@ input_file: tests/fixtures/analysis/dynamic-keys/input.ts
 ---
 //- input.ts
 functions:
-  <module> (1:1): pure
-  main (3:8): reads writes allocates throws calls-unknown
+  <module> (1:1): allocates
+  sink (4:1): pure
+  main (6:8): reads writes allocates throws calls-unknown
+    calls 14:3 -> sink
+    calls 19:3 -> sink
 nodes:
-  3:17 bind `main`: function@proven
-  4:9 bind `fixed`: {| a: 1, b: 2 |}@proven
-  4:17 object `{ a: 1, b: 2 }`: {| a: 1, b: 2 |}@proven escape=none stable-shape
-  5:9 bind `key`: string@proven
-  6:3 call `console.log(fixed[key] /*@proven numb...`: unknown
-  6:3 member `console.log`: unknown
-  6:3 ref `console`: unknown
-  6:15 member `fixed[key]`: 1@proven
-  6:15 ref `fixed`: {| a: 1, b: 2 |}@proven
-  6:21 ref `key`: string@proven
-  8:9 bind `bag`: object@proven
-  8:14 ref `Record`: unknown
-  8:39 object `{ a: 1 }`: object@proven escape=none
-  9:9 bind `dynamic`: string@proven
-  9:19 cond `Math.random() > 0.5 ? "a" : "b"`: string@proven
-  9:19 binary `Math.random() > 0.5`: boolean@proven
-  9:19 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
-  9:19 member `Math.random`: unknown
-  9:19 ref `Math`: unknown
-  10:3 assign `bag[dynamic] = 5`: 5@proven
-  10:3 member `bag[dynamic]`: unknown
-  10:3 ref `bag`: object@proven
-  10:7 ref `dynamic`: string@proven
-  11:3 call `console.log(bag.a /*@declared number*/)`: unknown
-  11:3 member `console.log`: unknown
-  11:3 ref `console`: unknown
-  11:15 member `bag.a`: number@declared
-  11:15 ref `bag`: object@proven
-  13:9 bind `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
-  13:16 array `[1, 2, 3]`: (number[1, 10] int nonNaN nonNegZero)[]@proven escape=none stable-shape
-  14:9 bind `i`: number[0, 3] int nonNaN nonNegZero@proven
-  14:13 call `Math.floor(Math.random() * 3)`: number[0, 3] int nonNaN nonNegZero@proven
-  14:13 member `Math.floor`: unknown
-  14:13 ref `Math`: unknown
-  14:24 binary `Math.random() * 3`: number[0, 3] nonNaN nonNegZero@proven
-  14:24 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
-  14:24 member `Math.random`: unknown
-  14:24 ref `Math`: unknown
-  15:3 assign `list[i] = 10`: 10@proven
-  15:3 member `list[i]`: unknown
-  15:3 ref `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
-  15:8 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
-  16:3 call `console.log(list[0] /*@proven union*/)`: unknown
-  16:3 member `console.log`: unknown
-  16:3 ref `console`: unknown
-  16:15 member `list[0]`: undefined | (number[1, 10] int nonNaN nonNegZero)@proven
-  16:15 ref `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
+  4:10 bind `sink`: function@proven
+  4:18 bind `_values`: unknown[]@proven
+  6:17 bind `main`: function@proven
+  7:9 bind `fixed`: {| a: 1, b: 2 |}@proven
+  7:17 object `{ a: 1, b: 2 }`: {| a: 1, b: 2 |}@proven escape=none stable-shape
+  8:9 bind `key`: string@proven
+  9:3 call `console.log(fixed[key] /*@proven numb...`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 member `fixed[key]`: 1@proven
+  9:15 ref `fixed`: {| a: 1, b: 2 |}@proven
+  9:21 ref `key`: string@proven
+  11:9 bind `bag`: object@proven
+  11:14 ref `Record`: unknown
+  11:39 object `{ a: 1 }`: object@proven escape=none
+  12:9 bind `dynamic`: string@proven
+  12:19 cond `Math.random() > 0.5 ? "a" : "b"`: string@proven
+  12:19 binary `Math.random() > 0.5`: boolean@proven
+  12:19 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
+  12:19 member `Math.random`: unknown
+  12:19 ref `Math`: unknown
+  13:3 assign `bag[dynamic] = 5`: 5@proven
+  13:3 member `bag[dynamic]`: unknown
+  13:3 ref `bag`: object@proven
+  13:7 ref `dynamic`: string@proven
+  14:3 call `sink(bag.a /*@declared number*/)`: undefined@proven
+  14:3 ref `sink`: function@proven
+  14:8 member `bag.a`: number@declared
+  14:8 ref `bag`: object@proven
+  16:9 bind `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
+  16:16 array `[1, 2, 3]`: (number[1, 10] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  17:9 bind `i`: number[0, 3] int nonNaN nonNegZero@proven
+  17:13 call `Math.floor(Math.random() * 3)`: number[0, 3] int nonNaN nonNegZero@proven
+  17:13 member `Math.floor`: unknown
+  17:13 ref `Math`: unknown
+  17:24 binary `Math.random() * 3`: number[0, 3] nonNaN nonNegZero@proven
+  17:24 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
+  17:24 member `Math.random`: unknown
+  17:24 ref `Math`: unknown
+  18:3 assign `list[i] = 10`: 10@proven
+  18:3 member `list[i]`: unknown
+  18:3 ref `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven
+  18:8 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  19:3 call `sink(list[0] /*@proven union*/)`: undefined@proven
+  19:3 ref `sink`: function@proven
+  19:8 member `list[0]`: undefined | (number[1, 10] int nonNaN nonNegZero)@proven
+  19:8 ref `list`: (number[1, 10] int nonNaN nonNegZero)[]@proven

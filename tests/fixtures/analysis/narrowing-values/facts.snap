@@ -6,74 +6,77 @@ input_file: tests/fixtures/analysis/narrowing-values/input.ts
 //- input.ts
 functions:
   <module> (1:1): reads writes allocates throws calls-unknown
-  main (5:8): reads writes allocates throws calls-unknown
+  sink (4:1): pure
+  main (8:8): reads writes allocates throws calls-unknown
+    calls 21:5 -> sink
+    calls 24:5 -> sink
+    calls 32:5 -> sink
+    calls 34:5 -> sink
 nodes:
-  3:7 bind `config`: undefined | { level: undefined | number }@declared
-  3:48 call `JSON.parse("null")`: unknown
-  3:48 member `JSON.parse`: unknown
-  3:48 ref `JSON`: unknown
-  5:17 bind `main`: function@proven
-  6:9 bind `items`: (null | string)[]@proven
-  6:36 array `["a", null]`: (null | string)[]@proven escape=none stable-shape
-  7:14 bind `item`: null | string@proven
-  7:22 ref `items`: (null | string)[]@proven
-  8:9 binary `item === null`: boolean@proven
-  8:9 ref `item`: null | string@proven
-  9:7 call `console.log(item /*@proven null*/)`: unknown
-  9:7 member `console.log`: unknown
-  9:7 ref `console`: unknown
-  9:19 ref `item`: null@proven
-  11:7 call `console.log(item /*@proven string*/)`: unknown
-  11:7 member `console.log`: unknown
-  11:7 ref `console`: unknown
-  11:19 ref `item`: string@proven
-  15:7 bind `count`: number[0, 3] int nonNaN nonNegZero@proven
-  15:15 call `Math.floor(Math.random() * 3)`: number[0, 3] int nonNaN nonNegZero@proven
-  15:15 member `Math.floor`: unknown
-  15:15 ref `Math`: unknown
-  15:26 binary `Math.random() * 3`: number[0, 3] nonNaN nonNegZero@proven
-  15:26 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
-  15:26 member `Math.random`: unknown
-  15:26 ref `Math`: unknown
-  16:7 ref `count`: number[0, 3] int nonNaN nonNegZero@proven
-  18:5 call `console.log(count /*@proven number in...`: unknown
-  18:5 member `console.log`: unknown
-  18:5 ref `console`: unknown
-  18:17 ref `count`: number[1, 3] int nonNaN nonNegZero@proven
-  20:7 binary `count === 2`: boolean@proven
-  20:7 ref `count`: number[0, 3] int nonNaN nonNegZero@proven
-  21:5 call `console.log(count /*@proven number in...`: unknown
-  21:5 member `console.log`: unknown
-  21:5 ref `console`: unknown
-  21:17 ref `count`: 2@proven
-  23:3 assign `count = count > 1 ? count : 1`: number[1, 3] int nonNaN nonNegZero@proven
-  23:3 ref `count`: number[1, 3] int nonNaN nonNegZero@proven
-  23:11 cond `count > 1 ? count : 1`: number[1, 3] int nonNaN nonNegZero@proven
-  23:11 binary `count > 1`: boolean@proven
-  23:11 ref `count`: number[0, 3] int nonNaN nonNegZero@proven
-  23:23 ref `count`: number[2, 3] int nonNaN nonNegZero@proven
-  25:9 bind `level`: number@declared
-  25:17 binary `config?.level ?? 0`: number@declared
-  25:17 member `config?.level`: undefined | number@declared
-  25:17 ref `config`: undefined | { level: undefined | number }@declared
-  26:3 call `console.log(level /*@declared number*/)`: unknown
-  26:3 member `console.log`: unknown
-  26:3 ref `console`: unknown
-  26:15 ref `level`: number@declared
-  27:9 bind `flag`: undefined | string@proven
-  27:16 cond `Math.random() > 0.5 ? "on" : undefined`: undefined | string@proven
-  27:16 binary `Math.random() > 0.5`: boolean@proven
-  27:16 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
-  27:16 member `Math.random`: unknown
-  27:16 ref `Math`: unknown
-  27:45 ref `undefined`: undefined@proven
-  28:7 binary `flag == null`: boolean@proven
-  28:7 ref `flag`: undefined | string@proven
-  29:5 call `console.log(flag /*@proven undefined*/)`: unknown
-  29:5 member `console.log`: unknown
-  29:5 ref `console`: unknown
-  29:17 ref `flag`: undefined@proven
-  31:5 call `console.log(flag /*@proven string*/)`: unknown
-  31:5 member `console.log`: unknown
-  31:5 ref `console`: unknown
-  31:17 ref `flag`: string@proven
+  4:10 bind `sink`: function@proven
+  4:18 bind `_values`: (undefined | (number[1, 3] int nonNaN nonNegZero) | string)[]@proven
+  6:7 bind `config`: undefined | { level: undefined | number }@declared
+  6:48 call `JSON.parse("null")`: unknown
+  6:48 member `JSON.parse`: unknown
+  6:48 ref `JSON`: unknown
+  8:17 bind `main`: function@proven
+  9:9 bind `items`: (null | string)[]@proven
+  9:36 array `["a", null]`: (null | string)[]@proven escape=none stable-shape
+  10:14 bind `item`: null | string@proven
+  10:22 ref `items`: (null | string)[]@proven
+  11:9 binary `item === null`: boolean@proven
+  11:9 ref `item`: null | string@proven
+  12:7 call `console.log(item /*@proven null*/)`: unknown
+  12:7 member `console.log`: unknown
+  12:7 ref `console`: unknown
+  12:19 ref `item`: null@proven
+  14:7 call `console.log(item /*@proven string*/)`: unknown
+  14:7 member `console.log`: unknown
+  14:7 ref `console`: unknown
+  14:19 ref `item`: string@proven
+  18:7 bind `count`: number[0, 3] int nonNaN nonNegZero@proven
+  18:15 call `Math.floor(Math.random() * 3)`: number[0, 3] int nonNaN nonNegZero@proven
+  18:15 member `Math.floor`: unknown
+  18:15 ref `Math`: unknown
+  18:26 binary `Math.random() * 3`: number[0, 3] nonNaN nonNegZero@proven
+  18:26 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
+  18:26 member `Math.random`: unknown
+  18:26 ref `Math`: unknown
+  19:7 ref `count`: number[0, 3] int nonNaN nonNegZero@proven
+  21:5 call `sink(count /*@proven number int nonNa...`: undefined@proven
+  21:5 ref `sink`: function@proven
+  21:10 ref `count`: number[1, 3] int nonNaN nonNegZero@proven
+  23:7 binary `count === 2`: boolean@proven
+  23:7 ref `count`: number[0, 3] int nonNaN nonNegZero@proven
+  24:5 call `sink(count /*@proven number int*/)`: undefined@proven
+  24:5 ref `sink`: function@proven
+  24:10 ref `count`: 2@proven
+  26:3 assign `count = count > 1 ? count : 1`: number[1, 3] int nonNaN nonNegZero@proven
+  26:3 ref `count`: number[1, 3] int nonNaN nonNegZero@proven
+  26:11 cond `count > 1 ? count : 1`: number[1, 3] int nonNaN nonNegZero@proven
+  26:11 binary `count > 1`: boolean@proven
+  26:11 ref `count`: number[0, 3] int nonNaN nonNegZero@proven
+  26:23 ref `count`: number[2, 3] int nonNaN nonNegZero@proven
+  28:9 bind `level`: number@declared
+  28:17 binary `config?.level ?? 0`: number@declared
+  28:17 member `config?.level`: undefined | number@declared
+  28:17 ref `config`: undefined | { level: undefined | number }@declared
+  29:3 call `console.log(level /*@declared number*/)`: unknown
+  29:3 member `console.log`: unknown
+  29:3 ref `console`: unknown
+  29:15 ref `level`: number@declared
+  30:9 bind `flag`: undefined | string@proven
+  30:16 cond `Math.random() > 0.5 ? "on" : undefined`: undefined | string@proven
+  30:16 binary `Math.random() > 0.5`: boolean@proven
+  30:16 call `Math.random()`: number[0, 1] nonNaN nonNegZero@proven
+  30:16 member `Math.random`: unknown
+  30:16 ref `Math`: unknown
+  30:45 ref `undefined`: undefined@proven
+  31:7 binary `flag == null`: boolean@proven
+  31:7 ref `flag`: undefined | string@proven
+  32:5 call `sink(flag /*@proven undefined*/)`: undefined@proven
+  32:5 ref `sink`: function@proven
+  32:10 ref `flag`: undefined@proven
+  34:5 call `sink(flag /*@proven string*/)`: undefined@proven
+  34:5 ref `sink`: function@proven
+  34:10 ref `flag`: string@proven
