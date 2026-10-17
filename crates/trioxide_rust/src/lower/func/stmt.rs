@@ -423,6 +423,14 @@ impl<'a> FnCx<'_, '_, 'a> {
             return;
         };
         let array_expr = match array.expr {
+            // JS iterates the array it started with; a reassigned variable would switch.
+            Expr::Local(local) if self.locals[local.0].mutable => {
+                self.fail::<()>(
+                    statement.right.span(),
+                    "iterates over a variable it reassigns",
+                );
+                return;
+            }
             Expr::Local(_) => array.expr,
             other => {
                 let local = self.temp("items", array.ty);
