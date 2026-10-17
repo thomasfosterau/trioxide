@@ -1,0 +1,49 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/jsx
+input_file: tests/fixtures/jsx/input.tsx
+---
+//- input.tsx
+import { Fragment, h, render } from "./runtime.js";
+function Item({ label, done = false }) {
+	return /* @__PURE__ */ h("li", { class: done ? "done" : "todo" }, label);
+}
+function List(props) {
+	return /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("h2", null, props.title), /* @__PURE__ */ h("ul", null, props.items.map((item) => /* @__PURE__ */ h(Item, item))), props.items.length === 0 && /* @__PURE__ */ h("p", null, "empty"));
+}
+export function main() {
+	const items = [{
+		label: "write plan",
+		done: true
+	}, { label: "build trioxide" }];
+	console.log(render(/* @__PURE__ */ h(List, {
+		title: "Todo",
+		items
+	})));
+	console.log(render(/* @__PURE__ */ h(List, {
+		title: "None",
+		items: []
+	})));
+}
+
+//- runtime.ts
+export const Fragment = Symbol("Fragment");
+export function h(tag, props, ...children) {
+	return {
+		tag,
+		props: props ?? {},
+		children
+	};
+}
+export function render(node) {
+	if (node === null || node === undefined || typeof node === "boolean") return "";
+	if (Array.isArray(node)) return node.map(render).join("");
+	if (typeof node !== "object") return String(node);
+	if (node.tag === Fragment) return render(node.children);
+	if (typeof node.tag === "function") return render(node.tag({
+		...node.props,
+		children: node.children
+	}));
+	const attrs = Object.entries(node.props).map(([key, value]) => ` ${key}="${String(value)}"`).join("");
+	return `<${String(node.tag)}${attrs}>${render(node.children)}</${String(node.tag)}>`;
+}

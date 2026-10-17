@@ -1,0 +1,28 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/class-fields-legacy
+input_file: tests/fixtures/class-fields-legacy/input.ts
+---
+//- input.ts
+// With useDefineForClassFields: false, fields are assigned (not defined) in the constructor
+// and fields without initialisers don't exist until assigned.
+class Base {
+	constructor() {
+		this.value = 1;
+	}
+	set setter(v) {
+		log.push(`setter ${v}`);
+	}
+}
+class Derived extends Base {
+	constructor(..._args) {
+		super(..._args);
+		this.setter = 2;
+	}
+}
+const log = [];
+export function main() {
+	const d = new Derived();
+	console.log(log.join(";"), d.value, Object.keys(d).join(","));
+	console.log("uninitialised" in d, Object.getOwnPropertyNames(d).length);
+}

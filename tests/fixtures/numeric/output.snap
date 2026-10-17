@@ -1,0 +1,73 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/numeric
+input_file: tests/fixtures/numeric/input.ts
+---
+//- input.ts
+// The kind of code that should eventually become a WASM island.
+function blur(src, width, height) {
+	const dst = new Float64Array(src.length);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			let sum = 0;
+			let count = 0;
+			for (let dy = -1; dy <= 1; dy++) {
+				for (let dx = -1; dx <= 1; dx++) {
+					const nx = x + dx;
+					const ny = y + dy;
+					if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+						sum += src[ny * width + nx];
+						count++;
+					}
+				}
+			}
+			dst[y * width + x] = sum / count;
+		}
+	}
+	return dst;
+}
+function hash(values) {
+	let h = 2166136261;
+	for (const value of values) {
+		h ^= value & 255;
+		h = Math.imul(h, 16777619) >>> 0;
+	}
+	return h;
+}
+function stats(values) {
+	let sum = 0;
+	let min = Infinity;
+	let max = -Infinity;
+	for (let i = 0; i < values.length; i++) {
+		const v = values[i];
+		sum += v;
+		min = Math.min(min, v);
+		max = Math.max(max, v);
+	}
+	return {
+		mean: sum / values.length,
+		min,
+		max
+	};
+}
+export function main() {
+	const image = Float64Array.from({ length: 16 }, (_, i) => i * 37 % 11);
+	const blurred = blur(image, 4, 4);
+	console.log(Array.from(blurred, (v) => v.toFixed(3)).join(" "));
+	console.log(hash([
+		1,
+		2,
+		3,
+		255,
+		256
+	]), hash([]));
+	console.log(stats([
+		3,
+		-1,
+		4,
+		1,
+		-5,
+		9
+	]));
+	console.log(-7 % 3, 2 ** -1, Math.round(-.5), Object.is(Math.sign(-0), -0), .1 + .2);
+}

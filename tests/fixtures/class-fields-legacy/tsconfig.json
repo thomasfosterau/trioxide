@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "strict": true,
+    "useDefineForClassFields": false,
+    "noEmit": true
+  }
+}

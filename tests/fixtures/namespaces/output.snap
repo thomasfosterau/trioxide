@@ -1,0 +1,43 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/namespaces
+input_file: tests/fixtures/namespaces/input.ts
+---
+//- input.ts
+let Geometry;
+(function(_Geometry) {
+	const EPSILON = _Geometry.EPSILON = 1e-9;
+	let Vec;
+	(function(_Vec) {
+		function add(a, b) {
+			return [a[0] + b[0], a[1] + b[1]];
+		}
+		_Vec.add = add;
+		function length(v) {
+			return Math.hypot(...v);
+		}
+		_Vec.length = length;
+	})(Vec || (Vec = _Geometry.Vec || (_Geometry.Vec = {})));
+	function nearlyEqual(a, b) {
+		return Math.abs(a - b) < EPSILON;
+	}
+	_Geometry.nearlyEqual = nearlyEqual;
+})(Geometry || (Geometry = {}));
+(function(_Geometry2) {
+	const ORIGIN = _Geometry2.ORIGIN = [0, 0];
+})(Geometry || (Geometry = {}));
+function Counter() {
+	return ++Counter.calls;
+}
+(function(_Counter) {
+	let calls = _Counter.calls = 0;
+})(Counter || (Counter = {}));
+export function main() {
+	const v = Geometry.Vec.add([3, 0], [0, 4]);
+	console.log(v.join(","), Geometry.Vec.length(v), Geometry.nearlyEqual(.1 + .2, .3));
+	console.log(Geometry.ORIGIN, typeof DEBUG);
+	Counter();
+	Counter();
+	console.log(Counter.calls);
+}
+//! /home/user/trioxide/tests/fixtures/namespaces/input.ts:550: warning: Namespaces exporting non-const are not supported by Oxc. Change to const or see: https://oxc.rs/docs/guide/usage/transformer/typescript.html#partial-namespace-support

@@ -210,6 +210,8 @@ impl ModuleGraph {
             }
         }
         let id = *self.by_path.get(&path)?;
+        // An edit may come with files created or deleted; the resolver caches both.
+        self.resolver.clear_cache();
         self.load(&path);
         Some(id)
     }

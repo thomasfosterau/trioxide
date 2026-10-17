@@ -1,0 +1,12 @@
+{
+  "name": "trioxide-differential",
+  "private": true,
+  "type": "module",
+  "description": "Runs every fixture's main() as stripped-only, trioxide JS and trioxide JS+WASM, and asserts identical stdout.",
+  "scripts": {
+    "test": "node --test \"*.test.js\""
+  },
+  "devDependencies": {
+    "@oxc-project/runtime": "0.154.0"
+  }
+}

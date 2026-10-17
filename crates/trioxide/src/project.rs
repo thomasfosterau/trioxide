@@ -51,14 +51,24 @@ impl std::fmt::Debug for Project {
 }
 
 impl Project {
-    /// Creates a project rooted at `root` (relative paths are resolved against it).
+    /// Creates a project rooted at `root` (relative paths are resolved against it; a relative
+    /// `root` against the working directory). The root need not exist, e.g. when only
+    /// in-memory sources are transformed.
     ///
     /// Reads the tsconfig (`options.tsconfig`, else the nearest `tsconfig.json` at or above
     /// `root`). Nothing else is loaded until [`build`](Self::build) or
     /// [`transform`](Self::transform).
     pub fn new(root: PathBuf, options: Options) -> Result<Self> {
-        let root =
-            std::fs::canonicalize(&root).map_err(move |source| Error::Io { path: root, source })?;
+        let root = if root.is_absolute() {
+            root
+        } else {
+            let cwd = std::env::current_dir().map_err(|source| Error::Io {
+                path: root.clone(),
+                source,
+            })?;
+            cwd.join(root)
+        };
+        let root = std::fs::canonicalize(&root).unwrap_or(root);
         let tsconfig = match &options.tsconfig {
             Some(path) => Some(root.join(path)),
             None => find_tsconfig(&root),

@@ -11,7 +11,7 @@ use crate::{Error, Result};
 /// Names of the config files trioxide looks for, in order of preference.
 pub const CONFIG_FILE_NAMES: [&str; 2] = ["trioxide.json", "trioxide.jsonc"];
 
-/// Everything that configures a trioxide build (PLAN D11).
+/// Everything that configures a trioxide build.
 ///
 /// Read from `trioxide.json` / `trioxide.jsonc` (see [`Options::from_file`]), merged with Vite
 /// plugin options or CLI flags. Source directives (`"use wasm"` / `"use js"`,
@@ -91,7 +91,7 @@ impl Default for Options {
     }
 }
 
-/// How aggressively functions move to WebAssembly (PLAN §5 "Overrides").
+/// How aggressively functions move to WebAssembly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
@@ -104,7 +104,7 @@ pub enum Mode {
     WasmPreferred,
 }
 
-/// The world assumption (PLAN D2).
+/// The world assumption: what code outside the module graph may do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum World {

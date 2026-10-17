@@ -25,3 +25,6 @@ trioxide = { workspace = true, default-features = false }
 clap.workspace = true
 oxc_diagnostics.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

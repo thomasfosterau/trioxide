@@ -27,3 +27,6 @@ rustc-ice-*.txt
 node_modules/
 *.node
 *.tgz
+
+# Differential suite output
+tests/differential/.out/

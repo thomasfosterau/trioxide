@@ -1,0 +1,46 @@
+{
+  "name": "trioxide",
+  "version": "0.0.0",
+  "description": "A TypeScript-aware optimising compiler: readable JS or Rust/WASM, per function.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/trioxide",
+    "directory": "packages/trioxide"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./vite": {
+      "types": "./src/vite.d.ts",
+      "default": "./src/vite.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "binding"
+  ],
+  "napi": {
+    "binaryName": "trioxide",
+    "targets": [
+      "x86_64-unknown-linux-gnu"
+    ]
+  },
+  "scripts": {
+    "build": "napi build --platform --manifest-path ../../crates/trioxide_napi/Cargo.toml --output-dir binding --js index.cjs --dts index.d.cts",
+    "build:release": "napi build --platform --release --manifest-path ../../crates/trioxide_napi/Cargo.toml --output-dir binding --js index.cjs --dts index.d.cts",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.10.8"
+  }
+}

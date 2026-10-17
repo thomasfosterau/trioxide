@@ -94,7 +94,7 @@
       "description": "Per-file overrides, applied in order (later wins)."
     }
   },
-  "description": "Everything that configures a trioxide build (PLAN D11).\n\nRead from `trioxide.json` / `trioxide.jsonc` (see [`Options::from_file`]), merged with Vite\nplugin options or CLI flags. Source directives (`\"use wasm\"` / `\"use js\"`,\n`/** @trioxide wasm|js */`) override all of it. Field names are camelCase in JSON. The JSON\nschema in `schema/trioxide.schema.json` is generated from this type.",
+  "description": "Everything that configures a trioxide build.\n\nRead from `trioxide.json` / `trioxide.jsonc` (see [`Options::from_file`]), merged with Vite\nplugin options or CLI flags. Source directives (`\"use wasm\"` / `\"use js\"`,\n`/** @trioxide wasm|js */`) override all of it. Field names are camelCase in JSON. The JSON\nschema in `schema/trioxide.schema.json` is generated from this type.",
   "title": "trioxide.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
@@ -116,7 +116,7 @@
           "description": "Prefer WASM for every eligible function unless the cost model strongly objects."
         }
       ],
-      "description": "How aggressively functions move to WebAssembly (PLAN §5 \"Overrides\")."
+      "description": "How aggressively functions move to WebAssembly."
     },
     "World": {
       "oneOf": [
@@ -131,7 +131,7 @@
           "description": "Open world: exported functions may be called with anything their types allow."
         }
       ],
-      "description": "The world assumption (PLAN D2)."
+      "description": "The world assumption: what code outside the module graph may do."
     },
     "WasmOptions": {
       "type": "object",
