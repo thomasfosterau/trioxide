@@ -582,16 +582,11 @@ impl<'a> Cx<'_, '_, 'a> {
                         }
                         (key, kind) => {
                             // `__proto__: x` sets the prototype, whose accessors then run on
-                            // property accesses; a computed key may name an accessor.
+                            // property accesses. A computed key may name an accessor, or a
+                            // protocol method the engine calls (`[Symbol.iterator]`,
+                            // `[Symbol.toPrimitive]`): its value is open either way.
                             let prototype = key.is_some() && kind == PropertyKind::Init;
-                            let level = if prototype {
-                                Escape::Unknown
-                            } else if kind == PropertyKind::Init {
-                                Escape::Known
-                            } else {
-                                Escape::Unknown
-                            };
-                            self.escape_value(&value, level);
+                            self.escape_value(&value, Escape::Unknown);
                             dynamic = true;
                             accessors |= prototype || kind != PropertyKind::Init;
                         }
@@ -2211,17 +2206,14 @@ impl<'a> Cx<'_, '_, 'a> {
         }
     }
 
-    /// The values an iteration over `value` (for-of, spread, array destructuring) produces.
-    pub fn iterate(&mut self, value: &Val, node: oxc_syntax::node::NodeId) -> Val {
-        let _ = node;
-        if is_never(value) {
-            return Val::never();
-        }
+    /// Whether iterating `value` is proven to use only the builtin iterators (a proven array,
+    /// typed array or string, with their prototypes intact): no program code runs.
+    pub fn iterates_natively(&self, value: &Val) -> bool {
         // Their iterators come from the prototypes.
         let intact = ["Array", "String", "Object", super::TYPED_ARRAY]
             .iter()
             .all(|name| !self.an.patched.contains(*name));
-        let array_like = intact
+        intact
             && value.trust == Trust::Proven
             && value.ty.members().iter().all(|member| {
                 matches!(
@@ -2229,7 +2221,19 @@ impl<'a> Cx<'_, '_, 'a> {
                     Type::Array(_) | Type::TypedArray(_) | Type::Tuple(_) | Type::String
                 )
             })
-            && !value.ty.may_be_nullish();
+            && !value.ty.may_be_nullish()
+    }
+
+    /// The values an iteration over `value` (for-of, spread, array destructuring) produces.
+    pub fn iterate(&mut self, value: &Val, node: oxc_syntax::node::NodeId) -> Val {
+        let _ = node;
+        if is_never(value) {
+            return Val::never();
+        }
+        let intact = ["Array", "String", "Object", super::TYPED_ARRAY]
+            .iter()
+            .all(|name| !self.an.patched.contains(*name));
+        let array_like = self.iterates_natively(value);
         let declared_array_like = intact
             && value.trust >= Trust::Declared
             && value.ty.members().iter().all(|member| {
@@ -2238,9 +2242,10 @@ impl<'a> Cx<'_, '_, 'a> {
                     Type::Array(_) | Type::TypedArray(_) | Type::Tuple(_) | Type::String
                 )
             });
-        // Array.prototype[Symbol.iterator] is assumed intact.
-        self.effect(EffectKind::CallsUnknown, array_like, declared_array_like);
-        self.effect(EffectKind::Throws, array_like, declared_array_like);
+        // Array.prototype[Symbol.iterator] is assumed intact. Whether user iterator code runs
+        // never rests on declared types alone (a user iterable passes for `Iterable<T>`).
+        self.effect(EffectKind::CallsUnknown, array_like, array_like);
+        self.effect(EffectKind::Throws, array_like, array_like);
         if value.trust >= Trust::Declared && value.ty == Type::String {
             return Val::proven(Type::String).at_most(value.trust);
         }

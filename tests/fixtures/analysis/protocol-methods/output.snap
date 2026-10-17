@@ -1,0 +1,65 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/protocol-methods
+input_file: tests/fixtures/analysis/protocol-methods/input.ts
+---
+//- input.ts
+// Methods the engine calls through a protocol (`Symbol.toPrimitive`, iterators, `toJSON`,
+// `Symbol.hasInstance`) have callers trioxide doesn't see: they are open.
+let log = "";
+const primitive = { [Symbol.toPrimitive](hint) {
+	log += hint;
+	return hint === "number" ? 1 : 2;
+} };
+const iterable = { [Symbol.iterator]() {
+	let n = 0;
+	return { next() {
+		n += 1;
+		log += "n";
+		return n > 2 ? {
+			done: true,
+			value: 0
+		} : {
+			done: false,
+			value: n
+		};
+	} };
+} };
+class Range {
+	end;
+	constructor(end) {
+		this.end = end;
+	}
+	*[Symbol.iterator]() {
+		for (let i = 0; i < this.end; i++) {
+			log += "r";
+			yield i;
+		}
+	}
+}
+class Even {
+	static [Symbol.hasInstance](value) {
+		log += "h";
+		return typeof value === "number" && value % 2 === 0;
+	}
+}
+const serialised = {
+	value: 3,
+	toJSON(key) {
+		log += "j" + key;
+		return "three";
+	}
+};
+function sum(values) {
+	let total = 0;
+	for (const value of values) {
+		total += value;
+	}
+	return total;
+}
+export function main() {
+	console.log(+primitive, `${primitive}`);
+	console.log(sum(iterable), sum(new Range(3)), [...iterable].length);
+	console.log(4 instanceof Even, JSON.stringify({ s: serialised }));
+	console.log(log);
+}

@@ -76,6 +76,11 @@ fn inputs(graph: &ModuleGraph) -> Vec<ModuleInput<'_>> {
 /// Loads and analyses the fixture at `entry`. A first line `// world: library` selects the
 /// open world; the default is the closed (`app`) world.
 pub fn load(entry: &Path) -> Loaded {
+    load_with(entry, false)
+}
+
+/// [`load`], with declared types taken as proof when `trust_types`.
+pub fn load_with(entry: &Path, trust_types: bool) -> Loaded {
     let dir = entry.parent().unwrap();
     let source = std::fs::read_to_string(entry).unwrap();
     let closed_world = !source.starts_with("// world: library");
@@ -112,7 +117,7 @@ pub fn load(entry: &Path) -> Loaded {
         &mut oracle,
         AnalysisOptions {
             closed_world,
-            trust_types: false,
+            trust_types,
             jsx_factory,
             jsx_fragment_factory,
             entries: graph.entries().to_vec(),
