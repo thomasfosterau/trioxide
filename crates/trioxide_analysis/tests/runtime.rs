@@ -1,8 +1,19 @@
 //! Checks `Proven` facts against reality: every analysis fixture with a `main()` is
-//! instrumented so that each expression with a proven type reports its runtime value to a
-//! checker, then run in Node. Any value outside its proven type fails the test.
+//! instrumented, then run in Node, and any contradiction fails the test. Checked:
 //!
-//! Skipped (with a message) when `node` is not on PATH.
+//! - node types: every wrappable expression (and every parameter and declared binding, after
+//!   it is bound) with a proven type, plus the proven type of the symbol an identifier reads;
+//!   instances with `instanceof` against every evaluation of their class;
+//! - in-bounds element accesses: the index is below the length and not a hole;
+//! - effects: functions proven not to throw are run inside a `try` that reports a throw;
+//! - stable shapes: objects from sites with a proven stable shape keep their own keys, in
+//!   order, from creation to the end of the run.
+//!
+//! Not checked: escape levels and call edges (no runtime counterpart that is cheap to observe),
+//! nodes inside `?.` chains, assignment targets and member callees.
+//!
+//! Skipped (with a message) when `node` is not on PATH; a fixture that imports a package is
+//! skipped when the differential suite's dependencies aren't installed.
 
 #![expect(clippy::print_stderr, reason = "the test reports what it skips")]
 
@@ -15,7 +26,7 @@ use oxc_ast::AstKind;
 use oxc_parser::Parser;
 use oxc_semantic::{AstNodes, SemanticBuilder};
 use oxc_span::{GetSpan, Span};
-use trioxide_analysis::{Facts, Trust};
+use trioxide_analysis::{AllocKind, Facts, Trust};
 use trioxide_common::{ModuleId, NodeId, NodeRef};
 use trioxide_types::Type;
 
@@ -91,7 +102,10 @@ fn predicate(ty: &Type) -> String {
             }
             format!("({})", parts.join(" && "))
         }
-        Type::Instance(_) => "(typeof v === 'object' && v !== null)".into(),
+        Type::Instance(class) => format!(
+            "globalThis.__instance({:?}, v)",
+            format!("m{}:{}", class.module.index(), class.node.index())
+        ),
         Type::Function(..) => "typeof v === 'function'".into(),
         Type::Union(members) => format!(
             "({})",
@@ -125,12 +139,30 @@ fn checked_kind(kind: AstKind<'_>) -> bool {
             | AstKind::TSAsExpression(_)
             | AstKind::TSNonNullExpression(_)
             | AstKind::AwaitExpression(_)
-    )
+            | AstKind::TemplateLiteral(_)
+            | AstKind::SequenceExpression(_)
+            | AstKind::ArrowFunctionExpression(_)
+            | AstKind::YieldExpression(_)
+            | AstKind::ParenthesizedExpression(_)
+    ) || matches!(kind, AstKind::Function(function) if function.is_expression())
+        || matches!(kind, AstKind::Class(class) if class.is_expression())
 }
 
 /// Whether wrapping the node in a call would change what the program does.
 fn must_not_wrap(nodes: &AstNodes<'_>, id: NodeId) -> bool {
     let span = nodes.kind(id).span();
+    // A method's function is part of its definition.
+    if matches!(nodes.kind(id), AstKind::Function(_))
+        && match nodes.parent_kind(id) {
+            AstKind::ObjectProperty(property) => {
+                property.method || property.kind != oxc_ast::ast::PropertyKind::Init
+            }
+            AstKind::MethodDefinition(_) => true,
+            _ => false,
+        }
+    {
+        return true;
+    }
     let mut child = span;
     for ancestor in nodes.ancestor_ids(id) {
         let kind = nodes.kind(ancestor);
@@ -159,7 +191,10 @@ fn must_not_wrap(nodes: &AstNodes<'_>, id: NodeId) -> bool {
             | AstKind::TSTypeAssertion(_) => {
                 child = kind.span();
             }
-            AstKind::CallExpression(call) if call.callee.span() == child => return true,
+            // A member callee would lose its `this`; a plain one keeps `undefined`.
+            AstKind::CallExpression(call) if call.callee.span() == child => {
+                return !matches!(nodes.kind(id), AstKind::IdentifierReference(_)) || span != child;
+            }
             AstKind::NewExpression(new) if new.callee.span() == child => return true,
             AstKind::TaggedTemplateExpression(tagged) if tagged.tag.span() == child => return true,
             AstKind::AssignmentExpression(assign) if assign.left.span() == child => return true,
@@ -183,8 +218,56 @@ fn must_not_wrap(nodes: &AstNodes<'_>, id: NodeId) -> bool {
     false
 }
 
-/// The module's source with every checkable proven fact wrapped in `__c(id, …)`, and the
-/// predicates registered at the top.
+/// Insertions into a source: wrappers (an opening and a closing around a span) and plain
+/// insertions, applied so that wrappers nest.
+#[derive(Default)]
+struct Edits {
+    /// `(offset, size, sequence, text)`: openings have a positive size, closings a negative one.
+    edits: Vec<(u32, i64, usize, String)>,
+}
+
+impl Edits {
+    fn wrap(&mut self, span: Span, open: String, close: &str) {
+        let sequence = self.edits.len();
+        self.edits
+            .push((span.start, i64::from(span.size()), sequence, open));
+        self.edits
+            .push((span.end, -i64::from(span.size()), sequence, close.into()));
+    }
+
+    /// Text at `offset` outside every wrapper that opens there (`first`) or inside every one
+    /// that closes there.
+    fn insert(&mut self, offset: u32, text: String, first: bool) {
+        let sequence = self.edits.len();
+        let size = if first { i64::MAX } else { i64::MIN };
+        self.edits.push((offset, size, sequence, text));
+    }
+
+    fn apply(mut self, source: &str) -> String {
+        self.edits.sort_by(|a, b| {
+            a.0.cmp(&b.0).then_with(|| match (a.1 < 0, b.1 < 0) {
+                // Closings first, innermost (smallest) first, the later-opened first.
+                (true, true) => b.1.cmp(&a.1).then(b.2.cmp(&a.2)),
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                // Openings outermost first, the earlier first.
+                (false, false) => b.1.cmp(&a.1).then(a.2.cmp(&b.2)),
+            })
+        });
+        let mut out = String::new();
+        let mut last = 0usize;
+        for (at, _, _, text) in self.edits {
+            out.push_str(&source[last..at as usize]);
+            out.push_str(&text);
+            last = at as usize;
+        }
+        out.push_str(&source[last..]);
+        out
+    }
+}
+
+/// The module's source instrumented with every check its facts allow, and how many.
+#[expect(clippy::too_many_lines, reason = "one pass over the nodes")]
 fn instrument(
     facts: &Facts,
     module: ModuleId,
@@ -200,21 +283,82 @@ fn instrument(
         .build(program)
         .semantic;
     let nodes = semantic.nodes();
+    let scoping = semantic.scoping();
     let mut predicates = String::new();
-    let mut edits: Vec<(u32, i64, String)> = Vec::new();
+    let mut edits = Edits::default();
     let mut count = 0;
+    let key = |node: NodeId| format!("m{}:{}", module.index(), node.index());
+    let register = |predicates: &mut String, id: &str, ty: &Type, span: Span| {
+        writeln!(
+            predicates,
+            "  {id:?}: [(v) => {}, {:?}],",
+            predicate(ty),
+            format!("{ty:?} at {}..{}", span.start, span.end)
+        )
+        .unwrap();
+    };
     for node in nodes.iter() {
-        if !checked_kind(node.kind()) {
-            continue;
-        }
-        let fact = facts.ty(NodeRef {
+        let node_ref = NodeRef {
             module,
             node: node.id(),
-        });
-        if fact.trust != Trust::Proven || *fact.value == Type::Unknown {
+        };
+        let span: Span = node.kind().span();
+        // Classes register themselves, so instance checks can use `instanceof`.
+        if let AstKind::Class(class) = node.kind()
+            && let Some(name) = &class.id
+            && class.is_declaration()
+        {
+            let statement = match nodes.parent_kind(node.id()) {
+                AstKind::ExportNamedDeclaration(export) => export.span,
+                AstKind::ExportDefaultDeclaration(export) => export.span,
+                _ => class.span,
+            };
+            edits.insert(
+                statement.end,
+                format!(";globalThis.__class({:?}, {});", key(node.id()), name.name),
+                false,
+            );
+        }
+        // Functions proven not to throw report it if they do.
+        if let Some(body) = function_body(nodes, node.id()) {
+            let effects = facts.effects(node_ref);
+            if effects.trust == Trust::Proven && !effects.value.throws {
+                let id = key(node.id());
+                edits.insert(body.start + 1, "try {".into(), false);
+                edits.insert(
+                    body.end - 1,
+                    format!("}} catch (e) {{ globalThis.__threw({id:?}); throw e; }}"),
+                    true,
+                );
+                count += 1;
+            }
+        }
+        // Parameters and declared bindings, once bound.
+        if let AstKind::BindingIdentifier(binding) = node.kind() {
+            let fact = facts.ty(node_ref);
+            if fact.trust == Trust::Proven
+                && *fact.value != Type::Unknown
+                && let Some(at) = bound_at(nodes, node.id())
+            {
+                let id = key(node.id());
+                register(&mut predicates, &id, fact.value, span);
+                edits.insert(at, format!(";__c({id:?}, {});", binding.name), false);
+                count += 1;
+            }
             continue;
         }
-        if must_not_wrap(nodes, node.id()) {
+        // In-bounds element accesses.
+        if let AstKind::ComputedMemberExpression(member) = node.kind()
+            && let fact = facts.in_bounds(node_ref)
+            && fact.trust == Trust::Proven
+            && fact.value
+        {
+            let id = key(node.id());
+            edits.wrap(member.object.span(), "__bo(".into(), ")");
+            edits.wrap(member.expression.span(), format!("__bi({id:?}, "), ")");
+            count += 1;
+        }
+        if !checked_kind(node.kind()) || must_not_wrap(nodes, node.id()) {
             continue;
         }
         // `super()` must stay a statement for TypeScript's parameter properties.
@@ -223,46 +367,161 @@ fn instrument(
         {
             continue;
         }
-        let span: Span = node.kind().span();
-        let id = format!("m{}:{}", module.index(), node.id().index());
-        writeln!(
-            predicates,
-            "  {id:?}: [(v) => {}, {:?}],",
-            predicate(fact.value),
-            format!("{:?} at {}..{}", fact.value, span.start, span.end)
-        )
-        .unwrap();
-        // Openings outer-first, closings inner-first.
-        edits.push((span.start, i64::from(span.size()), format!("__c({id:?}, ")));
-        edits.push((span.end, -i64::from(span.size()), ")".into()));
-        count += 1;
+        let fact = facts.ty(node_ref);
+        if fact.trust == Trust::Proven && *fact.value != Type::Unknown {
+            let id = key(node.id());
+            register(&mut predicates, &id, fact.value, span);
+            edits.wrap(span, format!("__c({id:?}, ("), "))");
+            count += 1;
+        }
+        // The symbol an identifier reads has a type of its own.
+        if let AstKind::IdentifierReference(ident) = node.kind()
+            && let Some(symbol) = ident
+                .reference_id
+                .get()
+                .map(|reference| scoping.get_reference(reference))
+                .filter(|reference| reference.is_value() && !reference.is_type())
+                .and_then(oxc_semantic::Reference::symbol_id)
+            && let fact = facts.symbol_ty(trioxide_common::SymbolRef { module, symbol })
+            && fact.trust == Trust::Proven
+            && *fact.value != Type::Unknown
+        {
+            let id = format!("{}s", key(node.id()));
+            register(&mut predicates, &id, fact.value, span);
+            edits.wrap(span, format!("__c({id:?}, ("), "))");
+            count += 1;
+        }
+        // Objects whose shape is proven stable.
+        if matches!(
+            node.kind(),
+            AstKind::ObjectExpression(_) | AstKind::NewExpression(_)
+        ) && let Some(allocation) = facts.allocation(node_ref)
+            && matches!(allocation.kind, AllocKind::Object | AllocKind::Instance(_))
+            && allocation.stable_shape.trust == Trust::Proven
+            && allocation.stable_shape.value
+        {
+            edits.wrap(span, format!("__s({:?}, ", key(node.id())), ")");
+            count += 1;
+        }
     }
-    edits.sort_by(|a, b| {
-        a.0.cmp(&b.0).then_with(|| {
-            // At one offset: closings (negative) before openings, then by nesting.
-            match (a.1 < 0, b.1 < 0) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                (true, true) | (false, false) => b.1.cmp(&a.1),
-            }
-        })
-    });
     let mut out = String::new();
     writeln!(out, "Object.assign(globalThis.__P, {{\n{predicates}}});").unwrap();
-    let mut last = 0usize;
-    for (at, _, text) in edits {
-        out.push_str(&source[last..at as usize]);
-        out.push_str(&text);
-        last = at as usize;
-    }
-    out.push_str(&source[last..]);
+    out.push_str(&edits.apply(source));
     (out, count)
+}
+
+/// The block body of a function that may be wrapped in a `try` (not a constructor, whose
+/// `super()` and parameter properties must come first).
+fn function_body(nodes: &AstNodes<'_>, id: NodeId) -> Option<Span> {
+    let kind = nodes.kind(id);
+    if matches!(nodes.parent_kind(id), AstKind::MethodDefinition(method) if method.kind.is_constructor())
+    {
+        return None;
+    }
+    match kind {
+        AstKind::Function(function) => {
+            let body = function.body.as_ref()?;
+            Some(body.span)
+        }
+        AstKind::ArrowFunctionExpression(arrow) => block_body(&arrow.body),
+        _ => None,
+    }
+    .filter(|_| !matches!(kind, AstKind::Function(function) if function.r#type == oxc_ast::ast::FunctionType::TSDeclareFunction))
+}
+
+/// An arrow's body, if it is a block.
+fn block_body(body: &oxc_ast::ast::ArrowFunctionBody<'_>) -> Option<Span> {
+    match body {
+        oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) => Some(body.span),
+        _ => None,
+    }
+}
+
+/// Where a check of the binding `id` can go once it holds its value: the start of its
+/// function's body for a parameter (not a constructor's), after the statement for a
+/// declaration in a statement list.
+fn bound_at(nodes: &AstNodes<'_>, id: NodeId) -> Option<u32> {
+    let mut previous = id;
+    for ancestor in nodes.ancestor_ids(id) {
+        match nodes.kind(ancestor) {
+            AstKind::FormalParameters(_) => {
+                let function = nodes.parent_id(ancestor);
+                if matches!(nodes.parent_kind(function), AstKind::MethodDefinition(method) if method.kind.is_constructor())
+                {
+                    return None;
+                }
+                return match nodes.kind(function) {
+                    AstKind::Function(function) => {
+                        function.body.as_ref().map(|body| body.span.start + 1)
+                    }
+                    AstKind::ArrowFunctionExpression(arrow) => {
+                        block_body(&arrow.body).map(|body| body.start + 1)
+                    }
+                    _ => None,
+                };
+            }
+            AstKind::VariableDeclaration(declaration) => {
+                let parent = nodes.parent_kind(ancestor);
+                let statement = match parent {
+                    AstKind::Program(_)
+                    | AstKind::BlockStatement(_)
+                    | AstKind::FunctionBody(_)
+                    | AstKind::StaticBlock(_)
+                    | AstKind::SwitchCase(_) => declaration.span,
+                    AstKind::ExportNamedDeclaration(export) => export.span,
+                    _ => return None,
+                };
+                if declaration.declare {
+                    return None;
+                }
+                let _ = previous;
+                return Some(statement.end);
+            }
+            AstKind::Function(_)
+            | AstKind::ArrowFunctionExpression(_)
+            | AstKind::Class(_)
+            | AstKind::CatchClause(_)
+            | AstKind::ForStatement(_)
+            | AstKind::ForInStatement(_)
+            | AstKind::ForOfStatement(_) => return None,
+            _ => {}
+        }
+        previous = ancestor;
+    }
+    None
 }
 
 const RUNNER: &str = r"
 globalThis.__P = {};
 const violations = [];
 let checks = 0;
+const classes = new Map();
+globalThis.__class = (id, c) => {
+  if (!classes.has(id)) classes.set(id, new Set());
+  classes.get(id).add(c);
+};
+globalThis.__instance = (id, v) => {
+  if (typeof v !== 'object' || v === null) return false;
+  const all = classes.get(id);
+  return !all || [...all].some((c) => v instanceof c);
+};
+const objects = [];
+globalThis.__s = (id, v) => {
+  checks++;
+  objects.push([id, v, Object.getOwnPropertyNames(v).join(',')]);
+  return v;
+};
+const arrays = [];
+globalThis.__bo = (a) => { arrays.push(a); return a; };
+globalThis.__bi = (id, i) => {
+  checks++;
+  const a = arrays.pop();
+  if (!(typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < a.length && i in a)) {
+    violations.push(`${id}: in bounds but index ${String(i)} of length ${a.length}`);
+  }
+  return i;
+};
+globalThis.__threw = (id) => { violations.push(`${id}: proven not to throw, but threw`); };
 globalThis.__c = (id, value) => {
   checks++;
   const entry = globalThis.__P[id];
@@ -279,6 +538,10 @@ const m = await import(pathToFileURL(process.argv[2]).href);
 const log = console.log;
 console.log = () => {};
 try { await m.main(); } finally { console.log = log; }
+for (const [id, v, keys] of objects) {
+  const now = Object.getOwnPropertyNames(v).join(',');
+  if (now !== keys) violations.push(`${id}: stable shape [${keys}] but ended as [${now}]`);
+}
 process.stdout.write('\n__CHECKS__' + JSON.stringify({ checks, violations }) + '\n');
 ";
 
@@ -338,6 +601,16 @@ fn proven_facts_hold_at_run_time() {
         // package's node_modules.
         let modules =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/differential/node_modules");
+        let imports_package = loaded.graph.modules().iter().any(|module| {
+            module
+                .imports
+                .iter()
+                .any(|import| !import.specifier.starts_with('.'))
+        });
+        if imports_package && !modules.is_dir() {
+            eprintln!("{name}: skipped (run `pnpm install` for its packages)");
+            continue;
+        }
         if modules.is_dir() && !out.join("node_modules").exists() {
             #[cfg(unix)]
             let _ = std::os::unix::fs::symlink(&modules, out.join("node_modules"));
