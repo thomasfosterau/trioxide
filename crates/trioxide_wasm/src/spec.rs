@@ -425,9 +425,12 @@ impl IslandSpec {
         let mut names = BTreeSet::new();
         let mut wasm_names = BTreeSet::new();
         for export in &self.exports {
-            if !is_js_name(&export.name) || !names.insert(export.name.as_str()) {
+            if !is_js_name(&export.name)
+                || export.name == "ready"
+                || !names.insert(export.name.as_str())
+            {
                 return Err(error(format!(
-                    "export name `{}` is invalid or duplicated",
+                    "export name `{}` is invalid, reserved or duplicated",
                     export.name
                 )));
             }
@@ -589,6 +592,7 @@ mod tests {
             ),
             (r#""wasmName": "f""#, r#""wasmName": "memory""#, "wasm name"),
             (r#""name": "f""#, r#""name": "delete""#, "export name"),
+            (r#""name": "f""#, r#""name": "ready""#, "export name"),
             (r#""name": "x""#, r#""name": "$x""#, "parameter"),
             (
                 r#""ty": { "kind": "f64" } }]"#,

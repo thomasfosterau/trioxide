@@ -159,11 +159,12 @@ pub fn alloc_array<T: Element>(len: usize) -> &'static mut [T] {
 }
 
 /// `new Float64Array(length)` (or any typed array kind) inside an island: `length` goes
-/// through ToIndex (truncated, NaN → 0), and lengths that are negative or beyond 2^53 - 1
+/// through `ToIndex` (truncated, NaN → 0), and lengths that are negative or beyond 2^53 - 1
 /// trap with [`TRAP_INVALID_LENGTH`]. Zero-filled, from the arena like [`alloc_array`].
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
     reason = "a non-negative integer; lengths beyond usize can't be allocated anyway"
 )]
 pub fn new_array<T: Element>(length: f64) -> &'static mut [T] {

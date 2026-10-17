@@ -592,6 +592,14 @@ mod tests {
             "RT_LIBM_REQUIREMENT must match crates/trioxide_rt/Cargo.toml"
         );
         assert_eq!(trioxide_rt::ABI_VERSION, ABI_VERSION);
+        assert_eq!(
+            trioxide_rt::abi::TRAP_OUT_OF_MEMORY,
+            crate::glue::TRAP_OUT_OF_MEMORY
+        );
+        assert_eq!(
+            trioxide_rt::abi::TRAP_INVALID_LENGTH,
+            crate::glue::TRAP_INVALID_LENGTH
+        );
         assert_eq!(trioxide_rt::VERSION, RT_VERSION);
     }
 }

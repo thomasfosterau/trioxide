@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::spec::{ABI_VERSION, AbiType, IslandExport, IslandSpec, TypedArrayElement};
 
+/// The trap code `trioxide_rt::abi::TRAP_OUT_OF_MEMORY`.
+pub(crate) const TRAP_OUT_OF_MEMORY: u32 = 1;
+/// The trap code `trioxide_rt::abi::TRAP_INVALID_LENGTH`.
+pub(crate) const TRAP_INVALID_LENGTH: u32 = 2;
+
 /// How the glue waits for the module to instantiate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -258,8 +263,8 @@ function $alloc(bytes, align) {{
 function $trap(error, name) {{
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
-  if (code === 1) return new RangeError(`trioxide: island "{id}" ran out of memory in ${{name}}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${{name}}(), island "{id}")`);
+  if (code === {TRAP_OUT_OF_MEMORY}) return new RangeError(`trioxide: island "{id}" ran out of memory in ${{name}}()`);
+  if (code === {TRAP_INVALID_LENGTH}) return new RangeError(`Invalid typed array length (in ${{name}}(), island "{id}")`);
   return new Error(`trioxide: island "{id}" trapped in ${{name}}(); this is a trioxide bug`, {{ cause: error }});
 }}
 "#

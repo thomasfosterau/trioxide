@@ -157,12 +157,7 @@ fn unimplemented_features_say_so() {
             stderr(&out)
         );
     }
-    for flag in [
-        "--mode=wasm-preferred",
-        "--world=app",
-        "--trust-types",
-        "--no-wasm",
-    ] {
+    for flag in ["--mode=wasm-preferred", "--world=app", "--trust-types"] {
         let out = trioxide(&[flag, "transform", input]);
         assert!(out.status.success(), "{flag}: {}", stderr(&out));
         assert!(
