@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/closure
+input_file: tests/wasm-errors/closure/input.ts
+---
+error[trioxide(wasm-ineligible)]: `apply` is forced into WASM but can't be compiled (2 reasons)
+  --> input.ts:4:18 `(x: number) => x * 2`
+      creates a closure
+  --> input.ts:5:10 `double(n)`
+      calls `double`, which isn't a function declaration the backend can follow
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

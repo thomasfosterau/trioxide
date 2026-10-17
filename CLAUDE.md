@@ -33,6 +33,11 @@ Also useful:
 - `FIXTURE=islands/nbody pnpm --filter trioxide-differential test` runs one hand-written
   island through all legs, including JS+WASM. Islands are cached in
   `tests/differential/.out/.cache`; `docs/ABI.md` is the island contract.
+- `cargo test -p trioxide_rust --test generated` snapshots the Rust generated for
+  `tests/islands/*/wasm/` and `tests/wasm/*/` (`generated.snap`) and the diagnostics of
+  `tests/wasm-errors/*/`. `trioxide transform --emit=rust <file>` prints the generated crates.
+- `RANDOM_SEED=… RANDOM_PROGRAMS=5000 pnpm --filter trioxide-differential test` runs a longer
+  random-program sweep of the Rust backend (500 programs, fixed seed, by default).
 - `node crates/trioxide_rt/tests/golden/generate.mjs` regenerates the runtime's golden
   tables from V8.
 - The first build compiles tsrs (a few minutes). Dependencies are built at `opt-level = 2`

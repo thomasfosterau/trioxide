@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/switch
+input_file: tests/wasm-errors/switch/input.ts
+---
+error[trioxide(wasm-ineligible)]: `pick` is forced into WASM but can't be compiled: uses `switch`
+  --> input.ts:4:3 `switch (n) {`
+      uses `switch`
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

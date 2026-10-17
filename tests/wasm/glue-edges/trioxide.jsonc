@@ -1,0 +1,4 @@
+{
+  // `number[]` parameters with holes only type-check as declared types.
+  "trustTypes": true
+}

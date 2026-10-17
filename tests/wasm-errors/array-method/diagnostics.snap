@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/array-method
+input_file: tests/wasm-errors/array-method/input.ts
+---
+error[trioxide(wasm-ineligible)]: `grow` is forced into WASM but can't be compiled: calls the array method `.indexOf()`
+  --> input.ts:4:10 `values.indexOf(2)`
+      calls the array method `.indexOf()`
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

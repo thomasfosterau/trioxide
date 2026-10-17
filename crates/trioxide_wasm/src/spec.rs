@@ -220,6 +220,10 @@ pub struct IslandExport {
     pub params: Vec<AbiParam>,
     /// The return type, or `None` for `void` (the wrapper returns `undefined`).
     pub ret: Option<AbiType>,
+    /// The name the `fallback` module exports the JS version under, when it isn't `name`
+    /// (`export { f as g }`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_name: Option<String>,
 }
 
 /// One field of a [`StructSpec`].
@@ -356,7 +360,7 @@ const RESERVED: &[&str] = &[
 
 /// An ASCII JS identifier that doesn't start with `$` (the glue's own names do) and isn't
 /// reserved.
-fn is_js_name(name: &str) -> bool {
+pub(crate) fn is_js_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     bytes
         .next()

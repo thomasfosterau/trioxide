@@ -1,0 +1,445 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm/bitwise
+input_file: tests/wasm/bitwise/input.ts
+---
+//- kernel/island.json
+{
+  "id": "kernel",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "and",
+      "wasmName": "and",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "or",
+      "wasmName": "or",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "xor",
+      "wasmName": "xor",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "not",
+      "wasmName": "not",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "shl",
+      "wasmName": "shl",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "shr",
+      "wasmName": "shr",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "ushr",
+      "wasmName": "ushr",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    },
+    {
+      "name": "toInt",
+      "wasmName": "toInt",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "toUint",
+      "wasmName": "toUint",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    },
+    {
+      "name": "idiv",
+      "wasmName": "idiv",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "wrapSum",
+      "wasmName": "wrapSum",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "wrapDiff",
+      "wasmName": "wrapDiff",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "lowestBit",
+      "wasmName": "lowestBit",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "rotate",
+      "wasmName": "rotate",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "n",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    }
+  ],
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/bitwise/kernel.ts"
+}
+
+//- kernel/src/lib.rs
+//! WASM island `kernel`, generated by trioxide from `kernel.ts`. Do not edit.
+
+#![no_std]
+#![allow(non_snake_case, clippy::all)]
+
+use trioxide_rt::prelude::*;
+
+fn and(a: f64, b: f64) -> i32 {
+    conv::to_int32(a) & conv::to_int32(b)
+}
+
+fn or(a: f64, b: f64) -> i32 {
+    conv::to_int32(a) | conv::to_int32(b)
+}
+
+fn xor(a: f64, b: f64) -> i32 {
+    conv::to_int32(a) ^ conv::to_int32(b)
+}
+
+fn not(a: f64) -> i32 {
+    !conv::to_int32(a)
+}
+
+fn shl(a: f64, b: f64) -> i32 {
+    ops::shl_i32(conv::to_int32(a), conv::to_int32(b))
+}
+
+fn shr(a: f64, b: f64) -> i32 {
+    ops::shr_i32(conv::to_int32(a), conv::to_int32(b))
+}
+
+fn ushr(a: f64, b: f64) -> u32 {
+    ops::ushr_i32(conv::to_int32(a), conv::to_int32(b))
+}
+
+fn toInt(a: f64) -> i32 {
+    conv::to_int32(a)
+}
+
+fn toUint(a: f64) -> u32 {
+    conv::to_uint32(a)
+}
+
+fn idiv(a: f64, b: f64) -> i32 {
+    ops::div_trunc_i32(conv::to_int32(a), conv::to_int32(b))
+}
+
+fn wrapSum(a: f64, b: f64) -> i32 {
+    i32::wrapping_add(conv::to_int32(a), conv::to_int32(b))
+}
+
+fn wrapDiff(a: f64, b: f64) -> i32 {
+    i32::wrapping_sub(conv::to_int32(a), conv::to_int32(b))
+}
+
+fn lowestBit(x: f64) -> i32 {
+    let v: i32 = conv::to_int32(x);
+    v & conv::to_int32(-f64::from(v))
+}
+
+fn rotate(x: f64, n: f64) -> i32 {
+    let v: i32 = conv::to_int32(x);
+    let k: i32 = conv::to_int32(n) & 31;
+    ops::shl_i32(v, k) | ops::ushr_i32(v, i32::wrapping_sub(32, k)) as i32
+}
+
+#[unsafe(export_name = "and")]
+pub extern "C" fn __abi_and(a: f64, b: f64) -> i32 {
+    and(a, b)
+}
+
+#[unsafe(export_name = "or")]
+pub extern "C" fn __abi_or(a: f64, b: f64) -> i32 {
+    or(a, b)
+}
+
+#[unsafe(export_name = "xor")]
+pub extern "C" fn __abi_xor(a: f64, b: f64) -> i32 {
+    xor(a, b)
+}
+
+#[unsafe(export_name = "not")]
+pub extern "C" fn __abi_not(a: f64) -> i32 {
+    not(a)
+}
+
+#[unsafe(export_name = "shl")]
+pub extern "C" fn __abi_shl(a: f64, b: f64) -> i32 {
+    shl(a, b)
+}
+
+#[unsafe(export_name = "shr")]
+pub extern "C" fn __abi_shr(a: f64, b: f64) -> i32 {
+    shr(a, b)
+}
+
+#[unsafe(export_name = "ushr")]
+pub extern "C" fn __abi_ushr(a: f64, b: f64) -> u32 {
+    ushr(a, b)
+}
+
+#[unsafe(export_name = "toInt")]
+pub extern "C" fn __abi_toInt(a: f64) -> i32 {
+    toInt(a)
+}
+
+#[unsafe(export_name = "toUint")]
+pub extern "C" fn __abi_toUint(a: f64) -> u32 {
+    toUint(a)
+}
+
+#[unsafe(export_name = "idiv")]
+pub extern "C" fn __abi_idiv(a: f64, b: f64) -> i32 {
+    idiv(a, b)
+}
+
+#[unsafe(export_name = "wrapSum")]
+pub extern "C" fn __abi_wrapSum(a: f64, b: f64) -> i32 {
+    wrapSum(a, b)
+}
+
+#[unsafe(export_name = "wrapDiff")]
+pub extern "C" fn __abi_wrapDiff(a: f64, b: f64) -> i32 {
+    wrapDiff(a, b)
+}
+
+#[unsafe(export_name = "lowestBit")]
+pub extern "C" fn __abi_lowestBit(x: f64) -> i32 {
+    lowestBit(x)
+}
+
+#[unsafe(export_name = "rotate")]
+pub extern "C" fn __abi_rotate(x: f64, n: f64) -> i32 {
+    rotate(x, n)
+}

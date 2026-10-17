@@ -44,14 +44,16 @@ async function $instantiate() {
   return instance.exports;
 }
 
-let $wasm;
-const $ready = $instantiate().then((exports) => {
+// `var`: a module this glue imports (its fallback) may call a wrapper before this body runs.
+var $wasm;
+var $ready = $instantiate().then((exports) => {
   $wasm = exports;
 });
 // Rejections surface through ready(); don't also report them as unhandled.
 $ready.catch(() => {});
 
-/** Resolves once the island is instantiated. Its functions throw until then. */
+/** Resolves once the island is instantiated. Until then its functions run their JS versions
+ * (the spec's fallback), or throw if there is none. */
 export function ready() {
   return $ready;
 }
@@ -70,7 +72,7 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "math-edge" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "math-edge")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "math-edge" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 

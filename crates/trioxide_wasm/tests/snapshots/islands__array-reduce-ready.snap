@@ -29,14 +29,16 @@ async function $instantiate() {
   return instance.exports;
 }
 
-let $wasm;
-const $ready = $instantiate().then((exports) => {
+// `var`: a module this glue imports (its fallback) may call a wrapper before this body runs.
+var $wasm;
+var $ready = $instantiate().then((exports) => {
   $wasm = exports;
 });
 // Rejections surface through ready(); don't also report them as unhandled.
 $ready.catch(() => {});
 
-/** Resolves once the island is instantiated. Its functions throw until then. */
+/** Resolves once the island is instantiated. Until then its functions run their JS versions
+ * (the spec's fallback), or throw if there is none. */
 export function ready() {
   return $ready;
 }
@@ -55,21 +57,50 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "array-reduce" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "array-reduce")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "array-reduce" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
-// Copies a typed array or number[] into the arena as View elements.
+// Copies a typed array into the arena as View elements. (A detached one has no elements,
+// and `set` would throw.)
 function $copyIn(array, View) {
   const ptr = $alloc(array.length * View.BYTES_PER_ELEMENT, View.BYTES_PER_ELEMENT);
-  new View($wasm.memory.buffer, ptr, array.length).set(array);
+  if (array.length !== 0) new View($wasm.memory.buffer, ptr, array.length).set(array);
   return ptr;
 }
 
-// Writes back only the elements that changed, so holes stay holes.
+// A number[] element that is `undefined` (a hole) enters the island as a signalling NaN
+// (trioxide_rt `array::HOLE`), which arithmetic turns into an ordinary NaN and which the
+// island never stores: elements still holding it weren't written.
+const $HOLE_HI = 0x7ff47472;
+const $HOLE_LO = 0x696f7869;
+
+function $isHole(words, i) {
+  return words[2 * i] === $HOLE_LO && words[2 * i + 1] === $HOLE_HI;
+}
+
+function $copyInNumbers(array) {
+  const ptr = $alloc(array.length * 8, 8);
+  if (array.length !== 0) {
+    new Float64Array($wasm.memory.buffer, ptr, array.length).set(array);
+    const words = new Uint32Array($wasm.memory.buffer, ptr, array.length * 2);
+    for (let i = 0; i < array.length; i++) {
+      if (array[i] === undefined) {
+        words[2 * i] = $HOLE_LO;
+        words[2 * i + 1] = $HOLE_HI;
+      }
+    }
+  }
+  return ptr;
+}
+
+// Writes back only the elements that changed, so holes the island didn't write stay holes.
 function $copyBackNumbers(array, ptr) {
   const view = new Float64Array($wasm.memory.buffer, ptr, array.length);
-  for (let i = 0; i < view.length; i++) if (!Object.is(view[i], +array[i])) array[i] = view[i];
+  const words = new Uint32Array($wasm.memory.buffer, ptr, array.length * 2);
+  for (let i = 0; i < view.length; i++) {
+    if (!$isHole(words, i) && !Object.is(view[i], array[i])) array[i] = view[i];
+  }
 }
 
 function $takeNumbers(ret) {
@@ -88,7 +119,7 @@ function $readStats(view, ptr) {
 export function sum(values) {
   $check();
   try {
-    const $0 = $copyIn(values, Float64Array);
+    const $0 = $copyInNumbers(values);
     return $wasm.sum($0, values.length);
   } catch ($error) {
     throw $trap($error, "sum");
@@ -100,7 +131,7 @@ export function sum(values) {
 export function stats(values) {
   $check();
   try {
-    const $0 = $copyIn(values, Float64Array);
+    const $0 = $copyInNumbers(values);
     const $ret = $wasm.stats($0, values.length);
     return $readStats(new DataView($wasm.memory.buffer), $ret);
   } catch ($error) {
@@ -113,8 +144,8 @@ export function stats(values) {
 export function dot(a, b) {
   $check();
   try {
-    const $0 = $copyIn(a, Float64Array);
-    const $1 = $copyIn(b, Float64Array);
+    const $0 = $copyInNumbers(a);
+    const $1 = $copyInNumbers(b);
     return $wasm.dot($0, a.length, $1, b.length);
   } catch ($error) {
     throw $trap($error, "dot");
@@ -125,13 +156,18 @@ export function dot(a, b) {
 
 export function normalize(values) {
   $check();
+  let $0;
+  let $called = false;
   try {
-    const $0 = $copyIn(values, Float64Array);
+    $0 = $copyInNumbers(values);
+    $called = true;
     $wasm.normalize($0, values.length);
-    $copyBackNumbers(values, $0);
   } catch ($error) {
     throw $trap($error, "normalize");
   } finally {
+    if ($called) {
+      $copyBackNumbers(values, $0);
+    }
     $wasm.__trioxide_reset();
   }
 }
@@ -139,7 +175,7 @@ export function normalize(values) {
 export function prefixSums(values) {
   $check();
   try {
-    const $0 = $copyIn(values, Float64Array);
+    const $0 = $copyInNumbers(values);
     const $ret = $wasm.prefixSums($0, values.length);
     return $takeNumbers($ret);
   } catch ($error) {
@@ -152,7 +188,7 @@ export function prefixSums(values) {
 export function weightedMean(values, weights) {
   $check();
   try {
-    const $0 = $copyIn(values, Float64Array);
+    const $0 = $copyInNumbers(values);
     const $1 = $copyIn(weights, Float64Array);
     return $wasm.weightedMean($0, values.length, $1, weights.length);
   } catch ($error) {

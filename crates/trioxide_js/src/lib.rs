@@ -11,7 +11,7 @@
 mod emit;
 mod pass;
 
-pub use emit::{EmitOptions, EmitOutput, emit, transform_options};
+pub use emit::{EmitOptions, EmitOutput, emit, emit_with, transform_options};
 pub use pass::{
     FactSource, Pass, PassContext, PassGroup, PassManager, PassOptions, rebuild_scoping,
 };

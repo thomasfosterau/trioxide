@@ -65,6 +65,20 @@ impl Renderer {
     }
 
     /// Prints `diagnostic`, with a code frame when its labels point into `source`.
+    /// A project-level diagnostic: rendered against its file's source when it names one.
+    pub fn project_diagnostic(&self, diagnostic: &Diagnostic) {
+        let source = diagnostic
+            .file
+            .as_deref()
+            .and_then(|file| Some((file, std::fs::read_to_string(file).ok()?)));
+        self.diagnostic(
+            diagnostic,
+            source
+                .as_ref()
+                .map(|(file, source)| (*file, source.as_str())),
+        );
+    }
+
     pub fn diagnostic(&self, diagnostic: &Diagnostic, source: Option<(&Path, &str)>) {
         let source = source.filter(|(_, source)| !source.is_empty());
         let (Some((path, source)), false) = (source, diagnostic.labels.is_empty()) else {

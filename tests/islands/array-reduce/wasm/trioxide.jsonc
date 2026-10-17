@@ -1,0 +1,5 @@
+{
+  // The analysis proves these kernels' parameters only from TypeScript (Declared):
+  // the inputs pass subarray views, destructured values and arrays it loses track of.
+  "trustTypes": true
+}

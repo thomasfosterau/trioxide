@@ -13,6 +13,7 @@ mod watch;
 
 use std::{
     ffi::OsString,
+    fmt::Write as _,
     io::Write as _,
     path::{Path, PathBuf},
 };
@@ -217,6 +218,40 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             return Ok(());
         }
         Emit::Rust | Emit::Wasm if is_build => {}
+        Emit::Rust if matches!(cli.command, Command::Transform { .. }) => {
+            let Command::Transform { file } = &cli.command else {
+                unreachable!("matched above")
+            };
+            let file = std::path::absolute(file)
+                .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
+            let mut project = open_project(global, Some(&file), renderer)?;
+            let islands = project.rust_islands(std::slice::from_ref(&file))?;
+            let report = project.explain(&ExplainQuery::default());
+            for diagnostic in &report.diagnostics {
+                renderer.project_diagnostic(diagnostic);
+            }
+            if report
+                .diagnostics
+                .iter()
+                .any(trioxide::Diagnostic::is_error)
+            {
+                return Err(Failure::Error(String::new()));
+            }
+            let mut text = String::new();
+            for island in &islands {
+                let _ = writeln!(
+                    text,
+                    "// {}/island.json\n{}",
+                    island.spec.id,
+                    island.spec.to_json()
+                );
+                for (path, source) in &island.files {
+                    let _ = write!(text, "\n// {}/{path}\n{source}", island.spec.id);
+                }
+            }
+            print_stdout(&text);
+            return Ok(());
+        }
         Emit::Rust | Emit::Wasm | Emit::Report => {
             return Err(not_implemented(&format!(
                 "--emit={}{}",
@@ -297,7 +332,7 @@ fn build_once(
 ) -> Result<(), Failure> {
     let output = project.build(entries)?;
     for diagnostic in &output.report.diagnostics {
-        renderer.diagnostic(diagnostic, None);
+        renderer.project_diagnostic(diagnostic);
     }
     for module in &output.modules {
         renderer.module_diagnostics(module);
@@ -311,7 +346,7 @@ fn build_once(
         }
     }
     for island in &output.islands {
-        write_island(out_dir, island)?;
+        write_island(project.root(), out_dir, island)?;
     }
     Ok(())
 }
@@ -445,18 +480,25 @@ fn print_stdout(text: &str) {
 }
 
 /// Writes a module (and its sourcemap) under `out_dir`, mirroring its path under `root`.
-fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<(), Failure> {
-    let relative = module.path.strip_prefix(root).map_or_else(
-        |_| PathBuf::from("_external").join(module.path.file_name().unwrap_or_default()),
+/// Where `trioxide build` writes the module at `path`, relative to the output directory.
+fn output_path(root: &Path, path: &Path) -> PathBuf {
+    let relative = path.strip_prefix(root).map_or_else(
+        |_| PathBuf::from("_external").join(path.file_name().unwrap_or_default()),
         Path::to_path_buf,
     );
-    let destination = out_dir.join(output_name(&relative));
+    output_name(&relative)
+}
+
+fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<(), Failure> {
+    let relative = output_path(root, &module.path);
+    let destination = out_dir.join(&relative);
     let io_error =
         |error: std::io::Error| Failure::Error(format!("{}: {error}", destination.display()));
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent).map_err(io_error)?;
     }
-    let mut code = module.code.clone();
+    let depth = relative.components().count().saturating_sub(1);
+    let mut code = link_islands(&module.code, &module.islands, depth);
     if let Some(map) = &module.map {
         let map_path = destination.with_extension(format!(
             "{}.map",
@@ -474,14 +516,51 @@ fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<()
     std::fs::write(&destination, code).map_err(io_error)
 }
 
+/// Points a module's glue imports at `<out_dir>/_islands/<id>.js`, from a module `depth`
+/// directories below the output directory.
+fn link_islands(code: &str, islands: &[trioxide::IslandRef], depth: usize) -> String {
+    let mut code = code.to_string();
+    let prefix = if depth == 0 {
+        "./".to_string()
+    } else {
+        "../".repeat(depth)
+    };
+    for island in islands {
+        let target = format!("{prefix}{ISLANDS_DIR}/{}.js", island.id);
+        // Whole string literals only: one id can be a prefix of another (`k1`, `k10`).
+        let escaped = island.specifier.replace('\0', "\\0");
+        for specifier in [&escaped, &island.specifier] {
+            for quote in ['"', '\'', '`'] {
+                code = code.replace(
+                    &format!("{quote}{specifier}{quote}"),
+                    &format!("{quote}{target}{quote}"),
+                );
+            }
+        }
+    }
+    code
+}
+
 /// Writes an island's glue and `.wasm` into `<out_dir>/_islands/`, pointing the glue at the
 /// `.wasm` next to it.
-fn write_island(out_dir: &Path, island: &IslandArtifact) -> Result<(), Failure> {
+fn write_island(root: &Path, out_dir: &Path, island: &IslandArtifact) -> Result<(), Failure> {
     let dir = out_dir.join(ISLANDS_DIR);
-    let glue = island.glue.replace(
+    let mut glue = island.glue.replace(
         WASM_URL_PLACEHOLDER,
         &format!("./{}", island.wasm_file_name()),
     );
+    // The glue names its fallback by source path; point it at the compiled module.
+    if let Some(fallback) = &island.spec.fallback
+        && Path::new(fallback).is_absolute()
+    {
+        let relative = output_path(root, Path::new(fallback));
+        let parts: Vec<String> = relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let quote = |text: &str| serde_json::to_string(text).expect("strings serialise");
+        glue = glue.replace(&quote(fallback), &quote(&format!("../{}", parts.join("/"))));
+    }
     write_file(&dir.join(island.glue_file_name()), glue.as_bytes())?;
     write_file(&dir.join(island.wasm_file_name()), &island.wasm)
 }
@@ -518,4 +597,28 @@ fn output_name(path: &Path) -> PathBuf {
         _ => "js",
     };
     path.with_extension(extension)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn island_links_match_whole_specifiers() {
+        let islands: Vec<trioxide::IslandRef> = ["k1", "k10"]
+            .into_iter()
+            .map(|id| {
+                let id = trioxide::IslandId(id.to_string());
+                trioxide::IslandRef {
+                    specifier: id.glue_specifier(),
+                    id,
+                }
+            })
+            .collect();
+        let code = "import { a } from \"\\0trioxide:island/k10\";\nimport { b } from '\\0trioxide:island/k1';\n";
+        assert_eq!(
+            link_islands(code, &islands, 1),
+            "import { a } from \"../_islands/k10.js\";\nimport { b } from '../_islands/k1.js';\n"
+        );
+    }
 }

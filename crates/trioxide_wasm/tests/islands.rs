@@ -329,9 +329,13 @@ pub extern "C" fn __abi_make(n: f64) -> u32 {
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("traps.wasm"), &artifact.wasm).unwrap();
-    let glue = artifact
-        .glue
-        .replace(trioxide_wasm::WASM_URL_PLACEHOLDER, "./traps.wasm");
+    let glue = generate_glue(
+        &island.spec,
+        &GlueOptions {
+            mode: GlueMode::Tla,
+            wasm_url: WasmUrl::Sibling,
+        },
+    );
     std::fs::write(dir.path().join("traps.js"), glue).unwrap();
     let ready_glue = generate_glue(
         &island.spec,
@@ -376,7 +380,7 @@ console.log(show(() => ready.boom(-3)));
         [
             "Error: trioxide: island \"traps\" trapped in boom(); this is a trioxide bug [RuntimeError]",
             "-2",
-            "RangeError: Invalid typed array length (in make(), island \"traps\") [undefined]",
+            "RangeError: Invalid typed array length: -1 [undefined]",
             "RangeError: trioxide: island \"traps\" ran out of memory in make() [undefined]",
             "2",
             "Error: trioxide: island \"traps\" is not ready; await ready() first [undefined]",

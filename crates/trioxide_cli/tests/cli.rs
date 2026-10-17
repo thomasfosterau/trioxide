@@ -138,13 +138,32 @@ fn config_files_are_read_and_validated() {
 }
 
 #[test]
+fn transform_emit_rust_prints_the_generated_crate() {
+    let input = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/wasm/recursion/input.ts");
+    let out = trioxide(&["--emit=rust", "transform", input.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("// kernel/island.json"), "{stdout}");
+    assert!(stdout.contains("// kernel/src/lib.rs"), "{stdout}");
+    assert!(stdout.contains("fn fib("), "{stdout}");
+
+    // Without directives there is nothing to print.
+    let out = trioxide(&[
+        "--emit=rust",
+        "transform",
+        fixture("classes/input.ts").to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(out.stdout.len(), 0);
+}
+
+#[test]
 fn unimplemented_features_say_so() {
     let input = fixture("classes/input.ts");
     let input = input.to_str().unwrap();
     for args in [
         vec!["explain"],
         vec!["explain", "a.ts:f"],
-        vec!["--emit=rust", "transform", input],
         vec!["--emit=wasm", "transform", input],
         vec!["--emit=report", "transform", input],
     ] {

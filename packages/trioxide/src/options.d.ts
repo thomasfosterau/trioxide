@@ -62,7 +62,7 @@ export interface TrioxideOptions {
   /**
    * WebAssembly output.
    *
-   * @default {"enabled":true,"require":false,"wasmOpt":true,"glue":"tla"}
+   * @default {"enabled":true,"require":false,"wasmOpt":true,"glue":"ready"}
    */
   wasm?: WasmOptions;
   /**
@@ -137,7 +137,7 @@ export interface WasmOptions {
   /**
    * How island glue waits for instantiation.
    *
-   * @default "tla"
+   * @default "ready"
    */
   glue?: GlueMode;
 }
@@ -147,11 +147,14 @@ export interface WasmOptions {
  */
 export type GlueMode =
   /**
-   * Top-level `await` in the glue module.
+   * Top-level `await` in the glue module: islands run from the first call, but modules
+   * importing them finish evaluating later (after other pending tasks).
    */
   | "tla"
   /**
-   * Export a `ready()` promise, for targets without top-level await.
+   * No top-level `await`: functions run their JS versions until the island is
+   * instantiated, and the glue exports a `ready()` promise. Module evaluation order is
+   * unchanged.
    */
   | "ready";
 

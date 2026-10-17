@@ -29,14 +29,16 @@ async function $instantiate() {
   return instance.exports;
 }
 
-let $wasm;
-const $ready = $instantiate().then((exports) => {
+// `var`: a module this glue imports (its fallback) may call a wrapper before this body runs.
+var $wasm;
+var $ready = $instantiate().then((exports) => {
   $wasm = exports;
 });
 // Rejections surface through ready(); don't also report them as unhandled.
 $ready.catch(() => {});
 
-/** Resolves once the island is instantiated. Its functions throw until then. */
+/** Resolves once the island is instantiated. Until then its functions run their JS versions
+ * (the spec's fallback), or throw if there is none. */
 export function ready() {
   return $ready;
 }
@@ -55,19 +57,20 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "bitwise" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "bitwise")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "bitwise" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
-// Copies a typed array or number[] into the arena as View elements.
+// Copies a typed array into the arena as View elements. (A detached one has no elements,
+// and `set` would throw.)
 function $copyIn(array, View) {
   const ptr = $alloc(array.length * View.BYTES_PER_ELEMENT, View.BYTES_PER_ELEMENT);
-  new View($wasm.memory.buffer, ptr, array.length).set(array);
+  if (array.length !== 0) new View($wasm.memory.buffer, ptr, array.length).set(array);
   return ptr;
 }
 
 function $copyBack(array, View, ptr) {
-  array.set(new View($wasm.memory.buffer, ptr, array.length));
+  if (array.length !== 0) array.set(new View($wasm.memory.buffer, ptr, array.length));
 }
 
 export function fnv1a(bytes) {
@@ -109,14 +112,18 @@ export function popcount(x) {
 
 export function xorshift(seed, out) {
   $check();
+  let $1;
+  let $called = false;
   try {
-    const $1 = $copyIn(out, Int32Array);
-    const $ret = $wasm.xorshift(seed, $1, out.length);
-    $copyBack(out, Int32Array, $1);
-    return $ret;
+    $1 = $copyIn(out, Int32Array);
+    $called = true;
+    return $wasm.xorshift(seed, $1, out.length);
   } catch ($error) {
     throw $trap($error, "xorshift");
   } finally {
+    if ($called) {
+      $copyBack(out, Int32Array, $1);
+    }
     $wasm.__trioxide_reset();
   }
 }

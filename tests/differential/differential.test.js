@@ -4,12 +4,18 @@
 //   a. types stripped only (`trioxide strip`, plain oxc_transformer)
 //   b. trioxide's optimised JS (`trioxide build --emit=js`)
 //   c. trioxide JS + WASM islands, once with top-level-await glue and once with `ready()` glue
+//      (or only the one a fixture's config sets in `wasm.glue`)
 //
-// Fixtures come from tests/fixtures and tests/islands. Until the partitioner chooses islands
-// (S8), leg c runs on fixtures with a hand-written island: `island/` holds its `island.json`
-// and Rust crate, and `kernel.ts` holds exactly the functions it replaces. The leg builds the
-// island with `--debug-island`, keeps the JS kernel as `kernel.fallback.js` (the spec's
-// aliasing fallback), and swaps `kernel.js` for a re-export of the island's glue.
+// Fixtures come from tests/fixtures, tests/islands and tests/wasm. Leg b builds with
+// `--no-wasm`. Leg c runs on two kinds of fixture:
+//
+// - Generated islands: sources with a `"use wasm"` directive or `@trioxide wasm` tag. The
+//   leg builds with `--require-wasm` (the fixture's trioxide.json(c) applies) and runs the
+//   output, whose call sites import the islands' glue.
+// - Hand-written islands: `island/` holds its `island.json` and Rust crate, and `kernel.ts`
+//   holds exactly the functions it replaces. The leg builds the island with
+//   `--debug-island`, keeps the JS kernel as `kernel.fallback.js` (the spec's aliasing
+//   fallback), and swaps `kernel.js` for a re-export of the island's glue.
 //
 // Set TRIOXIDE_BIN to use a prebuilt binary; otherwise `cargo build -p trioxide_cli` runs first.
 // Set FIXTURE to a substring to run only matching fixtures. Island builds are cached in
@@ -24,7 +30,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
-const fixtureRoots = ['tests/fixtures', 'tests/islands'].map((dir) => path.join(repo, dir));
+const fixtureRoots = ['tests/fixtures', 'tests/islands', 'tests/wasm'].map((dir) => path.join(repo, dir));
 // Inside this package so outputs resolve its node_modules (e.g. @oxc-project/runtime helpers).
 const outDir = path.join(here, '.out');
 const cacheDir = path.join(outDir, '.cache');
@@ -67,12 +73,13 @@ function runWithStderr(args) {
 
 /**
  * Imports `entry` in a fresh Node process, awaits its `main()` and returns stdout. `ready`
- * lists glue modules whose `ready()` must resolve first.
+ * lists glue modules whose `ready()` must resolve before `main()` runs (module top-level code
+ * runs first, as it would for users, with the islands' JS versions).
  */
 function execute(entry, ready = []) {
   const waits = ready.map((glue) => `await (await import(${JSON.stringify(pathToFileURL(glue).href)})).ready();\n`);
-  const script = `${waits.join('')}const m = await import(${JSON.stringify(pathToFileURL(entry).href)});
-if (typeof m.main !== 'function') { process.stderr.write('no main()'); process.exit(3); }
+  const script = `const m = await import(${JSON.stringify(pathToFileURL(entry).href)});
+${waits.join('')}if (typeof m.main !== 'function') { process.stderr.write('no main()'); process.exit(3); }
 await m.main();`;
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
     encoding: 'utf8',
@@ -99,6 +106,41 @@ const entries = fixtureRoots
   .flatMap((root) => discover(root))
   .filter((entry) => !process.env.FIXTURE || entry.includes(process.env.FIXTURE));
 
+const DIRECTIVE = /["']use wasm["']|@trioxide\s+wasm/;
+
+/** Whether the fixture's sources force functions into WASM. */
+function hasDirectives(fixture) {
+  return sourcesOf(fixture).some((file) => DIRECTIVE.test(readFileSync(path.join(fixture, file), 'utf8')));
+}
+
+/** The fixture's own trioxide.json(c), if any (comments stripped). */
+function fixtureConfig(fixture) {
+  for (const name of ['trioxide.json', 'trioxide.jsonc']) {
+    const file = path.join(fixture, name);
+    if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8').replace(/^\s*\/\/.*$/gm, ''));
+  }
+  return {};
+}
+
+/** Builds a fixture whose directives create islands; returns the glue modules. */
+function buildGenerated(fixture, entry, dir, glue) {
+  prepare(dir);
+  const own = fixtureConfig(fixture);
+  const config = path.join(dir, '..', `trioxide-generated-${glue}.json`);
+  writeFileSync(config, JSON.stringify({ ...own, cacheDir, wasm: { ...own.wasm, glue } }));
+  const stderr = runWithStderr([
+    'build', '--emit=js', '--require-wasm', '--config', config, '--root', fixture, '--out-dir', dir, entry,
+  ]);
+  assert.doesNotMatch(stderr, /warning|error/, stderr);
+  const islands = path.join(dir, '_islands');
+  const glues = existsSync(islands) ? readdirSync(islands).filter((name) => name.endsWith('.js')) : [];
+  assert.ok(glues.length > 0, 'no island was emitted');
+  for (const name of glues) {
+    assert.ok(existsSync(path.join(islands, name.replace(/\.js$/, '.wasm'))), `${name} has no .wasm`);
+  }
+  return glues.map((name) => path.join(islands, name));
+}
+
 /** Builds the fixture with its island and swaps the JS kernel for the island's glue. */
 function buildWithIsland(fixture, entry, dir, glue) {
   prepare(dir);
@@ -124,6 +166,7 @@ for (const entry of entries) {
   const name = path.join(path.basename(root), path.relative(root, fixture));
   const work = path.join(outDir, name);
   const hasIsland = existsSync(path.join(fixture, 'island/island.json'));
+  const generated = !hasIsland && hasDirectives(fixture);
 
   describe(name, () => {
     let stripped;
@@ -142,7 +185,7 @@ for (const entry of entries) {
       if (stripped?.status !== 0) return t.skip('baseline failed');
       const dir = path.join(work, 'b');
       prepare(dir);
-      run(['build', '--emit=js', '--root', fixture, '--out-dir', dir, entry]);
+      run(['build', '--emit=js', '--no-wasm', '--root', fixture, '--out-dir', dir, entry]);
       const optimised = execute(path.join(dir, jsName(path.basename(entry))));
       assert.equal(optimised.status, 0, `trioxide variant failed:\n${optimised.stderr}`);
       assert.equal(optimised.stdout, stripped.stdout);
@@ -150,11 +193,15 @@ for (const entry of entries) {
 
     for (const glue of ['tla', 'ready']) {
       test(`c: trioxide JS+WASM (${glue} glue)`, (t) => {
-        if (!hasIsland) return t.skip('no islands (hand-written ones live in tests/islands)');
+        if (!hasIsland && !generated) return t.skip('no islands');
+        const only = fixtureConfig(fixture).wasm?.glue;
+        if (only && only !== glue) return t.skip(`the fixture uses ${only} glue`);
         if (stripped?.status !== 0) return t.skip('baseline failed');
         const dir = path.join(work, `c-${glue}`);
-        const gluePath = buildWithIsland(fixture, entry, dir, glue);
-        const withWasm = execute(path.join(dir, jsName(path.basename(entry))), glue === 'ready' ? [gluePath] : []);
+        const gluePaths = generated
+          ? buildGenerated(fixture, entry, dir, glue)
+          : [buildWithIsland(fixture, entry, dir, glue)];
+        const withWasm = execute(path.join(dir, jsName(path.basename(entry))), glue === 'ready' ? gluePaths : []);
         assert.equal(withWasm.status, 0, `JS+WASM variant failed:\n${withWasm.stderr}`);
         assert.equal(withWasm.stdout, stripped.stdout);
       });

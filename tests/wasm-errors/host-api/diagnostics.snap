@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/host-api
+input_file: tests/wasm-errors/host-api/input.ts
+---
+error[trioxide(wasm-ineligible)]: `report` is forced into WASM but can't be compiled: uses the global `console` (a host API)
+  --> input.ts:4:3 `console`
+      uses the global `console` (a host API)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

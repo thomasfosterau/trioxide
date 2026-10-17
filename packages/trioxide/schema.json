@@ -69,7 +69,7 @@
         "enabled": true,
         "require": false,
         "wasmOpt": true,
-        "glue": "tla"
+        "glue": "ready"
       }
     },
     "dev": {
@@ -155,7 +155,7 @@
         "glue": {
           "$ref": "#/$defs/GlueMode",
           "description": "How island glue waits for instantiation.",
-          "default": "tla"
+          "default": "ready"
         }
       },
       "description": "WebAssembly settings."
@@ -165,12 +165,12 @@
         {
           "type": "string",
           "const": "tla",
-          "description": "Top-level `await` in the glue module."
+          "description": "Top-level `await` in the glue module: islands run from the first call, but modules\nimporting them finish evaluating later (after other pending tasks)."
         },
         {
           "type": "string",
           "const": "ready",
-          "description": "Export a `ready()` promise, for targets without top-level await."
+          "description": "No top-level `await`: functions run their JS versions until the island is\ninstantiated, and the glue exports a `ready()` promise. Module evaluation order is\nunchanged."
         }
       ],
       "description": "How island glue modules wait for their `.wasm` to instantiate."

@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/dynamic-key
+input_file: tests/wasm-errors/dynamic-key/input.ts
+---
+error[trioxide(wasm-ineligible)]: `coordinate` is forced into WASM but can't be compiled: reads a computed property of an object parameter (dynamic keys)
+  --> input.ts:9:10 `p[axis === 0 ? "x" : "y"]`
+      reads a computed property of an object parameter (dynamic keys)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

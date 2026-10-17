@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/array-growth
+input_file: tests/wasm-errors/array-growth/input.ts
+---
+error[trioxide(wasm-ineligible)]: `append` is forced into WASM but can't be compiled: may write past the end of a `number[]` (which would grow it); the analysis can't prove the index in bounds
+  --> input.ts:4:3 `values[values.length] = value`
+      may write past the end of a `number[]` (which would grow it); the analysis can't prove the index in bounds
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

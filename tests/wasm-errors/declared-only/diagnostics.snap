@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/declared-only
+input_file: tests/wasm-errors/declared-only/input.ts
+---
+error[trioxide(wasm-ineligible)]: `scale` is forced into WASM but can't be compiled (2 reasons)
+  --> input.ts:3:23 `x: number`
+      can't prove what parameter `x` receives (only TypeScript says so, and `trustTypes` is off)
+  --> input.ts:3:34 `k: number`
+      can't prove what parameter `k` receives (only TypeScript says so, and `trustTypes` is off)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

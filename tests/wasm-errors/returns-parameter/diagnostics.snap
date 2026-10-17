@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/returns-parameter
+input_file: tests/wasm-errors/returns-parameter/input.ts
+---
+error[trioxide(wasm-ineligible)]: `same` is forced into WASM but can't be compiled: may return one of its array parameters (a returned array must be created by the call)
+  --> input.ts:2:10 `same`
+      may return one of its array parameters (a returned array must be created by the call)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

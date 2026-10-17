@@ -8,9 +8,10 @@
 //! island allocates outlives the call. Memory is never shrunk.
 //!
 //! **Exports** (wasm32 only): `__trioxide_alloc(size, align) -> ptr` (0 when out of memory),
-//! `__trioxide_reset()`, `__trioxide_abi_version() -> u32`, and `__trioxide_trap_code() -> u32`
+//! `__trioxide_reset()`, `__trioxide_abi_version() -> u32`, `__trioxide_trap_code() -> u32`
 //! (why the last trap happened: [`TRAP_NONE`], [`TRAP_OUT_OF_MEMORY`] or
-//! [`TRAP_INVALID_LENGTH`]).
+//! [`TRAP_INVALID_LENGTH`]) and `__trioxide_trap_value() -> f64` (the value it was about,
+//! such as the invalid length, for the error message).
 //!
 //! **Arguments.** Pointers and lengths arrive as `u32`. [`slice`], [`slice_mut`],
 //! [`struct_ref`] and [`struct_mut`] turn them into references.
@@ -18,7 +19,7 @@
 //! **Returns.** Arrays return the address of an [`ArrayRet`] made by [`return_array`];
 //! structs return the address of a copy made by [`return_struct`].
 
-use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use crate::array::Element;
 
@@ -44,6 +45,7 @@ pub struct ArrayRet {
 /// The next free arena address; 0 until first use.
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 static TRAP_CODE: AtomicU32 = AtomicU32::new(TRAP_NONE);
+static TRAP_VALUE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(target_arch = "wasm32")]
 mod memory {
@@ -124,7 +126,13 @@ pub fn reset() {
 
 /// Records why the island is about to trap, then traps.
 pub fn trap(code: u32) -> ! {
+    trap_with(code, f64::NAN)
+}
+
+/// Records why the island is about to trap and the value concerned, then traps.
+pub fn trap_with(code: u32, value: f64) -> ! {
     TRAP_CODE.store(code, Ordering::Relaxed);
+    TRAP_VALUE.store(value.to_bits(), Ordering::Relaxed);
     #[cfg(target_arch = "wasm32")]
     core::arch::wasm32::unreachable();
     #[cfg(not(target_arch = "wasm32"))]
@@ -134,6 +142,11 @@ pub fn trap(code: u32) -> ! {
 /// The trap code recorded by the last [`trap`].
 pub fn trap_code() -> u32 {
     TRAP_CODE.load(Ordering::Relaxed)
+}
+
+/// The value recorded by the last [`trap_with`] (NaN after [`trap`]).
+pub fn trap_value() -> f64 {
+    f64::from_bits(TRAP_VALUE.load(Ordering::Relaxed))
 }
 
 /// A new zero-filled array of `len` elements in the arena, valid until the glue resets it:
@@ -168,13 +181,14 @@ pub fn alloc_array<T: Element>(len: usize) -> &'static mut [T] {
     reason = "a non-negative integer; lengths beyond usize can't be allocated anyway"
 )]
 pub fn new_array<T: Element>(length: f64) -> &'static mut [T] {
+    let argument = length;
     let length = if length.is_nan() {
         0.0
     } else {
         crate::math::trunc(length)
     };
     if !(0.0..=9_007_199_254_740_991.0).contains(&length) {
-        trap(TRAP_INVALID_LENGTH);
+        trap_with(TRAP_INVALID_LENGTH, argument);
     }
     if length > usize::MAX as f64 {
         trap(TRAP_OUT_OF_MEMORY);
@@ -282,6 +296,11 @@ mod exports {
     #[unsafe(no_mangle)]
     extern "C" fn __trioxide_trap_code() -> u32 {
         super::trap_code()
+    }
+
+    #[unsafe(no_mangle)]
+    extern "C" fn __trioxide_trap_value() -> f64 {
+        super::trap_value()
     }
 }
 

@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/tdz
+input_file: tests/wasm-errors/tdz/input.ts
+---
+error[trioxide(wasm-ineligible)]: `getN` is forced into WASM but can't be compiled: reads `N`, which the analysis can't prove is initialised whenever this runs (a read before its declaration throws)
+  --> input.ts:4:10 `N`
+      reads `N`, which the analysis can't prove is initialised whenever this runs (a read before its declaration throws)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain
