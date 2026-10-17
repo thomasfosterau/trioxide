@@ -1127,7 +1127,22 @@ impl<'a> Cx<'_, '_, 'a> {
         let Some(simple) = assign.left.as_simple_assignment_target() else {
             return Val::unknown();
         };
-        let old = self.simple_target_value(simple);
+        // A member target's object and key are evaluated once, for the read and the write.
+        let member = simple.as_member_expression();
+        let evaluated = member.map(|member| (self.expr(member.object()), self.member_key(member)));
+        let old = match (member, &evaluated) {
+            (Some(member), Some((object, key))) => {
+                let node = member.node_id();
+                let value = self.read_prop_at(object, key, node, member);
+                self.require_object(object);
+                self.or_declared(value, node, member.span())
+            }
+            _ => self.simple_target_value(simple),
+        };
+        let store = |cx: &mut Self, value: Val| match &evaluated {
+            Some((object, key)) => cx.write_prop(object, key, &value, assign.node_id.get(), false),
+            None => cx.assign_simple(simple, value, assign.node_id.get()),
+        };
         let value = if let Some(logical) = operator.to_logical_operator() {
             // `a ||= b` etc. assign only on one branch; the result is one of the two.
             let right = self.expr(&assign.right);
@@ -1140,7 +1155,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 },
             };
             let value = kept.join(&right);
-            self.assign_simple(simple, value.clone(), assign.node_id.get());
+            store(self, value.clone());
             return value;
         } else if let Some(binary) = operator.to_binary_operator() {
             let right = self.expr(&assign.right);
@@ -1148,7 +1163,7 @@ impl<'a> Cx<'_, '_, 'a> {
         } else {
             Val::unknown()
         };
-        self.assign_simple(simple, value.clone(), assign.node_id.get());
+        store(self, value.clone());
         value
     }
 

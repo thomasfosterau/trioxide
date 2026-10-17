@@ -90,14 +90,14 @@ pub fn facts(
             },
         );
     }
-    for (&class, info) in &world.classes {
+    for &class in world.classes.keys() {
         let sites = instances.get(&class).cloned().unwrap_or_default();
         let fields = crate::shapes::definite_fields(world, class);
         let mut shape = ClassShape {
             fields,
             ..ClassShape::default()
         };
-        let mut known = !interp::class_open(world, state, class) || info.has_heritage;
+        let mut known = true;
         for obj in &sites {
             for key in &obj.order {
                 if obj.added.contains(key) && !shape.added_later.contains(key) {
