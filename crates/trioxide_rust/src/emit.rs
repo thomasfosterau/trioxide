@@ -108,6 +108,31 @@ pub fn lib_rs(island: &Island, spec: &IslandSpec) -> String {
             out.push('\n');
         }
     }
+    space_items(&out)
+}
+
+/// Blank lines between items and between methods, as people write them.
+fn space_items(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = String::with_capacity(text.len() + lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        out.push_str(line);
+        out.push('\n');
+        let Some(next) = lines.get(index + 1) else {
+            break;
+        };
+        let ends_item = matches!(*line, "}" | "};")
+            || (line.starts_with("use ")
+                || line.starts_with("const ")
+                || line.starts_with("#![allow"))
+                && line.ends_with(';')
+            || line.starts_with("#![allow")
+            || (line.starts_with("//!") && !next.starts_with("//!"))
+            || (*line == "    }" && (next.starts_with("    fn ") || next.starts_with("    ///")));
+        if ends_item && !next.is_empty() && *next != "}" {
+            out.push('\n');
+        }
+    }
     out
 }
 
@@ -636,6 +661,11 @@ impl Printer<'_> {
                         // rustc 1.99.1's LLVM rewrites `0.0 / sitofp(x)` to `copysign(0.0, x)`
                         // when the quotient feeds a multiplication, losing the NaN of 0 / 0;
                         // inlining can expose any division to it, so divisors are opaque.
+                        if matches!(**b, Expr::Lit(Lit::F64(x)) if x != 0.0 && !x.is_nan())
+                            || matches!(**b, Expr::Lit(Lit::I32(x)) if x != 0)
+                        {
+                            return infix("/", MUL, cx);
+                        }
                         let left = self.operand(a, MUL, cx);
                         let right = self.expr(b, cx).0;
                         (format!("{left} / core::hint::black_box({right})"), MUL)

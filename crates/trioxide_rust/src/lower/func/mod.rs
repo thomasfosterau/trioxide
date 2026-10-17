@@ -228,7 +228,8 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
             self.fail::<()>(func.span, "has no body");
             Vec::new()
         };
-        if self.ret != Ty::Unit && completes(&body) {
+        // A statement that failed to lower may be the missing `return`.
+        if self.ret != Ty::Unit && completes(&body) && self.reasons.is_empty() {
             self.fail::<()>(
                 func.span,
                 "may return undefined (the end of the function is reachable)",

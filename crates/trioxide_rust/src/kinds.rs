@@ -139,3 +139,54 @@ pub(crate) fn is_uint32(n: NumberType) -> bool {
 pub(crate) fn is_index(n: NumberType) -> bool {
     n.int && n.non_nan && n.range.min >= 0.0 && n.range.max < U32_MAX
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rir::Elem;
+
+    #[test]
+    fn joins() {
+        let num = Kind::NUM;
+        let undef = Kind::Num { undef: true };
+        assert_eq!(num.join(&undef), undef);
+        assert_eq!(Kind::Bottom.join(&Kind::Bool), Kind::Bool);
+        assert_eq!(num.join(&Kind::Bool), Kind::Error);
+        let param = Kind::Array {
+            elem: Elem::Number,
+            fresh: false,
+            params: 0b10,
+        };
+        let fresh = Kind::Array {
+            elem: Elem::Number,
+            fresh: true,
+            params: 0,
+        };
+        assert_eq!(
+            param.join(&fresh),
+            Kind::Array {
+                elem: Elem::Number,
+                fresh: true,
+                params: 0b10
+            }
+        );
+    }
+
+    #[test]
+    fn integer_ranges() {
+        let int = |min: f64, max: f64| NumberType {
+            range: trioxide_types::Interval::new(min, max),
+            int: true,
+            non_nan: true,
+            non_neg_zero: true,
+        };
+        assert!(is_int32(int(-2_147_483_648.0, 2_147_483_647.0)));
+        assert!(!is_int32(int(0.0, 2_147_483_648.0)));
+        assert!(is_uint32(int(0.0, 4_294_967_295.0)));
+        assert!(!is_int32(NumberType {
+            non_neg_zero: false,
+            ..int(0.0, 1.0)
+        }));
+        assert!(is_index(int(0.0, 10.0)) && !is_index(int(-1.0, 10.0)));
+    }
+}

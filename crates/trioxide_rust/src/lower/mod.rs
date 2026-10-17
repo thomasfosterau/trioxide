@@ -39,6 +39,10 @@ pub struct Reason {
     pub message: String,
 }
 
+/// How a type mismatch between lowered values starts (normally a backend bug, or the echo of a
+/// callee that failed).
+pub(crate) const TYPE_MISMATCH: &str = "needs a value of one type where another is expected";
+
 /// The most rounds before giving up on inference.
 const MAX_ROUNDS: usize = 32;
 
@@ -315,7 +319,6 @@ fn collect_reasons(
     if !seen.insert(function) {
         return;
     }
-    out.extend(reasons.iter().filter(|r| r.function == function).cloned());
     let mut callees: Vec<(FunctionId, Span)> = lowerer
         .env
         .calls
@@ -324,6 +327,17 @@ fn collect_reasons(
         .map(|&(_, callee, span)| (callee, span))
         .collect();
     callees.sort_by_key(|(_, span)| span.start);
+    // A failing callee's result has no type, so the caller's type mismatches are its echo.
+    let callee_failed = callees
+        .iter()
+        .any(|(callee, _)| reasons.iter().any(|r| r.function == *callee));
+    out.extend(
+        reasons
+            .iter()
+            .filter(|r| r.function == function)
+            .filter(|r| !(callee_failed && r.message.starts_with(TYPE_MISMATCH)))
+            .cloned(),
+    );
     for (callee, span) in callees {
         if reasons.iter().any(|r| r.function == callee) || {
             let mut probe = Vec::new();

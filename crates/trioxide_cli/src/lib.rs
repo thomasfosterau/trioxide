@@ -13,6 +13,7 @@ mod watch;
 
 use std::{
     ffi::OsString,
+    fmt::Write as _,
     io::Write as _,
     path::{Path, PathBuf},
 };
@@ -217,6 +218,40 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             return Ok(());
         }
         Emit::Rust | Emit::Wasm if is_build => {}
+        Emit::Rust if matches!(cli.command, Command::Transform { .. }) => {
+            let Command::Transform { file } = &cli.command else {
+                unreachable!("matched above")
+            };
+            let file = std::path::absolute(file)
+                .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
+            let mut project = open_project(global, Some(&file), renderer)?;
+            let islands = project.rust_islands(std::slice::from_ref(&file))?;
+            let report = project.explain(&ExplainQuery::default());
+            for diagnostic in &report.diagnostics {
+                renderer.diagnostic(diagnostic, None);
+            }
+            if report
+                .diagnostics
+                .iter()
+                .any(trioxide::Diagnostic::is_error)
+            {
+                return Err(Failure::Error(String::new()));
+            }
+            let mut text = String::new();
+            for island in &islands {
+                let _ = writeln!(
+                    text,
+                    "// {}/island.json\n{}",
+                    island.spec.id,
+                    island.spec.to_json()
+                );
+                for (path, source) in &island.files {
+                    let _ = write!(text, "\n// {}/{path}\n{source}", island.spec.id);
+                }
+            }
+            print_stdout(&text);
+            return Ok(());
+        }
         Emit::Rust | Emit::Wasm | Emit::Report => {
             return Err(not_implemented(&format!(
                 "--emit={}{}",

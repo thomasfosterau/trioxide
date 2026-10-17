@@ -183,3 +183,26 @@ pub(crate) fn type_reference_name(ty: &TSType<'_>) -> Option<String> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rust_names() {
+        assert_eq!(rust_ident("total"), "total");
+        assert_eq!(rust_ident("type"), "r#type");
+        assert_eq!(rust_ident("self"), "self_");
+        assert_eq!(rust_ident("$scale"), "_scale");
+        assert_eq!(type_name("stats"), "Stats");
+        assert_eq!(type_name("boxBlur_src"), "BoxBlurSrc");
+        assert_eq!(type_name("2d"), "Struct2d");
+        assert!(is_reserved_type("Option") && !is_reserved_type("Body"));
+    }
+
+    #[test]
+    fn abi_names() {
+        assert!(is_abi_name("dt") && is_abi_name("x$1"));
+        assert!(!is_abi_name("$x") && !is_abi_name("default") && !is_abi_name("é"));
+    }
+}

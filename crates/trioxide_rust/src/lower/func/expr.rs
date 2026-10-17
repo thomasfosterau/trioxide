@@ -1700,8 +1700,10 @@ impl<'a> FnCx<'_, '_, 'a> {
             _ => self.fail(
                 span,
                 format!(
-                    "needs a value of one type where another is expected ({:?} as {:?})",
-                    value.ty, ty
+                    "{} ({:?} as {:?})",
+                    super::super::TYPE_MISMATCH,
+                    value.ty,
+                    ty
                 ),
             ),
         }

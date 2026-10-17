@@ -150,3 +150,152 @@ fn ineligible_functions() {
         snapshot(&dir, "diagnostics", name, diagnostics.trim_end());
     }
 }
+
+/// Pretends to build every island (no cargo), so tests can check how modules call them.
+struct FakeBuilder;
+
+impl trioxide::IslandBuilder for FakeBuilder {
+    fn build(
+        &self,
+        island: &trioxide::IslandSource,
+    ) -> Result<trioxide::IslandArtifact, trioxide::IslandBuildError> {
+        Ok(trioxide::IslandArtifact {
+            spec: island.spec.clone(),
+            wasm: Vec::new(),
+            glue: String::new(),
+            warnings: Vec::new(),
+        })
+    }
+}
+
+fn build_with(dir: &Path, builder: Box<dyn trioxide::IslandBuilder>) -> trioxide::BuildOutput {
+    let mut project = Project::new(dir.to_path_buf(), options_for(dir)).unwrap();
+    project.set_island_builder(builder);
+    project.build(&[dir.join("input.ts")]).unwrap()
+}
+
+fn module<'o>(output: &'o trioxide::BuildOutput, name: &str) -> &'o trioxide::ModuleOutput {
+    output
+        .modules
+        .iter()
+        .find(|m| m.path.file_name().is_some_and(|f| f == name))
+        .unwrap()
+}
+
+#[test]
+fn built_islands_take_over_direct_calls() {
+    let dir = repo().join("tests/wasm/multi-function");
+    let output = build_with(&dir, Box::new(FakeBuilder));
+    assert!(!output.has_errors(), "{:?}", output.report.diagnostics);
+    assert_eq!(output.islands.len(), 1);
+    let input = module(&output, "input.ts");
+    // The kernel is still imported first (evaluation order); island exports come from the
+    // glue.
+    assert!(
+        input
+            .code
+            .contains("import { area, curve } from \"\\0trioxide:island/kernel\";"),
+        "{}",
+        input.code
+    );
+    // `describe` isn't forced: it still comes from the kernel. `lerp` stays JS too.
+    assert!(
+        input.code.contains("describe } from \"./kernel.js\""),
+        "{}",
+        input.code
+    );
+    assert_eq!(input.islands.len(), 1);
+    // The kernel's own JS caller (`describe`) calls the island; island members keep calling
+    // each other in JS, so the fallback stays pure JS.
+    let kernel = module(&output, "kernel.ts");
+    assert!(kernel.code.contains("area$wasm(a, b)"), "{}", kernel.code);
+    assert!(kernel.code.contains("curve(a, b, out);"), "{}", kernel.code);
+}
+
+#[test]
+fn without_a_toolchain_calls_stay_in_js() {
+    let dir = repo().join("tests/wasm/multi-function");
+    let output = build_with(&dir, Box::new(trioxide::wasm::UnavailableIslandBuilder));
+    assert_eq!(output.islands.len(), 0);
+    assert!(
+        output
+            .report
+            .diagnostics
+            .iter()
+            .any(|d| d.code.as_deref() == Some("trioxide(wasm-toolchain)")),
+        "{:?}",
+        output.report.diagnostics
+    );
+    for module in &output.modules {
+        assert!(!module.code.contains("trioxide:island"), "{}", module.code);
+        assert_eq!(module.islands.len(), 0);
+    }
+}
+
+#[test]
+fn no_wasm_ignores_directives() {
+    let dir = repo().join("tests/wasm-errors/closure");
+    let mut options = options_for(&dir);
+    options.wasm.enabled = false;
+    let mut project = Project::new(dir.clone(), options).unwrap();
+    let output = project.build(&[dir.join("input.ts")]).unwrap();
+    assert!(!output.has_errors(), "{:?}", output.report.diagnostics);
+}
+
+#[test]
+fn eligibility_and_clusters() {
+    use trioxide_rust::{
+        NoExtraFacts, SourceModule,
+        eligibility::{Eligibility, check, clusters},
+    };
+    let dir = repo().join("tests/wasm/recursion");
+    let mut project = Project::new(dir.clone(), options_for(&dir)).unwrap();
+    project.build(&[dir.join("input.ts")]).unwrap();
+    let modules: Vec<SourceModule<'_>> = project
+        .graph()
+        .modules()
+        .iter()
+        .map(|m| SourceModule {
+            id: m.id,
+            path: &m.path,
+            source: &m.source,
+            source_type: m.source_type,
+        })
+        .collect();
+    let facts = project.analysis();
+    let kernel = modules
+        .iter()
+        .find(|m| m.path.ends_with("kernel.ts"))
+        .unwrap();
+    let functions: Vec<_> = facts
+        .call_graph()
+        .units()
+        .iter()
+        .copied()
+        .filter(|unit| unit.module == kernel.id)
+        .filter(|unit| facts.function(*unit).is_some_and(|f| f.name.is_some()))
+        .collect();
+    let named = |name: &str| {
+        functions
+            .iter()
+            .copied()
+            .find(|f| facts.function(*f).unwrap().name.as_deref() == Some(name))
+            .unwrap()
+    };
+    let (fib, is_even, is_odd, power) = (
+        named("fib"),
+        named("isEven"),
+        named("isOdd"),
+        named("power"),
+    );
+    for function in [fib, is_even, power] {
+        assert_eq!(
+            check(&modules, facts, &NoExtraFacts, function),
+            Eligibility::Eligible
+        );
+    }
+    // isEven and isOdd call each other; fib and power only themselves.
+    let mut groups = clusters(facts, &[fib, is_even, is_odd, power]);
+    groups.sort_by_key(Vec::len);
+    assert_eq!(groups, vec![vec![fib], vec![power], vec![is_even, is_odd]]);
+}
