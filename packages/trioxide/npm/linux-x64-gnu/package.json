@@ -1,0 +1,27 @@
+{
+  "name": "@trioxide/binding-linux-x64-gnu",
+  "version": "0.0.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "trioxide.linux-x64-gnu.node",
+  "files": [
+    "trioxide.linux-x64-gnu.node"
+  ],
+  "description": "The trioxide native binding for linux-x64-gnu. Installed automatically as an optional dependency of `trioxide`.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/trioxide",
+    "directory": "packages/trioxide/npm/linux-x64-gnu"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}

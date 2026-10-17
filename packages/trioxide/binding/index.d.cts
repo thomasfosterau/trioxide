@@ -51,6 +51,12 @@ export interface Diagnostic {
   help?: string
 }
 
+/**
+ * The nearest `trioxide.json` / `trioxide.jsonc` at or above `dir`, stopping at the
+ * repository root.
+ */
+export declare function findConfig(dir: string): string | null
+
 /** Whether this build embeds the tsrs type checker. */
 export declare function hasTsrs(): boolean
 
@@ -90,6 +96,12 @@ export interface Label {
   message?: string
 }
 
+/**
+ * Reads and validates a config file, returning its options as written (no defaults filled
+ * in) so they can be merged with other options.
+ */
+export declare function loadConfig(path: string): any
+
 /** The compiled form of one module. */
 export interface ModuleOutput {
   /** The source path. */
@@ -108,7 +120,17 @@ export interface ModuleOutput {
 export declare function optionsSchema(): any
 
 /**
+ * Runs the `trioxide` command line with `argv` (program name first) and returns its exit
+ * code. This is what the npm package's `trioxide` bin calls, so the binary and the bin share
+ * one implementation. Output goes to the process's stdout and stderr.
+ */
+export declare function runCli(argv: Array<string>): number
+
+/**
  * Transforms one module given its source. `filename` locates the module (imports and the
  * tsconfig are resolved relative to it); it need not exist on disk.
  */
 export declare function transform(code: string, filename: string, options?: any | undefined | null): ModuleOutput
+
+/** The string island glue uses in place of its `.wasm` URL; emitters replace it. */
+export declare const WASM_URL_PLACEHOLDER: string
