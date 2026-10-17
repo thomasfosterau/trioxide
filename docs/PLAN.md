@@ -214,9 +214,19 @@ back to TS where it knows nothing:
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
   `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged.
 
+Beyond types, the `Facts` API answers per call site (callees and whether that is all that
+can run there), per expression (effects including callees and implicit calls, `is_pure`,
+points-to sites), per loop (effects, written locals, arrays whose length the body may change,
+induction ranges), per unit (callers, reachability distinct from `never`), and
+`Project::reanalyse` recomputes the facts for regenerated module sources between pass groups
+(node ids are those of a fresh parse of that text).
+
 Correctness is tested two ways: `/*@trust …*/` annotations in the analysis fixtures state the
-expected trust of particular expressions, and a runtime checker instruments every `Proven`
-fact of every fixture and runs it under node, failing on any violation.
+expected trust of particular expressions, and a runtime checker instruments every fixture and
+runs it under node, failing on any violation: proven types of expressions, parameters,
+bindings and symbols (instances with `instanceof`), in-bounds accesses, functions proven not
+to throw, stable shapes and proven-unreachable code. Escape levels and call edges are not
+checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
 The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work

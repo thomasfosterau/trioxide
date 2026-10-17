@@ -232,6 +232,6 @@ fn reanalysis_matches_a_fresh_analysis() {
     project.facts(&fresh.join("main.ts")).unwrap();
     let fresh_facts = facts_of(&project);
 
-    assert!(!reanalysed.is_empty());
+    assert!(reanalysed.len() > 10, "{reanalysed:?}");
     assert_eq!(reanalysed, fresh_facts);
 }

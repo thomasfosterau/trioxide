@@ -1,4 +1,4 @@
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use trioxide_common::{NodeRef, Span, SymbolRef};
 use trioxide_types::{ClassId, FunctionId, NumberType, Type};
@@ -156,7 +156,9 @@ pub enum AllocKind {
 pub struct Allocation {
     /// What it creates.
     pub kind: AllocKind,
-    /// How far its objects travel.
+    /// How far its objects travel. Always `Proven`: escape levels never rest on declared
+    /// types (a call TypeScript resolves to a program method is still an unknown call, which
+    /// escapes everything it is given), so neither do shapes.
     pub escape: Fact<Escape>,
     /// For object literals and arrays: the exact shape every object from the site keeps (no
     /// property added after creation, none deleted, no computed keys), if there is one.
@@ -206,6 +208,7 @@ pub struct CallGraph {
     sccs: Vec<Vec<FunctionId>>,
     by_caller: FxHashMap<FunctionId, Vec<usize>>,
     by_site: FxHashMap<NodeRef, Vec<usize>>,
+    by_callee: FxHashMap<FunctionId, Vec<usize>>,
 }
 
 impl CallGraph {
@@ -213,9 +216,11 @@ impl CallGraph {
     pub fn new(units: Vec<FunctionId>, edges: Vec<CallEdge>, sccs: Vec<Vec<FunctionId>>) -> Self {
         let mut by_caller: FxHashMap<FunctionId, Vec<usize>> = FxHashMap::default();
         let mut by_site: FxHashMap<NodeRef, Vec<usize>> = FxHashMap::default();
+        let mut by_callee: FxHashMap<FunctionId, Vec<usize>> = FxHashMap::default();
         for (index, edge) in edges.iter().enumerate() {
             by_caller.entry(edge.caller).or_default().push(index);
             by_site.entry(edge.site).or_default().push(index);
+            by_callee.entry(edge.callee).or_default().push(index);
         }
         Self {
             units,
@@ -223,6 +228,7 @@ impl CallGraph {
             sccs,
             by_caller,
             by_site,
+            by_callee,
         }
     }
 
@@ -240,6 +246,15 @@ impl CallGraph {
     pub fn edges_from(&self, caller: FunctionId) -> impl Iterator<Item = &CallEdge> {
         self.by_caller
             .get(&caller)
+            .into_iter()
+            .flatten()
+            .map(|&index| &self.edges[index])
+    }
+
+    /// The edges into `callee`: every site known to call it.
+    pub fn callers(&self, callee: FunctionId) -> impl Iterator<Item = &CallEdge> {
+        self.by_callee
+            .get(&callee)
             .into_iter()
             .flatten()
             .map(|&index| &self.edges[index])
@@ -292,6 +307,39 @@ pub struct Facts {
     functions: FxHashMap<FunctionId, FunctionInfo>,
     imports: FxHashMap<SymbolRef, SymbolRef>,
     call_graph: CallGraph,
+    /// Call sites where unknown code may run as well.
+    open_sites: FxHashSet<NodeRef>,
+    /// Effects of evaluated expressions that have any (with their callees'): `(proven, declared)`.
+    expr_effects: FxHashMap<NodeRef, (Effects, Effects)>,
+    loops: FxHashMap<NodeRef, LoopFacts>,
+    points_to: FxHashMap<NodeRef, Vec<NodeRef>>,
+    /// Nodes no execution reaches.
+    unreachable: FxHashSet<NodeRef>,
+}
+
+/// What a call site may call (see [`Facts::site_resolution`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SiteResolution {
+    /// The program units it may call.
+    pub callees: Vec<FunctionId>,
+    /// Whether those are all it may call: no code trioxide doesn't see runs there.
+    pub complete: Fact<bool>,
+}
+
+/// What a loop (its test, body and update, every iteration) does.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoopFacts {
+    /// Its effects, including what it calls: `(proven, declared)`.
+    pub effects: (Effects, Effects),
+    /// The function's own locals it assigns. Anything else it writes shows in `effects`.
+    pub written: Vec<SymbolRef>,
+    /// Arrays whose length the loop condition bounds and the loop may change (so `a[i]` is
+    /// not in bounds through them).
+    pub length_changed: Vec<SymbolRef>,
+    /// Numeric locals it assigns, with their range at the loop head (loop counters among
+    /// them). A pass can treat an expression as loop-invariant when it [`Facts::is_pure`]
+    /// and reads none of `written`.
+    pub induction: Vec<(SymbolRef, Fact<NumberType>)>,
 }
 
 impl Facts {
@@ -416,6 +464,106 @@ impl Facts {
     /// The exported binding an import binding refers to (the linker's answer).
     pub fn resolve_import(&self, symbol: SymbolRef) -> Option<SymbolRef> {
         self.imports.get(&symbol).copied()
+    }
+
+    /// What the call (or `new`, or implicit-call) site `site` may call. Its callees are the
+    /// call graph's; it is complete, at the edges' trust, unless code trioxide doesn't see may
+    /// run there too. A site never evaluated is `Unknown`.
+    pub fn site_resolution(&self, site: NodeRef) -> SiteResolution {
+        let edges: Vec<&CallEdge> = self.call_graph.callees(site).collect();
+        let mut callees: Vec<FunctionId> = edges.iter().map(|edge| edge.callee).collect();
+        callees.sort_unstable();
+        callees.dedup();
+        let complete = if !self.node_types.contains_key(&site) {
+            Fact::unknown()
+        } else if self.open_sites.contains(&site) {
+            Fact::proven(false)
+        } else {
+            let trust = edges
+                .iter()
+                .map(|edge| edge.trust)
+                .min()
+                .unwrap_or(Trust::Proven);
+            Fact { value: true, trust }
+        };
+        SiteResolution { callees, complete }
+    }
+
+    /// What evaluating `node` may do, including its subexpressions, the units it calls and
+    /// implicit calls (getters, `valueOf`, …). With `trustTypes` the summary that takes
+    /// declared types as proof (`Declared` unless it agrees with the proven one). A node never
+    /// evaluated is `Unknown`.
+    pub fn expr_effects(&self, node: NodeRef) -> Fact<Effects> {
+        let Some(&(proven, declared)) = self.expr_effects.get(&node) else {
+            return if self.node_types.contains_key(&node) {
+                Fact::proven(Effects::PURE)
+            } else {
+                Fact::unknown()
+            };
+        };
+        if self.trust_types && declared != proven {
+            Fact::declared(declared)
+        } else {
+            Fact::proven(proven)
+        }
+    }
+
+    /// Whether `node` can be removed when its value is unused: evaluating it writes nothing,
+    /// throws nothing and runs no unknown code (it may read and allocate).
+    pub fn is_pure(&self, node: NodeRef) -> Fact<bool> {
+        let effects = self.expr_effects(node);
+        Fact {
+            value: !effects.value.writes && !effects.value.throws && !effects.value.calls_unknown,
+            trust: effects.trust,
+        }
+    }
+
+    /// What the loop statement `node` does, if it was evaluated.
+    pub fn loop_facts(&self, node: NodeRef) -> Option<&LoopFacts> {
+        self.loops.get(&node)
+    }
+
+    /// The allocation sites the value of `node` may be (`Proven`: if it is an object, it was
+    /// made at one of them), or `Unknown` when it may be an object trioxide doesn't track.
+    pub fn points_to(&self, node: NodeRef) -> Fact<Option<&[NodeRef]>> {
+        match self.points_to.get(&node) {
+            Some(sites) => Fact::proven(Some(sites.as_slice())),
+            None => Fact::unknown(),
+        }
+    }
+
+    /// Whether `node` (a unit, statement or expression) may be executed. `Proven` false for
+    /// units nothing calls or can reach and for statements after every path left; otherwise
+    /// `Unknown` true. Distinct from a `never` type, which also means "no value seen yet".
+    pub fn reachable(&self, node: NodeRef) -> Fact<bool> {
+        if self.unreachable.contains(&node) {
+            Fact::proven(false)
+        } else {
+            Fact {
+                value: true,
+                trust: Trust::Unknown,
+            }
+        }
+    }
+
+    pub(crate) fn set_open_sites(&mut self, sites: FxHashSet<NodeRef>) {
+        self.open_sites = sites;
+    }
+
+    pub(crate) fn set_expr_effects(&mut self, node: NodeRef, proven: Effects, declared: Effects) {
+        self.expr_effects.insert(node, (proven, declared));
+    }
+
+    pub(crate) fn set_loop_facts(&mut self, node: NodeRef, facts: LoopFacts) {
+        self.loops.insert(node, facts);
+    }
+
+    pub(crate) fn set_points_to(&mut self, node: NodeRef, sites: Vec<NodeRef>) {
+        self.points_to.insert(node, sites);
+    }
+
+    pub(crate) fn set_unreachable(&mut self, nodes: FxHashSet<NodeRef>) {
+        self.unreachable = nodes;
     }
 
     /// Every node with a type fact, sorted.

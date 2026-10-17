@@ -23,7 +23,7 @@ mod world;
 
 pub use facts::{
     AllocKind, Allocation, CallEdge, CallGraph, ClassShape, Effects, Escape, Fact, Facts,
-    FunctionInfo, Trust,
+    FunctionInfo, LoopFacts, SiteResolution, Trust,
 };
 pub use interp::Stats;
 pub use render::render;
