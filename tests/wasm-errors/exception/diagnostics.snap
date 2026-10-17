@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/exception
+input_file: tests/wasm-errors/exception/input.ts
+---
+error[trioxide(wasm-ineligible)]: `checked` is forced into WASM but can't be compiled: throws an exception (exceptions can't cross the boundary)
+  --> input.ts:4:14 `throw new RangeError("negative");`
+      `checked` throws an exception (exceptions can't cross the boundary)
+  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS

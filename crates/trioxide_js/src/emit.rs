@@ -102,7 +102,14 @@ pub fn emit<'a>(
     path: &Path,
     options: &EmitOptions,
 ) -> EmitOutput {
-    emit_with(allocator, program, scoping, path, options, &mut |_, _, _| {})
+    emit_with(
+        allocator,
+        program,
+        scoping,
+        path,
+        options,
+        &mut |_, _, _| {},
+    )
 }
 
 /// [`emit`], running `after_strip` on the JavaScript AST between stripping TypeScript and

@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/string-param
+input_file: tests/wasm-errors/string-param/input.ts
+---
+error[trioxide(wasm-ineligible)]: `size` is forced into WASM but can't be compiled: parameter `text` may be a string; only numbers, booleans, typed arrays, `number[]` and plain-data objects can cross the boundary
+  --> input.ts:2:15 `text: string`
+      `size` parameter `text` may be a string; only numbers, booleans, typed arrays, `number[]` and plain-data objects can cross the boundary
+  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS

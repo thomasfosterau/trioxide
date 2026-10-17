@@ -4,11 +4,11 @@ use oxc_ast::ast::{BindingPattern, FormalParameter, TSType};
 
 /// Rust's strict and reserved keywords (2024 edition).
 const KEYWORDS: &[&str] = &[
-    "as", "async", "await", "break", "const", "continue", "dyn", "else", "enum", "extern",
-    "false", "fn", "for", "gen", "if", "impl", "in", "let", "loop", "match", "mod", "move",
-    "mut", "pub", "ref", "return", "static", "struct", "trait", "true", "type", "unsafe",
-    "use", "where", "while", "abstract", "become", "box", "do", "final", "macro", "override",
-    "priv", "try", "typeof", "unsized", "virtual", "yield",
+    "as", "async", "await", "break", "const", "continue", "dyn", "else", "enum", "extern", "false",
+    "fn", "for", "gen", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+    "ref", "return", "static", "struct", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "abstract", "become", "box", "do", "final", "macro", "override", "priv", "try",
+    "typeof", "unsized", "virtual", "yield",
 ];
 
 /// Names that can't even be raw identifiers.
@@ -16,25 +16,93 @@ const NOT_RAW: &[&str] = &["self", "Self", "super", "crate", "_"];
 
 /// Type names the generated crate already uses.
 const RESERVED_TYPES: &[&str] = &[
-    "Element", "U8Clamped", "Clone", "Copy", "Option", "Some", "None", "Result", "Ok", "Err",
-    "Default", "Drop", "Fn", "FnMut", "FnOnce", "Iterator", "Sized", "Send", "Sync",
-    "PartialEq", "PartialOrd", "Eq", "Ord", "From", "Into", "Debug",
+    "Element",
+    "U8Clamped",
+    "Clone",
+    "Copy",
+    "Option",
+    "Some",
+    "None",
+    "Result",
+    "Ok",
+    "Err",
+    "Default",
+    "Drop",
+    "Fn",
+    "FnMut",
+    "FnOnce",
+    "Iterator",
+    "Sized",
+    "Send",
+    "Sync",
+    "PartialEq",
+    "PartialOrd",
+    "Eq",
+    "Ord",
+    "From",
+    "Into",
+    "Debug",
 ];
 
 /// JS reserved words (and names the glue can't use as parameters).
 const JS_RESERVED: &[&str] = &[
-    "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default",
-    "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for",
-    "function", "if", "implements", "import", "in", "instanceof", "interface", "let", "new",
-    "null", "package", "private", "protected", "public", "return", "static", "super",
-    "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
-    "yield", "arguments", "eval",
+    "await",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "if",
+    "implements",
+    "import",
+    "in",
+    "instanceof",
+    "interface",
+    "let",
+    "new",
+    "null",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "static",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
+    "arguments",
+    "eval",
 ];
 
 /// A JS identifier as a Rust identifier: `$` becomes `_`, keywords are raw (`r#type`), and
 /// `self`-like names get a trailing `_`.
 pub(crate) fn rust_ident(name: &str) -> String {
-    let name: String = name.chars().map(|c| if c == '$' { '_' } else { c }).collect();
+    let name: String = name
+        .chars()
+        .map(|c| if c == '$' { '_' } else { c })
+        .collect();
     if NOT_RAW.contains(&name.as_str()) {
         format!("{name}_")
     } else if KEYWORDS.contains(&name.as_str()) {

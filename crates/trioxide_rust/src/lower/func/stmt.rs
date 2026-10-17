@@ -1,5 +1,11 @@
 //! Statements and assignments.
 
+use oxc_syntax::operator::AssignmentOperator;
+
+#[allow(
+    clippy::wildcard_imports,
+    reason = "one impl split over modules (`expect` is unfulfilled in test builds)"
+)]
 use super::*;
 
 impl<'a> FnCx<'_, '_, 'a> {
@@ -63,10 +69,24 @@ impl<'a> FnCx<'_, '_, 'a> {
                 }
             }
             Statement::WhileStatement(statement) => {
-                self.loop_stmt(None, Some(&statement.test), None, &statement.body, false, out);
+                self.loop_stmt(
+                    None,
+                    Some(&statement.test),
+                    None,
+                    &statement.body,
+                    false,
+                    out,
+                );
             }
             Statement::DoWhileStatement(statement) => {
-                self.loop_stmt(None, Some(&statement.test), None, &statement.body, true, out);
+                self.loop_stmt(
+                    None,
+                    Some(&statement.test),
+                    None,
+                    &statement.body,
+                    true,
+                    out,
+                );
             }
             Statement::ForOfStatement(statement) => self.for_of(None, statement, out),
             Statement::ReturnStatement(statement) => {
@@ -104,10 +124,24 @@ impl<'a> FnCx<'_, '_, 'a> {
                         );
                     }
                     Statement::WhileStatement(inner) => {
-                        self.loop_stmt(Some(label), Some(&inner.test), None, &inner.body, false, out);
+                        self.loop_stmt(
+                            Some(label),
+                            Some(&inner.test),
+                            None,
+                            &inner.body,
+                            false,
+                            out,
+                        );
                     }
                     Statement::DoWhileStatement(inner) => {
-                        self.loop_stmt(Some(label), Some(&inner.test), None, &inner.body, true, out);
+                        self.loop_stmt(
+                            Some(label),
+                            Some(&inner.test),
+                            None,
+                            &inner.body,
+                            true,
+                            out,
+                        );
                     }
                     Statement::ForOfStatement(inner) => self.for_of(Some(label), inner, out),
                     body => {
@@ -122,7 +156,10 @@ impl<'a> FnCx<'_, '_, 'a> {
             | Statement::TSTypeAliasDeclaration(_)
             | Statement::TSInterfaceDeclaration(_) => {}
             Statement::ThrowStatement(s) => {
-                self.fail::<()>(s.span, "throws an exception (exceptions can't cross the boundary)");
+                self.fail::<()>(
+                    s.span,
+                    "throws an exception (exceptions can't cross the boundary)",
+                );
             }
             Statement::TryStatement(s) => {
                 self.fail::<()>(s.span, "catches exceptions");
@@ -134,7 +171,10 @@ impl<'a> FnCx<'_, '_, 'a> {
                 self.fail::<()>(s.span, "uses `for…in` (dynamic property keys)");
             }
             Statement::FunctionDeclaration(f) => {
-                self.fail::<()>(f.span, "declares a nested function (closures aren't supported)");
+                self.fail::<()>(
+                    f.span,
+                    "declares a nested function (closures aren't supported)",
+                );
             }
             Statement::ClassDeclaration(c) => {
                 self.fail::<()>(c.span, "declares a nested class");
@@ -147,32 +187,55 @@ impl<'a> FnCx<'_, '_, 'a> {
 
     /// `(i, a)` for `for (let i = k; i < a.length; i++)` where `k` is a non-negative integer,
     /// only the update writes `i`, and `a` is never reassigned.
-    fn loop_bound(&self, statement: &'a oxc_ast::ast::ForStatement<'a>) -> Option<(SymbolId, SymbolId)> {
-        let Some(ForStatementInit::VariableDeclaration(declaration)) = &statement.init else { return None };
-        let [declarator] = declaration.declarations.as_slice() else { return None };
-        let BindingPattern::BindingIdentifier(counter) = &declarator.id else { return None };
-        let Some(Expression::NumericLiteral(start)) = declarator.init.as_ref().map(Expression::get_inner_expression) else {
+    fn loop_bound(
+        &self,
+        statement: &'a oxc_ast::ast::ForStatement<'a>,
+    ) -> Option<(SymbolId, SymbolId)> {
+        let Some(ForStatementInit::VariableDeclaration(declaration)) = &statement.init else {
+            return None;
+        };
+        let [declarator] = declaration.declarations.as_slice() else {
+            return None;
+        };
+        let BindingPattern::BindingIdentifier(counter) = &declarator.id else {
+            return None;
+        };
+        let Some(Expression::NumericLiteral(start)) = declarator
+            .init
+            .as_ref()
+            .map(Expression::get_inner_expression)
+        else {
             return None;
         };
         if start.value < 0.0 || start.value.fract() != 0.0 {
             return None;
         }
         let counter_symbol = counter.symbol_id.get()?;
-        let Some(Expression::BinaryExpression(test)) = statement.test.as_ref().map(Expression::get_inner_expression) else {
+        let Some(Expression::BinaryExpression(test)) = statement
+            .test
+            .as_ref()
+            .map(Expression::get_inner_expression)
+        else {
             return None;
         };
         if test.operator != BinaryOperator::LessThan {
             return None;
         }
-        let Expression::Identifier(left) = test.left.get_inner_expression() else { return None };
+        let Expression::Identifier(left) = test.left.get_inner_expression() else {
+            return None;
+        };
         if self.module.reference_symbol(left.reference_id.get()) != Some(counter_symbol) {
             return None;
         }
-        let Expression::StaticMemberExpression(length) = test.right.get_inner_expression() else { return None };
+        let Expression::StaticMemberExpression(length) = test.right.get_inner_expression() else {
+            return None;
+        };
         if length.property.name != "length" {
             return None;
         }
-        let Expression::Identifier(array) = length.object.get_inner_expression() else { return None };
+        let Expression::Identifier(array) = length.object.get_inner_expression() else {
+            return None;
+        };
         let array_symbol = self.module.reference_symbol(array.reference_id.get())?;
         let scoping = self.module.semantic.scoping();
         if scoping.symbol_is_mutated(array_symbol) {
@@ -182,8 +245,8 @@ impl<'a> FnCx<'_, '_, 'a> {
         let increments = match update.get_inner_expression() {
             Expression::UpdateExpression(u) => u.operator == UpdateOperator::Increment,
             Expression::AssignmentExpression(a) => {
-                a.operator == oxc_syntax::operator::AssignmentOperator::Addition
-                    && matches!(a.right.get_inner_expression(), Expression::NumericLiteral(n) if n.value == 1.0)
+                a.operator == AssignmentOperator::Addition
+                    && matches!(a.right.get_inner_expression(), Expression::NumericLiteral(n) if n.value.to_bits() == 1.0_f64.to_bits())
             }
             _ => false,
         };
@@ -192,12 +255,14 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         let update_span = update.span();
         let nodes = self.module.semantic.nodes();
-        let only_update_writes = scoping.get_resolved_references(counter_symbol).all(|reference| {
-            !reference.is_write() || {
-                let span = nodes.kind(reference.node_id()).span();
-                update_span.start <= span.start && span.end <= update_span.end
-            }
-        });
+        let only_update_writes = scoping
+            .get_resolved_references(counter_symbol)
+            .all(|reference| {
+                !reference.is_write() || {
+                    let span = nodes.kind(reference.node_id()).span();
+                    update_span.start <= span.start && span.end <= update_span.end
+                }
+            });
         only_update_writes.then_some((counter_symbol, array_symbol))
     }
 
@@ -211,7 +276,9 @@ impl<'a> FnCx<'_, '_, 'a> {
             Expression::CallExpression(call) => match call.callee.get_inner_expression() {
                 Expression::StaticMemberExpression(fill) if fill.property.name == "fill" => {
                     match fill.object.get_inner_expression() {
-                        Expression::NewExpression(new) => new.arguments.first().and_then(|a| a.as_expression()),
+                        Expression::NewExpression(new) => {
+                            new.arguments.first().and_then(|a| a.as_expression())
+                        }
                         _ => None,
                     }
                 }
@@ -223,7 +290,9 @@ impl<'a> FnCx<'_, '_, 'a> {
             Some(Expression::NumericLiteral(n)) => {
                 self.fixed_len.insert(symbol, n.value);
             }
-            Some(Expression::StaticMemberExpression(member)) if member.property.name == "length" => {
+            Some(Expression::StaticMemberExpression(member))
+                if member.property.name == "length" =>
+            {
                 if let Expression::Identifier(id) = member.object.get_inner_expression()
                     && let Some(array) = self.module.reference_symbol(id.reference_id.get())
                     && !self.module.semantic.scoping().symbol_is_mutated(array)
@@ -238,11 +307,17 @@ impl<'a> FnCx<'_, '_, 'a> {
     /// Whether `object[index]` is in bounds by the island-local rules: a loop bound, or a
     /// constant index into an array of constant length.
     pub(super) fn proven_in_bounds(&self, object: &Expression<'_>, index: &Expression<'_>) -> bool {
-        let Expression::Identifier(array) = object.get_inner_expression() else { return false };
-        let Some(array) = self.module.reference_symbol(array.reference_id.get()) else { return false };
+        let Expression::Identifier(array) = object.get_inner_expression() else {
+            return false;
+        };
+        let Some(array) = self.module.reference_symbol(array.reference_id.get()) else {
+            return false;
+        };
         match index.get_inner_expression() {
             Expression::Identifier(counter) => {
-                let Some(counter) = self.module.reference_symbol(counter.reference_id.get()) else { return false };
+                let Some(counter) = self.module.reference_symbol(counter.reference_id.get()) else {
+                    return false;
+                };
                 self.bounds.iter().any(|&(c, a)| {
                     c == counter && (a == array || self.same_len.get(&array) == Some(&a))
                 })
@@ -283,13 +358,13 @@ impl<'a> FnCx<'_, '_, 'a> {
         let test = match test {
             Some(test) => match test.get_inner_expression() {
                 Expression::BooleanLiteral(b) if b.value && !test_after => None,
-                _ => match self.condition(test) {
-                    Some(test) => Some(test),
-                    None => {
+                _ => {
+                    let Some(test) = self.condition(test) else {
                         self.frames.pop();
                         return;
-                    }
-                },
+                    };
+                    Some(test)
+                }
             },
             None => None,
         };
@@ -310,13 +385,21 @@ impl<'a> FnCx<'_, '_, 'a> {
         }));
     }
 
-    fn for_of(&mut self, label: Option<String>, statement: &'a ForOfStatement<'a>, out: &mut Vec<Stmt>) {
+    fn for_of(
+        &mut self,
+        label: Option<String>,
+        statement: &'a ForOfStatement<'a>,
+        out: &mut Vec<Stmt>,
+    ) {
         if statement.r#await {
             self.fail::<()>(statement.span, "uses `for await`");
             return;
         }
         let ForStatementLeft::VariableDeclaration(declaration) = &statement.left else {
-            self.fail::<()>(statement.left.span(), "assigns a `for…of` element to an existing variable");
+            self.fail::<()>(
+                statement.left.span(),
+                "assigns a `for…of` element to an existing variable",
+            );
             return;
         };
         let [declarator] = declaration.declarations.as_slice() else {
@@ -331,7 +414,9 @@ impl<'a> FnCx<'_, '_, 'a> {
             self.fail::<()>(declaration.span, "uses `var`");
             return;
         }
-        let Some(array) = self.expr(&statement.right) else { return };
+        let Some(array) = self.expr(&statement.right) else {
+            return;
+        };
         let Kind::Array { elem, .. } = array.kind else {
             let message = format!("iterates over {}, not an array", array.kind.describe());
             self.fail::<()>(statement.right.span(), message);
@@ -354,7 +439,7 @@ impl<'a> FnCx<'_, '_, 'a> {
             self.lw.env.join_local(symbol, &kind);
         }
         let counter = self.temp("index", Ty::Index);
-        let local = self.new_local(&id.name, symbol, None, kind, false);
+        let local = self.new_local(&id.name, symbol, None, &kind, false);
         if let Some(symbol) = id.symbol_id.get() {
             self.by_symbol.insert(symbol, local);
         }
@@ -371,7 +456,13 @@ impl<'a> FnCx<'_, '_, 'a> {
         });
     }
 
-    fn jump(&mut self, is_break: bool, label: Option<&LabelIdentifier<'a>>, span: Span, out: &mut Vec<Stmt>) {
+    fn jump(
+        &mut self,
+        is_break: bool,
+        label: Option<&LabelIdentifier<'a>>,
+        span: Span,
+        out: &mut Vec<Stmt>,
+    ) {
         let innermost_loop = self.frames.iter().rposition(|f| f.kind == FrameKind::Loop);
         let target = match label {
             Some(label) => self
@@ -393,10 +484,19 @@ impl<'a> FnCx<'_, '_, 'a> {
             frame.has_continue = true;
         }
         let id = frame.id;
-        out.push(if is_break { Stmt::Break(id) } else { Stmt::Continue(id) });
+        out.push(if is_break {
+            Stmt::Break(id)
+        } else {
+            Stmt::Continue(id)
+        });
     }
 
-    fn return_stmt(&mut self, argument: Option<&'a Expression<'a>>, span: Span, out: &mut Vec<Stmt>) {
+    fn return_stmt(
+        &mut self,
+        argument: Option<&'a Expression<'a>>,
+        span: Span,
+        out: &mut Vec<Stmt>,
+    ) {
         let Some(argument) = argument else {
             self.lw.env.join_ret(self.id, &Kind::Unit, None);
             out.push(Stmt::Return(None));
@@ -406,7 +506,9 @@ impl<'a> FnCx<'_, '_, 'a> {
             let site = self.node(object.node_id());
             self.lw.env.literals.entry(site).or_default().returned_by = Some(self.id);
         }
-        let Some(value) = self.expr(argument) else { return };
+        let Some(value) = self.expr(argument) else {
+            return;
+        };
         if value.kind == Kind::Unit {
             self.lw.env.join_ret(self.id, &Kind::Unit, None);
             out.push(Stmt::Expr(value.expr));
@@ -419,7 +521,11 @@ impl<'a> FnCx<'_, '_, 'a> {
         };
         let kind = match &value.kind {
             // A local holding only fresh arrays returns a fresh array; check its origins.
-            Kind::Array { elem, fresh, params } => Kind::Array {
+            Kind::Array {
+                elem,
+                fresh,
+                params,
+            } => Kind::Array {
                 elem: *elem,
                 fresh: *fresh,
                 params: *params,
@@ -434,7 +540,10 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     fn var_decl(&mut self, declaration: &'a VariableDeclaration<'a>, out: &mut Vec<Stmt>) {
-        if !matches!(declaration.kind, VariableDeclarationKind::Let | VariableDeclarationKind::Const) {
+        if !matches!(
+            declaration.kind,
+            VariableDeclarationKind::Let | VariableDeclarationKind::Const
+        ) {
             self.fail::<()>(declaration.span, "uses `var` or `using`");
             return;
         }
@@ -444,13 +553,16 @@ impl<'a> FnCx<'_, '_, 'a> {
                 continue;
             };
             let Some(init) = &declarator.init else {
-                self.fail::<()>(declarator.span, format!("declares `{}` without a value", id.name));
+                self.fail::<()>(
+                    declarator.span,
+                    format!("declares `{}` without a value", id.name),
+                );
                 continue;
             };
             let symbol = id.symbol_id.get().map(|s| self.module.symbol(s));
             let Some(value) = self.expr(init) else {
                 // Declare it anyway, so its uses don't add reasons of their own.
-                let local = self.new_local(&id.name, symbol, None, Kind::Error, true);
+                let local = self.new_local(&id.name, symbol, None, &Kind::Error, true);
                 self.info[local.0].poisoned = true;
                 if let Some(symbol) = id.symbol_id.get() {
                     self.by_symbol.insert(symbol, local);
@@ -472,9 +584,12 @@ impl<'a> FnCx<'_, '_, 'a> {
                 self.lw.env.locals.get(&s).cloned().unwrap_or(stored)
             });
             if self.final_round() && kind == Kind::Error {
-                self.fail::<()>(id.span, format!("`{}` holds values of different types", id.name));
+                self.fail::<()>(
+                    id.span,
+                    format!("`{}` holds values of different types", id.name),
+                );
             }
-            let local = self.new_local(&id.name, symbol, None, kind, mutable);
+            let local = self.new_local(&id.name, symbol, None, &kind, mutable);
             if let Some(symbol) = id.symbol_id.get() {
                 self.by_symbol.insert(symbol, local);
                 self.note_length(symbol, init);
@@ -500,7 +615,10 @@ impl<'a> FnCx<'_, '_, 'a> {
                 .is_some(),
             Kind::Array { .. } => match value.expr {
                 Expr::Local(local) if self.info[local.0].param.is_none() => self
-                    .fail::<()>(span, format!("copies an array from one variable to `{name}`"))
+                    .fail::<()>(
+                        span,
+                        format!("copies an array from one variable to `{name}`"),
+                    )
                     .is_some(),
                 Expr::Local(local) => {
                     let param = self.info[local.0].param.expect("checked");
@@ -547,7 +665,10 @@ impl<'a> FnCx<'_, '_, 'a> {
             Some(local) => Some(local),
             None => self.fail(
                 id.span,
-                format!("assigns `{}`, which is not a local variable of the function", id.name),
+                format!(
+                    "assigns `{}`, which is not a local variable of the function",
+                    id.name
+                ),
             ),
         }
     }
@@ -562,7 +683,9 @@ impl<'a> FnCx<'_, '_, 'a> {
         let node = assignment.node_id();
         match &assignment.left {
             AssignmentTarget::AssignmentTargetIdentifier(id) => {
-                let Some(local) = self.assignable_local(id) else { return };
+                let Some(local) = self.assignable_local(id) else {
+                    return;
+                };
                 let value = match binary {
                     None => self.expr(&assignment.right),
                     Some(op) => {
@@ -575,16 +698,34 @@ impl<'a> FnCx<'_, '_, 'a> {
                 self.assign_local(local, value, &id.name, assignment.right.span(), out);
             }
             AssignmentTarget::StaticMemberExpression(member) => {
-                self.field_write(member, binary, &assignment.right, node, assignment.span, out);
+                self.field_write(
+                    member,
+                    binary,
+                    &assignment.right,
+                    node,
+                    assignment.span,
+                    out,
+                );
             }
             AssignmentTarget::ComputedMemberExpression(member) => {
-                self.element_write(member, binary, Some(&assignment.right), None, assignment.span, out);
+                self.element_write(
+                    member,
+                    binary,
+                    Some(&assignment.right),
+                    None,
+                    assignment.span,
+                    out,
+                );
             }
-            AssignmentTarget::ArrayAssignmentTarget(_) | AssignmentTarget::ObjectAssignmentTarget(_) => {
+            AssignmentTarget::ArrayAssignmentTarget(_)
+            | AssignmentTarget::ObjectAssignmentTarget(_) => {
                 self.fail::<()>(assignment.span, "uses a destructuring assignment");
             }
             _ => {
-                self.fail::<()>(assignment.span, "assigns to something other than a variable, array element or field");
+                self.fail::<()>(
+                    assignment.span,
+                    "assigns to something other than a variable, array element or field",
+                );
             }
         }
     }
@@ -598,7 +739,14 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
     }
 
-    pub(super) fn assign_local(&mut self, local: LocalId, value: V, name: &str, span: Span, out: &mut Vec<Stmt>) {
+    pub(super) fn assign_local(
+        &mut self,
+        local: LocalId,
+        value: V,
+        name: &str,
+        span: Span,
+        out: &mut Vec<Stmt>,
+    ) {
         if !self.check_stored(&value, name, span) {
             return;
         }
@@ -612,7 +760,12 @@ impl<'a> FnCx<'_, '_, 'a> {
                     (current, stored) => current.join(stored) != Kind::Error,
                 };
                 if !fits {
-                    return self.fail(span, format!("assigns {} to the parameter `{name}`", stored.describe())).unwrap_or(());
+                    return self
+                        .fail(
+                            span,
+                            format!("assigns {} to the parameter `{name}`", stored.describe()),
+                        )
+                        .unwrap_or(());
                 }
                 if !matches!(stored, Kind::Array { .. }) {
                     self.lw.env.join_param(self.id, param, &stored);
@@ -635,29 +788,43 @@ impl<'a> FnCx<'_, '_, 'a> {
         let one = V::new(Expr::Lit(Lit::I32(1)), Ty::I32, Kind::NUM);
         match &update.argument {
             SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => {
-                let Some(local) = self.assignable_local(id) else { return };
+                let Some(local) = self.assignable_local(id) else {
+                    return;
+                };
                 let current = self.local_value(local);
                 if !matches!(current.kind, Kind::Num { .. }) {
-                    self.fail::<()>(update.span, format!("increments {}", current.kind.describe()));
+                    self.fail::<()>(
+                        update.span,
+                        format!("increments {}", current.kind.describe()),
+                    );
                     return;
                 }
                 let fact = match self.locals[local.0].ty {
                     Ty::I32 | Ty::U32 => self.assign_fact(local, update.node_id()),
                     _ => None,
                 };
-                let Some(value) = self.arith(op, current, one, fact, update.span) else { return };
+                let Some(value) = self.arith(op, current, one, fact, update.span) else {
+                    return;
+                };
                 self.assign_local(local, value, &id.name, update.span, out);
             }
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
-                let Some(current) = self.member_read(member, true) else { return };
-                let Some(value) = self.arith(op, current, one, None, update.span) else { return };
+                let Some(current) = self.member_read(member, true) else {
+                    return;
+                };
+                let Some(value) = self.arith(op, current, one, None, update.span) else {
+                    return;
+                };
                 self.field_store(member, value, update.span, out);
             }
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
                 self.element_write(member, Some(op), None, Some(one), update.span, out);
             }
             _ => {
-                self.fail::<()>(update.span, "increments something other than a variable, array element or field");
+                self.fail::<()>(
+                    update.span,
+                    "increments something other than a variable, array element or field",
+                );
             }
         }
     }
@@ -674,7 +841,9 @@ impl<'a> FnCx<'_, '_, 'a> {
         let value = match op {
             None => self.expr(right),
             Some(op) => {
-                let Some(current) = self.member_read(member, true) else { return };
+                let Some(current) = self.member_read(member, true) else {
+                    return;
+                };
                 let fact = self.num_fact(node);
                 self.binary_values(op, current, right, fact, span)
             }
@@ -684,7 +853,13 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     /// `p.f = value` on an object parameter.
-    fn field_store(&mut self, member: &'a StaticMemberExpression<'a>, value: V, span: Span, out: &mut Vec<Stmt>) {
+    fn field_store(
+        &mut self,
+        member: &'a StaticMemberExpression<'a>,
+        value: V,
+        span: Span,
+        out: &mut Vec<Stmt>,
+    ) {
         let field = member.property.name.to_string();
         let base = match member.object.get_inner_expression() {
             Expression::Identifier(id) => {
@@ -694,10 +869,15 @@ impl<'a> FnCx<'_, '_, 'a> {
             _ => None,
         };
         let Some(base) = base else {
-            self.fail::<()>(span, format!("writes `.{field}` of something other than an object parameter"));
+            self.fail::<()>(
+                span,
+                format!("writes `.{field}` of something other than an object parameter"),
+            );
             return;
         };
-        let (Some(param), Kind::ParamStruct { group }) = (self.info[base.0].param, self.local_kind(base)) else {
+        let (Some(param), Kind::ParamStruct { group }) =
+            (self.info[base.0].param, self.local_kind(base))
+        else {
             self.fail::<()>(
                 span,
                 format!(
@@ -727,7 +907,11 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         {
             let entry = self.lw.env.groups[group].field_mut(&field);
-            let written = entry.written.clone().unwrap_or(Kind::Bottom).join(&value.kind);
+            let written = entry
+                .written
+                .clone()
+                .unwrap_or(Kind::Bottom)
+                .join(&value.kind);
             if entry.written.as_ref() != Some(&written) {
                 entry.written = Some(written);
                 self.lw.env.changed = true;
@@ -749,7 +933,11 @@ impl<'a> FnCx<'_, '_, 'a> {
     pub(super) fn group_field_ty(&self, group: usize, field: &str) -> Ty {
         if self.final_round() {
             let StructRef(index) = self.struct_ref(StructSlot::Group(group));
-            if let Some((_, ty)) = self.lw.structs[index].fields.iter().find(|(name, _)| name == field) {
+            if let Some((_, ty)) = self.lw.structs[index]
+                .fields
+                .iter()
+                .find(|(name, _)| name == field)
+            {
                 return *ty;
             }
         }
@@ -770,8 +958,15 @@ impl<'a> FnCx<'_, '_, 'a> {
         span: Span,
         out: &mut Vec<Stmt>,
     ) {
-        let Some(array) = self.expr(&member.object) else { return };
-        let Kind::Array { elem, fresh, params } = array.kind.clone() else {
+        let Some(array) = self.expr(&member.object) else {
+            return;
+        };
+        let Kind::Array {
+            elem,
+            fresh,
+            params,
+        } = array.kind.clone()
+        else {
             let message = format!("writes a computed property of {}", array.kind.describe());
             self.fail::<()>(span, message);
             return;
@@ -793,7 +988,9 @@ impl<'a> FnCx<'_, '_, 'a> {
                 return;
             }
         }
-        let Some(index) = self.index(&member.expression, member.node_id()) else { return };
+        let Some(index) = self.index(&member.expression, member.node_id()) else {
+            return;
+        };
         let known = index.in_bounds || self.proven_in_bounds(&member.object, &member.expression);
         if elem == Elem::Number && !known {
             self.fail::<()>(
@@ -824,7 +1021,9 @@ impl<'a> FnCx<'_, '_, 'a> {
                         index: Box::new(index.clone()),
                     },
                     Ty::F64,
-                    Kind::Num { undef: !known || (elem == Elem::Number && !fresh) },
+                    Kind::Num {
+                        undef: !known || (elem == Elem::Number && !fresh),
+                    },
                 );
                 match (right, increment) {
                     (Some(right), _) => self.binary_values(op, current, right, None, span),
@@ -847,7 +1046,9 @@ impl<'a> FnCx<'_, '_, 'a> {
                 return;
             }
         }
-        let Some(value) = self.coerce(value, Ty::F64, false, span) else { return };
+        let Some(value) = self.coerce(value, Ty::F64, false, span) else {
+            return;
+        };
         // Evaluate the value before borrowing the array mutably.
         let value = if is_simple(&value) || prelude.is_empty() && !mentions_call(&value) {
             value
@@ -882,7 +1083,9 @@ pub(super) fn mentions_call(expr: &Expr) -> bool {
     match expr {
         Expr::Lit(_) | Expr::Local(_) | Expr::Const(_) | Expr::SelfValue => false,
         Expr::Call(..) | Expr::MethodCall(..) | Expr::NewArray { .. } | Expr::Block(..) => true,
-        Expr::Unary(_, a) | Expr::Truthy(_, a) | Expr::Field(a, _) | Expr::Len(a, _) => mentions_call(a),
+        Expr::Unary(_, a) | Expr::Truthy(_, a) | Expr::Field(a, _) | Expr::Len(a, _) => {
+            mentions_call(a)
+        }
         Expr::Get { array, index } => mentions_call(array) || mentions_call(&index.value),
         Expr::Convert { arg, .. } => mentions_call(arg),
         Expr::Binary(_, a, b) | Expr::NumberLogic { lhs: a, rhs: b, .. } => {
@@ -919,12 +1122,15 @@ fn diverges(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Return(_) | Stmt::Break(_) | Stmt::Continue(_) => true,
         Stmt::If(_, a, b) => !completes(a) && !completes(b),
-        Stmt::Loop(Loop { id, test: None, test_after: false, body, update, .. }) => {
-            !breaks_to(*id, body) && !breaks_to(*id, update)
-        }
-        Stmt::Block(label, body) => {
-            !completes(body) && label.is_none_or(|id| !breaks_to(id, body))
-        }
+        Stmt::Loop(Loop {
+            id,
+            test: None,
+            test_after: false,
+            body,
+            update,
+            ..
+        }) => !breaks_to(*id, body) && !breaks_to(*id, update),
+        Stmt::Block(label, body) => !completes(body) && label.is_none_or(|id| !breaks_to(id, body)),
         _ => false,
     }
 }

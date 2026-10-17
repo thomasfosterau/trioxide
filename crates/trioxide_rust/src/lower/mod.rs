@@ -517,7 +517,8 @@ impl<'w, 'a> Lowerer<'w, 'a> {
     /// Assigns every struct an index: boundary structs first (parameter groups, then returned
     /// literals, which become the spec's structs in this order), then the rest.
     fn assign_structs(&mut self) {
-        let mut slots: Vec<StructSlot> = (0..self.env.groups.len()).map(StructSlot::Group).collect();
+        let mut slots: Vec<StructSlot> =
+            (0..self.env.groups.len()).map(StructSlot::Group).collect();
         let mut abi_literals: Vec<NodeRef> = Vec::new();
         for root in &self.roots {
             if let Some(Kind::Value {
@@ -531,7 +532,11 @@ impl<'w, 'a> Lowerer<'w, 'a> {
         abi_literals.dedup();
         let mut seen = FxHashSet::default();
         abi_literals.retain(|site| seen.insert(*site));
-        slots.extend(abi_literals.iter().map(|&site| StructSlot::Key(StructKey::Literal(site))));
+        slots.extend(
+            abi_literals
+                .iter()
+                .map(|&site| StructSlot::Key(StructKey::Literal(site))),
+        );
         let mut others: Vec<StructSlot> = self
             .env
             .literals
@@ -551,7 +556,9 @@ impl<'w, 'a> Lowerer<'w, 'a> {
         for (index, slot) in slots.iter().enumerate() {
             let base = match slot {
                 StructSlot::Group(group) => self.env.groups[*group].name.clone(),
-                StructSlot::Key(StructKey::Class(class)) => crate::names::type_name(&self.class_name(*class)),
+                StructSlot::Key(StructKey::Class(class)) => {
+                    crate::names::type_name(&self.class_name(*class))
+                }
                 StructSlot::Key(StructKey::Literal(site)) => {
                     let model = &self.env.literals[site];
                     model.returned_by.map_or_else(
@@ -619,7 +626,12 @@ impl<'w, 'a> Lowerer<'w, 'a> {
                 }
                 StructSlot::Key(StructKey::Class(class)) => {
                     let model = &self.classes[class];
-                    let kinds = self.env.class_fields.get(class).cloned().unwrap_or_default();
+                    let kinds = self
+                        .env
+                        .class_fields
+                        .get(class)
+                        .cloned()
+                        .unwrap_or_default();
                     (
                         model
                             .fields
@@ -670,8 +682,8 @@ impl<'w, 'a> Lowerer<'w, 'a> {
     /// Assembles the island from the final round.
     fn finish(&mut self, id: &str, module: &str, mut functions: Vec<rir::Function>) -> rir::Island {
         for (index, function) in functions.iter().enumerate() {
-            if let rir::FunctionKind::Method(StructRef(s)) | rir::FunctionKind::Constructor(StructRef(s)) =
-                function.kind
+            if let rir::FunctionKind::Method(StructRef(s))
+            | rir::FunctionKind::Constructor(StructRef(s)) = function.kind
             {
                 self.structs[s].methods.push(FuncRef(index));
             }
@@ -688,7 +700,11 @@ impl<'w, 'a> Lowerer<'w, 'a> {
                 let mutated = self.env.mutated.contains(&(root, index));
                 let ty = abi_type(local.ty, &self.structs).expect("checked by the final round");
                 let is_aggregate = !ty.is_scalar();
-                params.push((crate::names::abi_param_name(&info.func.params.items[index], index), ty, mutated && is_aggregate));
+                params.push((
+                    crate::names::abi_param_name(&info.func.params.items[index], index),
+                    ty,
+                    mutated && is_aggregate,
+                ));
             }
             exports.push(rir::Export {
                 func,

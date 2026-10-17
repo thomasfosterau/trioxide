@@ -1,8 +1,8 @@
 //! Classes used inside an island: immutable plain-data values.
 
 use oxc_ast::ast::{
-    AssignmentOperator, AssignmentTarget, ClassElement, Expression, Function,
-    MethodDefinitionKind, PropertyKey, Statement,
+    AssignmentOperator, AssignmentTarget, ClassElement, Expression, Function, MethodDefinitionKind,
+    PropertyKey, Statement,
 };
 use oxc_span::{GetSpan, Span};
 use rustc_hash::FxHashMap;
@@ -74,7 +74,10 @@ impl<'a> ClassModel<'a> {
                         return Err((property.span, "has a static field".into()));
                     }
                     let Some(name) = static_key(&property.key, property.computed) else {
-                        return Err((property.key.span(), "has a computed or private field".into()));
+                        return Err((
+                            property.key.span(),
+                            "has a computed or private field".into(),
+                        ));
                     };
                     if property.declare {
                         model.fields.push(name);
@@ -89,7 +92,8 @@ impl<'a> ClassModel<'a> {
                     }
                 }
                 ClassElement::MethodDefinition(method) => {
-                    let function_id = module.node(oxc_syntax::node::GetNodeId::node_id(&*method.value));
+                    let function_id =
+                        module.node(oxc_syntax::node::GetNodeId::node_id(&*method.value));
                     match method.kind {
                         MethodDefinitionKind::Constructor => {
                             model.ctor = function_id;
@@ -143,17 +147,15 @@ impl<'a> ClassModel<'a> {
                     _ => {
                         return Err((
                             assignment.span,
-                            "its constructor does more than assign fields (`this.x = …;`)"
-                                .into(),
+                            "its constructor does more than assign fields (`this.x = …;`)".into(),
                         ));
                     }
                 };
-                let index = match model.fields.iter().position(|f| *f == field) {
-                    Some(index) => index,
-                    None => {
-                        model.fields.push(field);
-                        model.fields.len() - 1
-                    }
+                let index = if let Some(index) = model.fields.iter().position(|f| *f == field) {
+                    index
+                } else {
+                    model.fields.push(field);
+                    model.fields.len() - 1
                 };
                 if model.inits.iter().any(|(i, _)| *i == index) {
                     return Err((assignment.span, "assigns a field twice".into()));

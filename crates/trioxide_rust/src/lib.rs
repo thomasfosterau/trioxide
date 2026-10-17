@@ -33,11 +33,11 @@ use trioxide_types::{FunctionId, Type};
 use trioxide_wasm::IslandSource;
 pub use trioxide_wasm::IslandSpec;
 
+use crate::world::{Role, World};
 pub use crate::{
     lower::Reason,
     world::{Directive, Placement, SourceModule},
 };
-use crate::world::{Role, World};
 
 /// Queries the backend would like from the analysis but that `Facts` doesn't answer yet. The
 /// defaults are conservative ("nothing known"); the analysis can implement them as it grows.
@@ -110,22 +110,45 @@ pub fn forced_islands(
     let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
     let world = World::build(&allocators, modules);
 
+    for (module, directive) in &world.misplaced {
+        if directive.placement == Placement::Wasm
+            && let Some(module) = world.module(*module)
+        {
+            out.diagnostics.push(
+                Diagnostic::error("only top-level function declarations can be forced into WASM")
+                    .with_code("trioxide(wasm-ineligible)")
+                    .with_file(module.path)
+                    .with_label(directive.span, None),
+            );
+        }
+    }
     let mut functions: Vec<_> = world.functions.values().collect();
     functions.sort_by_key(|info| (info.id.module, info.func.span.start));
     let mut ids: FxHashSet<String> = FxHashSet::default();
     for module in &world.modules {
         let mut roots = Vec::new();
         for info in functions.iter().filter(|f| f.id.module == module.id) {
-            let Some(directive) = world.directive(info.id) else { continue };
+            let Some(directive) = world.directive(info.id) else {
+                continue;
+            };
             let name = info.name.clone();
             if directive.placement == Placement::Js {
                 out.decisions.push((
                     module.id,
-                    decision(name, info.func.span, Target::Js, "marked \"use js\"", None, None),
+                    decision(
+                        name,
+                        info.func.span,
+                        Target::Js,
+                        "marked \"use js\"",
+                        None,
+                        None,
+                    ),
                 ));
                 continue;
             }
-            let valid_name = name.as_deref().filter(|n| names::is_abi_name(n) && *n != "ready");
+            let valid_name = name
+                .as_deref()
+                .filter(|n| names::is_abi_name(n) && *n != "ready");
             match (info.top_level && info.role == Role::Free, valid_name) {
                 (true, Some(_)) => roots.push(info.id),
                 (true, None) => out.diagnostics.push(
@@ -161,8 +184,13 @@ pub fn forced_islands(
         for (root, reasons) in &lowered.failed {
             let info = &world.functions[root];
             let name = info.name.clone().unwrap_or_default();
-            out.diagnostics
-                .push(ineligible_diagnostic(&world, module.path, &name, info.func.span, reasons));
+            out.diagnostics.push(ineligible_diagnostic(
+                &world,
+                module.path,
+                &name,
+                info.func.span,
+                reasons,
+            ));
             let first = reasons.first();
             out.decisions.push((
                 module.id,
@@ -174,20 +202,26 @@ pub fn forced_islands(
                         "forced into WASM but ineligible: {}",
                         first.map_or("unknown reason", |r| r.message.as_str())
                     ),
-                    first.filter(|r| r.function.module == module.id).map(|r| r.span),
+                    first
+                        .filter(|r| r.function.module == module.id)
+                        .map(|r| r.span),
                     None,
                 ),
             ));
         }
-        let Some(island) = lowered.island else { continue };
+        let Some(island) = lowered.island else {
+            continue;
+        };
         let spec = emit::spec(&island);
         let lib = emit::lib_rs(&island, &spec);
         let source = IslandSource::new(spec, lib);
         if let Err(error) = source.validate() {
             out.diagnostics.push(
-                Diagnostic::error(format!("trioxide generated an invalid island (a bug): {error}"))
-                    .with_code("trioxide(wasm-ineligible)")
-                    .with_file(module.path),
+                Diagnostic::error(format!(
+                    "trioxide generated an invalid island (a bug): {error}"
+                ))
+                .with_code("trioxide(wasm-ineligible)")
+                .with_file(module.path),
             );
             continue;
         }
@@ -197,11 +231,17 @@ pub fn forced_islands(
             .map(|export| (lowered.members[export.func.0], export.name.clone()))
             .collect();
         let needs_fallback = island.exports.iter().any(|export| {
-            let aggregates = export.params.iter().filter(|(_, ty, _)| !ty.is_scalar()).count();
+            let aggregates = export
+                .params
+                .iter()
+                .filter(|(_, ty, _)| !ty.is_scalar())
+                .count();
             aggregates > 1 && export.params.iter().any(|(_, _, mutated)| *mutated)
         });
         for &member in &lowered.members {
-            let Some(info) = world.functions.get(&member) else { continue };
+            let Some(info) = world.functions.get(&member) else {
+                continue;
+            };
             let exported = exports.iter().any(|(f, _)| *f == member);
             let reason = if exported {
                 "forced into WASM; exported by the island".to_string()
@@ -210,7 +250,14 @@ pub fn forced_islands(
             };
             out.decisions.push((
                 member.module,
-                decision(info.name.clone(), info.func.span, Target::Wasm, &reason, None, Some(id.clone())),
+                decision(
+                    info.name.clone(),
+                    info.func.span,
+                    Target::Wasm,
+                    &reason,
+                    None,
+                    Some(id.clone()),
+                ),
             ));
         }
         out.islands.push(GeneratedIsland {
@@ -255,18 +302,27 @@ fn ineligible_diagnostic(
     let module = span_module(world, reasons, path);
     let mut diagnostic = Diagnostic::error(format!(
         "`{name}` is forced into WASM but can't be compiled: {}",
-        reasons.first().map_or("unknown reason", |r| r.message.as_str())
+        reasons
+            .first()
+            .map_or("unknown reason", |r| r.message.as_str())
     ))
     .with_code("trioxide(wasm-ineligible)")
     .with_file(path);
     let mut elsewhere = Vec::new();
     for reason in reasons {
-        let message = format!("`{}` {}", function_name(world, reason.function), reason.message);
+        let message = format!(
+            "`{}` {}",
+            function_name(world, reason.function),
+            reason.message
+        );
         if world.module(reason.function.module).map(|m| m.path) == Some(module) {
             diagnostic = diagnostic.with_label(reason.span, Some(message));
         } else if let Some(other) = world.module(reason.function.module) {
             let (line, column) = line_column(other.source, reason.span.start);
-            elsewhere.push(format!("{}:{line}:{column}: {message}", other.path.display()));
+            elsewhere.push(format!(
+                "{}:{line}:{column}: {message}",
+                other.path.display()
+            ));
         }
     }
     if diagnostic.labels.is_empty() {
@@ -299,7 +355,10 @@ fn function_name(world: &World<'_>, function: FunctionId) -> String {
 fn line_column(source: &str, offset: u32) -> (usize, usize) {
     let before = &source[..(offset as usize).min(source.len())];
     let line = before.matches('\n').count() + 1;
-    let column = before.rfind('\n').map_or(before.len(), |i| before.len() - i - 1) + 1;
+    let column = before
+        .rfind('\n')
+        .map_or(before.len(), |i| before.len() - i - 1)
+        + 1;
     (line, column)
 }
 
@@ -311,7 +370,13 @@ fn island_id(path: &Path, taken: &mut FxHashSet<String>) -> String {
         .unwrap_or_default();
     let mut base: String = stem
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .take(56)
         .collect();
     if base.is_empty() {

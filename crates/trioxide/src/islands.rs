@@ -166,11 +166,11 @@ pub(crate) fn rewrite_calls<'a>(
     rewrite: &Rewrite<'_>,
 ) -> Vec<trioxide_wasm::IslandRef> {
     use oxc_ast::{
-        builder::AstBuilder,
         ast::{
-            BindingIdentifier, ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind,
-            ImportSpecifier, ModuleExportName, IdentifierName, Statement, StringLiteral,
+            BindingIdentifier, IdentifierName, ImportDeclaration, ImportDeclarationSpecifier,
+            ImportOrExportKind, ImportSpecifier, ModuleExportName, Statement, StringLiteral,
         },
+        builder::AstBuilder,
     };
     use oxc_span::SPAN;
     use rustc_hash::{FxHashMap, FxHashSet};
@@ -190,10 +190,24 @@ pub(crate) fn rewrite_calls<'a>(
             });
         }
     };
-    let glue_import = |specifiers: oxc_allocator::Vec<'a, ImportDeclarationSpecifier<'a>>, id: &trioxide_wasm::IslandId| {
-        let source = StringLiteral::new(SPAN, allocator.alloc_str(&id.glue_specifier()), None, &builder);
+    let glue_import = |specifiers: oxc_allocator::Vec<'a, ImportDeclarationSpecifier<'a>>,
+                       id: &trioxide_wasm::IslandId| {
+        let source = StringLiteral::new(
+            SPAN,
+            allocator.alloc_str(&id.glue_specifier()),
+            None,
+            &builder,
+        );
         Statement::ImportDeclaration(oxc_allocator::Box::new_in(
-            ImportDeclaration::new(SPAN, Some(specifiers), source, None, None, ImportOrExportKind::Value, &builder),
+            ImportDeclaration::new(
+                SPAN,
+                Some(specifiers),
+                source,
+                None,
+                None,
+                ImportOrExportKind::Value,
+                &builder,
+            ),
             &allocator,
         ))
     };
@@ -226,7 +240,10 @@ pub(crate) fn rewrite_calls<'a>(
             let movable = match &specifier {
                 ImportDeclarationSpecifier::ImportSpecifier(named) => {
                     named.import_kind == ImportOrExportKind::Value
-                        && link.exports.iter().any(|(_, name)| *name == named.imported.name().as_str())
+                        && link
+                            .exports
+                            .iter()
+                            .any(|(_, name)| *name == named.imported.name().as_str())
                         && named.local.symbol_id.get().is_some_and(only_called)
                 }
                 _ => false,
@@ -251,11 +268,17 @@ pub(crate) fn rewrite_calls<'a>(
     // Calls in the defining module, unless the glue imports this module back.
     let mut renames: FxHashMap<oxc_syntax::reference::ReferenceId, &'a str> = FxHashMap::default();
     let mut added: Vec<Statement<'a>> = Vec::new();
-    for link in rewrite.links.iter().filter(|l| l.module == rewrite.module && !l.needs_fallback) {
+    for link in rewrite
+        .links
+        .iter()
+        .filter(|l| l.module == rewrite.module && !l.needs_fallback)
+    {
         let mut specifiers = oxc_allocator::Vec::new_in(&allocator);
         let taken: FxHashSet<String> = scoping.symbol_names().map(str::to_string).collect();
         for (_, name) in &link.exports {
-            let Some(symbol) = scoping.get_root_binding(name.as_str().into()) else { continue };
+            let Some(symbol) = scoping.get_root_binding(name.as_str().into()) else {
+                continue;
+            };
             let sites: Vec<_> = scoping
                 .get_resolved_reference_ids(symbol)
                 .iter()
@@ -277,7 +300,11 @@ pub(crate) fn rewrite_calls<'a>(
             }
             let mut alias = format!("{name}$wasm");
             let mut n = 2;
-            while taken.contains(&alias) || scoping.root_unresolved_references().contains_key(alias.as_str()) {
+            while taken.contains(&alias)
+                || scoping
+                    .root_unresolved_references()
+                    .contains_key(alias.as_str())
+            {
                 alias = format!("{name}$wasm{n}");
                 n += 1;
             }
@@ -285,12 +312,24 @@ pub(crate) fn rewrite_calls<'a>(
             for site in sites {
                 renames.insert(site, alias);
             }
-            let imported = ModuleExportName::IdentifierName(IdentifierName::new(SPAN, allocator.alloc_str(name), &builder));
+            let imported = ModuleExportName::IdentifierName(IdentifierName::new(
+                SPAN,
+                allocator.alloc_str(name),
+                &builder,
+            ));
             let local = BindingIdentifier::new(SPAN, alias, &builder);
-            specifiers.push(ImportDeclarationSpecifier::ImportSpecifier(oxc_allocator::Box::new_in(
-                ImportSpecifier::new(SPAN, imported, local, ImportOrExportKind::Value, &builder),
-                &allocator,
-            )));
+            specifiers.push(ImportDeclarationSpecifier::ImportSpecifier(
+                oxc_allocator::Box::new_in(
+                    ImportSpecifier::new(
+                        SPAN,
+                        imported,
+                        local,
+                        ImportOrExportKind::Value,
+                        &builder,
+                    ),
+                    &allocator,
+                ),
+            ));
         }
         if !specifiers.is_empty() {
             add_ref(&link.id);
@@ -313,11 +352,15 @@ pub(crate) fn rewrite_calls<'a>(
 }
 
 /// References that are the callee of a (non-optional) call.
-fn call_references(program: &oxc_ast::ast::Program<'_>) -> rustc_hash::FxHashSet<oxc_syntax::reference::ReferenceId> {
+fn call_references(
+    program: &oxc_ast::ast::Program<'_>,
+) -> rustc_hash::FxHashSet<oxc_syntax::reference::ReferenceId> {
     call_spans(program).into_keys().collect()
 }
 
-fn call_spans(program: &oxc_ast::ast::Program<'_>) -> rustc_hash::FxHashMap<oxc_syntax::reference::ReferenceId, oxc_span::Span> {
+fn call_spans(
+    program: &oxc_ast::ast::Program<'_>,
+) -> rustc_hash::FxHashMap<oxc_syntax::reference::ReferenceId, oxc_span::Span> {
     use oxc_ast::ast::{CallExpression, Expression};
     struct Calls(rustc_hash::FxHashMap<oxc_syntax::reference::ReferenceId, oxc_span::Span>);
     impl<'a> oxc_ast_visit::Visit<'a> for Calls {

@@ -215,7 +215,9 @@ impl Project {
         }
         let mut sources = self.debug_islands.clone();
         for plan in &self.partition.islands {
-            let Some(mut source) = plan.source.clone() else { continue };
+            let Some(mut source) = plan.source.clone() else {
+                continue;
+            };
             if plan.needs_fallback
                 && let Some(module) = plan.module
             {

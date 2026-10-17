@@ -461,11 +461,17 @@ fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<()
     for island in &module.islands {
         let target = format!(
             "{}{ISLANDS_DIR}/{}.js",
-            if depth == 0 { "./".to_string() } else { "../".repeat(depth) },
+            if depth == 0 {
+                "./".to_string()
+            } else {
+                "../".repeat(depth)
+            },
             island.id
         );
         let escaped = island.specifier.replace('\0', "\\0");
-        code = code.replace(&escaped, &target).replace(&island.specifier, &target);
+        code = code
+            .replace(&escaped, &target)
+            .replace(&island.specifier, &target);
     }
     if let Some(map) = &module.map {
         let map_path = destination.with_extension(format!(

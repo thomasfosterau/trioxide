@@ -107,10 +107,8 @@ pub(crate) struct FnInfo<'a> {
     pub name: Option<String>,
     /// A `function` declaration at the top level of its module (exported or not).
     pub top_level: bool,
-    /// Its local name is exported by name.
-    pub exported: bool,
     pub role: Role,
-    /// Its own directive (function directive or JSDoc tag).
+    /// Its own directive (function directive or `JSDoc` tag).
     pub directive: Option<Directive>,
 }
 
@@ -123,6 +121,8 @@ pub(crate) struct ClassInfo<'a> {
 /// Every module, parsed and indexed.
 pub(crate) struct World<'a> {
     pub modules: Vec<Module<'a>>,
+    /// Directives in functions that can't be islands (arrow functions).
+    pub misplaced: Vec<(ModuleId, Directive)>,
     pub functions: FxHashMap<FunctionId, FnInfo<'a>>,
     pub classes: FxHashMap<ClassId, ClassInfo<'a>>,
 }
@@ -132,6 +132,7 @@ impl<'a> World<'a> {
     pub fn build(allocators: &'a [Allocator], modules: &[SourceModule<'a>]) -> Self {
         let mut world = Self {
             modules: Vec::with_capacity(modules.len()),
+            misplaced: Vec::new(),
             functions: FxHashMap::default(),
             classes: FxHashMap::default(),
         };
@@ -171,14 +172,6 @@ impl<'a> World<'a> {
     fn index(&mut self, module: &Module<'a>) {
         let program = module.program;
         let tags = jsdoc_tags(program, module.source);
-        let mut exported_names: Vec<&str> = Vec::new();
-        for statement in &program.body {
-            if let Statement::ExportNamedDeclaration(export) = statement {
-                for specifier in &export.specifiers {
-                    exported_names.push(specifier.local.name().as_str());
-                }
-            }
-        }
         // Leading comments attach to `export` when there is one.
         let mut export_starts: FxHashMap<u32, u32> = FxHashMap::default();
         for statement in &program.body {
@@ -203,16 +196,8 @@ impl<'a> World<'a> {
                 AstKind::Function(func) => {
                     let parent = nodes.parent_kind(node.id());
                     let top_level = func.r#type == FunctionType::FunctionDeclaration
-                        && matches!(
-                            parent,
-                            AstKind::Program(_) | AstKind::ExportDeclaration(_)
-                        );
+                        && matches!(parent, AstKind::Program(_) | AstKind::ExportDeclaration(_));
                     let name = func.id.as_ref().map(|id| id.name.to_string());
-                    let exported = top_level
-                        && (matches!(parent, AstKind::ExportDeclaration(_))
-                            || name
-                                .as_deref()
-                                .is_some_and(|name| exported_names.contains(&name)));
                     let role = match parent {
                         AstKind::MethodDefinition(method) => {
                             let class = nodes
@@ -220,12 +205,16 @@ impl<'a> World<'a> {
                                 .find(|n| matches!(n.kind(), AstKind::Class(_)))
                                 .map(|n| module.node(n.id()));
                             match (class, method.kind, method.r#static) {
-                                (Some(class), oxc_ast::ast::MethodDefinitionKind::Constructor, _) => {
-                                    Role::Constructor(class)
-                                }
-                                (Some(class), oxc_ast::ast::MethodDefinitionKind::Method, false) => {
-                                    Role::Method(class)
-                                }
+                                (
+                                    Some(class),
+                                    oxc_ast::ast::MethodDefinitionKind::Constructor,
+                                    _,
+                                ) => Role::Constructor(class),
+                                (
+                                    Some(class),
+                                    oxc_ast::ast::MethodDefinitionKind::Method,
+                                    false,
+                                ) => Role::Method(class),
                                 _ => Role::OtherMember,
                             }
                         }
@@ -265,11 +254,24 @@ impl<'a> World<'a> {
                             func,
                             name,
                             top_level,
-                            exported,
                             role,
                             directive,
                         },
                     );
+                }
+                AstKind::ArrowFunctionExpression(arrow) => {
+                    let oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) = &arrow.body else {
+                        continue;
+                    };
+                    if let Some(directive) = body.directives.iter().find_map(|d| {
+                        placement(d.directive.as_str()).map(|placement| Directive {
+                            placement,
+                            span: d.span,
+                            file: false,
+                        })
+                    }) {
+                        self.misplaced.push((module.id, directive));
+                    }
                 }
                 AstKind::Class(class) => {
                     self.classes.insert(

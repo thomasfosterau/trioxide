@@ -2118,6 +2118,7 @@ dependencies = [
  "prettyplease",
  "rustc-hash",
  "syn 3.0.9",
+ "trioxide",
  "trioxide_analysis",
  "trioxide_common",
  "trioxide_types",

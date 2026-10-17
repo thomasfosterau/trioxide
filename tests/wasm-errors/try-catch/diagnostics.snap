@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/try-catch
+input_file: tests/wasm-errors/try-catch/input.ts
+---
+error[trioxide(wasm-ineligible)]: `safe` is forced into WASM but can't be compiled: catches exceptions
+  --> input.ts:4:3 `try {`
+      `safe` catches exceptions
+  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS

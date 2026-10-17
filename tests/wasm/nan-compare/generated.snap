@@ -1,0 +1,385 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm/nan-compare
+input_file: tests/wasm/nan-compare/input.ts
+---
+//- kernel/island.json
+{
+  "id": "kernel",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "lt",
+      "wasmName": "lt",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "le",
+      "wasmName": "le",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "gt",
+      "wasmName": "gt",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "ge",
+      "wasmName": "ge",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "eq",
+      "wasmName": "eq",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "ne",
+      "wasmName": "ne",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "looseEq",
+      "wasmName": "looseEq",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "notLess",
+      "wasmName": "notLess",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "bool"
+      }
+    },
+    {
+      "name": "clamp",
+      "wasmName": "clamp",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "lo",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "hi",
+          "ty": {
+            "kind": "i32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "truthy",
+      "wasmName": "truthy",
+      "params": [
+        {
+          "name": "x",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "either",
+      "wasmName": "either",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "both",
+      "wasmName": "both",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    }
+  ],
+  "structs": []
+}
+
+//- kernel/src/lib.rs
+//! WASM island `kernel`, generated by trioxide from `kernel.ts`. Do not edit.
+#![no_std]
+#![allow(non_snake_case, clippy::all)]
+use trioxide_rt::prelude::*;
+fn lt(a: f64, b: f64) -> bool {
+    a < b
+}
+fn le(a: f64, b: f64) -> bool {
+    a <= b
+}
+fn gt(a: f64, b: f64) -> bool {
+    a > b
+}
+fn ge(a: f64, b: f64) -> bool {
+    a >= b
+}
+fn eq(a: f64, b: f64) -> bool {
+    a == b
+}
+fn ne(a: f64, b: f64) -> bool {
+    a != b
+}
+fn looseEq(a: f64, b: f64) -> bool {
+    a == b
+}
+fn notLess(a: f64, b: f64) -> bool {
+    !(a < b)
+}
+fn clamp(x: f64, lo: f64, hi: i32) -> f64 {
+    if x < lo { lo } else { if x > f64::from(hi) { f64::from(hi) } else { x } }
+}
+fn truthy(x: f64) -> i32 {
+    if conv::to_boolean(x) { 1 } else { 0 }
+}
+fn either(a: f64, b: f64) -> f64 {
+    {
+        let lhs = a;
+        if conv::to_boolean(lhs) { lhs } else { b }
+    }
+}
+fn both(a: f64, b: f64) -> f64 {
+    {
+        let lhs = a;
+        if conv::to_boolean(lhs) { b } else { lhs }
+    }
+}
+#[unsafe(export_name = "lt")]
+pub extern "C" fn __abi_lt(a: f64, b: f64) -> i32 {
+    i32::from(lt(a, b))
+}
+#[unsafe(export_name = "le")]
+pub extern "C" fn __abi_le(a: f64, b: f64) -> i32 {
+    i32::from(le(a, b))
+}
+#[unsafe(export_name = "gt")]
+pub extern "C" fn __abi_gt(a: f64, b: f64) -> i32 {
+    i32::from(gt(a, b))
+}
+#[unsafe(export_name = "ge")]
+pub extern "C" fn __abi_ge(a: f64, b: f64) -> i32 {
+    i32::from(ge(a, b))
+}
+#[unsafe(export_name = "eq")]
+pub extern "C" fn __abi_eq(a: f64, b: f64) -> i32 {
+    i32::from(eq(a, b))
+}
+#[unsafe(export_name = "ne")]
+pub extern "C" fn __abi_ne(a: f64, b: f64) -> i32 {
+    i32::from(ne(a, b))
+}
+#[unsafe(export_name = "looseEq")]
+pub extern "C" fn __abi_looseEq(a: f64, b: f64) -> i32 {
+    i32::from(looseEq(a, b))
+}
+#[unsafe(export_name = "notLess")]
+pub extern "C" fn __abi_notLess(a: f64, b: f64) -> i32 {
+    i32::from(notLess(a, b))
+}
+#[unsafe(export_name = "clamp")]
+pub extern "C" fn __abi_clamp(x: f64, lo: f64, hi: i32) -> f64 {
+    clamp(x, lo, hi)
+}
+#[unsafe(export_name = "truthy")]
+pub extern "C" fn __abi_truthy(x: f64) -> i32 {
+    truthy(x)
+}
+#[unsafe(export_name = "either")]
+pub extern "C" fn __abi_either(a: f64, b: f64) -> f64 {
+    either(a, b)
+}
+#[unsafe(export_name = "both")]
+pub extern "C" fn __abi_both(a: f64, b: f64) -> f64 {
+    both(a, b)
+}

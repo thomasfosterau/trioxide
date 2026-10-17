@@ -65,9 +65,7 @@ impl Kind {
     pub fn join(&self, other: &Self) -> Self {
         match (self, other) {
             (Self::Bottom, k) | (k, Self::Bottom) => k.clone(),
-            (Self::Error, _) | (_, Self::Error) => Self::Error,
-            (Self::Unit, Self::Unit) => Self::Unit,
-            (Self::Bool, Self::Bool) => Self::Bool,
+            (Self::Unit, Self::Unit) | (Self::Bool, Self::Bool) => self.clone(),
             (Self::Num { undef: a }, Self::Num { undef: b }) => Self::Num { undef: *a || *b },
             (
                 Self::Array {

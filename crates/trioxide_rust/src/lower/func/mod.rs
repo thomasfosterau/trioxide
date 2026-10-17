@@ -5,24 +5,20 @@ mod stmt;
 
 use stmt::completes;
 
-use std::rc::Rc;
-
 use oxc_ast::{
     AstKind,
     ast::{
-        Argument, AssignmentExpression, AssignmentOperator, AssignmentTarget, BinaryExpression,
-        BindingPattern, CallExpression, ComputedMemberExpression, Expression, ForOfStatement,
-        ForStatementInit, ForStatementLeft, FormalParameter, Function as AstFunction,
-        IdentifierReference, LabelIdentifier, LogicalExpression, NewExpression, ObjectExpression,
-        ObjectPropertyKind, PropertyKey, PropertyKind, SimpleAssignmentTarget, Statement,
-        StaticMemberExpression, UnaryExpression, UpdateExpression, VariableDeclaration,
-        VariableDeclarationKind,
+        Argument, AssignmentExpression, AssignmentTarget, BinaryExpression, BindingPattern,
+        CallExpression, ComputedMemberExpression, Expression, ForOfStatement, ForStatementInit,
+        ForStatementLeft, FormalParameter, Function as AstFunction, IdentifierReference,
+        LabelIdentifier, LogicalExpression, NewExpression, ObjectExpression, ObjectPropertyKind,
+        PropertyKey, PropertyKind, SimpleAssignmentTarget, Statement, StaticMemberExpression,
+        UnaryExpression, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
     },
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::{
     node::NodeId,
-    node::GetNodeId,
     operator::{BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator},
     symbol::SymbolId,
 };
@@ -31,13 +27,13 @@ use trioxide_common::SymbolRef;
 use trioxide_types::{ClassId, FunctionId, NumberType, Type, TypedArrayKind};
 use trioxide_wasm::TypedArrayElement;
 
-use super::{ClassModel, FieldRead, Group, Lowerer, Reason, StructSlot};
+use super::{FieldRead, Group, Lowerer, Reason, StructSlot};
 use crate::{
     kinds::{Kind, StructKey, is_index, is_int32, is_uint32},
     names,
     rir::{
-        Access, ArrayTy, BinOp, Conv, Elem, Expr, FuncRef, Function, FunctionKind, Index, Lit,
-        Local, LocalId, Loop, LoopId, MathFn, Stmt, StructRef, Ty, UnOp,
+        Access, ArrayTy, BinOp, Conv, Elem, Expr, Function, FunctionKind, Index, Lit, Local,
+        LocalId, Loop, LoopId, MathFn, Stmt, StructRef, Ty, UnOp,
     },
     world::{Module, Role},
 };
@@ -90,7 +86,10 @@ struct Frame {
 
 /// Lowers `function`, returning it with the reasons it can't be compiled (kept only in the
 /// final round).
-pub(super) fn lower_function(lw: &mut Lowerer<'_, '_>, function: FunctionId) -> (Function, Vec<Reason>) {
+pub(super) fn lower_function(
+    lw: &mut Lowerer<'_, '_>,
+    function: FunctionId,
+) -> (Function, Vec<Reason>) {
     let mut cx = FnCx::new(lw, function, None);
     let lowered = cx.run();
     let reasons = if cx.lw.final_round {
@@ -223,12 +222,11 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
         if self.final_round() {
             self.check_ret(func);
         }
-        let mut body = match &func.body {
-            Some(body) => self.block(&body.statements),
-            None => {
-                self.fail::<()>(func.span, "has no body");
-                Vec::new()
-            }
+        let mut body = if let Some(body) = &func.body {
+            self.block(&body.statements)
+        } else {
+            self.fail::<()>(func.span, "has no body");
+            Vec::new()
         };
         if self.ret != Ty::Unit && completes(&body) {
             self.fail::<()>(
@@ -240,7 +238,9 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
             body.pop();
         }
         let kind = match self.class {
-            Some(class) => FunctionKind::Method(self.struct_ref(StructSlot::Key(StructKey::Class(class)))),
+            Some(class) => {
+                FunctionKind::Method(self.struct_ref(StructSlot::Key(StructKey::Class(class))))
+            }
             None => FunctionKind::Free,
         };
         Function {
@@ -272,11 +272,13 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
             }
             let symbol = id.symbol_id.get().map(|s| self.module.symbol(s));
             let kind = self.param_kind(index, param, symbol);
+            let poisoned = kind == Kind::Error;
             let mutable = id
                 .symbol_id
                 .get()
                 .is_some_and(|s| self.module.semantic.scoping().symbol_is_mutated(s));
-            let local = self.new_local(&id.name, symbol, Some(index), kind, mutable);
+            let local = self.new_local(&id.name, symbol, Some(index), &kind, mutable);
+            self.info[local.0].poisoned = poisoned;
             if let Some(symbol) = id.symbol_id.get() {
                 self.by_symbol.insert(symbol, local);
             }
@@ -312,16 +314,26 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
             .cloned()
             .unwrap_or(Kind::Bottom);
         if self.final_round() {
-            let name = param.pattern.get_identifier_name().map(|n| n.to_string()).unwrap_or_default();
+            let name = param
+                .pattern
+                .get_identifier_name()
+                .map(|n| n.to_string())
+                .unwrap_or_default();
             match &kind {
                 Kind::Error if !self.lw.is_root(self.id) => {
-                    self.fail::<()>(param.span, format!("parameter `{name}` receives values of different types"));
+                    self.fail::<()>(
+                        param.span,
+                        format!("parameter `{name}` receives values of different types"),
+                    );
                 }
                 Kind::Unit => {
                     self.fail::<()>(param.span, format!("parameter `{name}` receives undefined"));
                 }
                 Kind::Bottom if !self.lw.is_root(self.id) => {
-                    self.fail::<()>(param.span, format!("parameter `{name}` never receives a value"));
+                    self.fail::<()>(
+                        param.span,
+                        format!("parameter `{name}` never receives a value"),
+                    );
                 }
                 _ => {}
             }
@@ -353,7 +365,10 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
         let ty = fact.value.clone();
         let members = ty.members();
         let undefined = members.iter().any(|t| matches!(t, Type::Undefined));
-        let rest: Vec<&Type> = members.iter().filter(|t| !matches!(t, Type::Undefined)).collect();
+        let rest: Vec<&Type> = members
+            .iter()
+            .filter(|t| !matches!(t, Type::Undefined))
+            .collect();
         let what = |t: &Type| -> String { describe_type(t) };
         match rest.as_slice() {
             [Type::Number(_)] => Ok(Kind::Num { undef: undefined }),
@@ -373,11 +388,13 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
                     params: 0,
                 }),
                 // With `trustTypes`, the annotation itself is the (declared) proof.
-                _ if self.facts().trust_types() && is_number_array_annotation(param) => Ok(Kind::Array {
-                    elem: Elem::Number,
-                    fresh: false,
-                    params: 0,
-                }),
+                _ if self.facts().trust_types() && is_number_array_annotation(param) => {
+                    Ok(Kind::Array {
+                        elem: Elem::Number,
+                        fresh: false,
+                        params: 0,
+                    })
+                }
                 other => Err(format!(
                     "parameter `{name}` is an array of {}, not of numbers",
                     what(other)
@@ -386,6 +403,9 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
             [Type::Object(_)] if !undefined => Ok(Kind::ParamStruct {
                 group: self.group_for(param),
             }),
+            [] => Err(format!(
+                "parameter `{name}` receives no value the analysis can see (its callers are unknown)"
+            )),
             [Type::Instance(_)] => Err(format!(
                 "parameter `{name}` is a class instance (only plain objects can cross the boundary)"
             )),
@@ -401,24 +421,25 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
     fn group_for(&mut self, param: &'a FormalParameter<'a>) -> usize {
         let annotation = param.type_annotation.as_ref().map(|a| &a.type_annotation);
         let type_name = annotation.and_then(names::type_reference_name);
-        let name = match &type_name {
-            Some(name) => names::type_name(name),
-            None => {
-                let function = self.lw.display_name(self.id);
-                let param_name = param
-                    .pattern
-                    .get_identifier_name()
-                    .map(|n| n.to_string())
-                    .unwrap_or_default();
-                names::type_name(&format!("{function}_{param_name}"))
-            }
+        let name = if let Some(name) = &type_name {
+            names::type_name(name)
+        } else {
+            let function = self.lw.display_name(self.id);
+            let param_name = param
+                .pattern
+                .get_identifier_name()
+                .map(|n| n.to_string())
+                .unwrap_or_default();
+            names::type_name(&format!("{function}_{param_name}"))
         };
         if let Some(index) = self.lw.env.groups.iter().position(|g| g.name == name) {
             return index;
         }
         let order = match (&type_name, annotation) {
             (Some(type_name), _) => interface_order(self.module, type_name),
-            (None, Some(oxc_ast::ast::TSType::TSTypeLiteral(literal))) => signature_names(&literal.members),
+            (None, Some(oxc_ast::ast::TSType::TSTypeLiteral(literal))) => {
+                signature_names(&literal.members)
+            }
             _ => Vec::new(),
         };
         self.lw.env.groups.push(Group {
@@ -431,10 +452,19 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
 
     fn check_ret(&mut self, func: &'a AstFunction<'a>) {
         let span = func.id.as_ref().map_or(func.span, |id| id.span);
-        let kind = self.lw.env.rets.get(&self.id).cloned().unwrap_or(Kind::Bottom);
+        let kind = self
+            .lw
+            .env
+            .rets
+            .get(&self.id)
+            .cloned()
+            .unwrap_or(Kind::Bottom);
         match &kind {
             Kind::Error => {
-                self.fail::<()>(span, "returns values of different types (or a value on some paths only)");
+                self.fail::<()>(
+                    span,
+                    "returns values of different types (or a value on some paths only)",
+                );
             }
             Kind::Num { undef: true } => {
                 self.fail::<()>(span, "may return undefined (an unchecked array read)");
@@ -470,7 +500,13 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
 
     /// The return type of `function`, from the joined kinds.
     fn ret_ty(&self, function: FunctionId) -> Ty {
-        let kind = self.lw.env.rets.get(&function).cloned().unwrap_or(Kind::Bottom);
+        let kind = self
+            .lw
+            .env
+            .rets
+            .get(&function)
+            .cloned()
+            .unwrap_or(Kind::Bottom);
         match kind {
             Kind::Bottom | Kind::Unit => Ty::Unit,
             Kind::Num { undef: false } => {
@@ -485,7 +521,12 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
     }
 
     /// The Rust type for a value of `kind` held by `symbol` (or parameter `param`).
-    fn kind_ty(&self, kind: &Kind, symbol: Option<SymbolRef>, param: Option<(FunctionId, usize)>) -> Ty {
+    fn kind_ty(
+        &self,
+        kind: &Kind,
+        symbol: Option<SymbolRef>,
+        param: Option<(FunctionId, usize)>,
+    ) -> Ty {
         match kind {
             Kind::Bool => Ty::Bool,
             Kind::Num { undef: false } => match symbol.and_then(|s| self.symbol_fact(s)) {
@@ -493,12 +534,15 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
                 Some(n) if is_uint32(n) => Ty::U32,
                 _ => Ty::F64,
             },
-            Kind::Array { elem, fresh, params } => {
+            Kind::Array {
+                elem,
+                fresh,
+                params,
+            } => {
                 let access = match param {
                     Some(key) if self.lw.env.mutated.contains(&key) => Access::Mut,
-                    Some(_) => Access::Shared,
                     None if *params == 0 && *fresh => Access::Fresh,
-                    None => Access::Shared,
+                    _ => Access::Shared,
                 };
                 Ty::Array(ArrayTy {
                     elem: *elem,
@@ -518,7 +562,11 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
     }
 
     fn struct_ref(&self, slot: StructSlot) -> StructRef {
-        self.lw.struct_refs.get(&slot).copied().unwrap_or(StructRef(0))
+        self.lw
+            .struct_refs
+            .get(&slot)
+            .copied()
+            .unwrap_or(StructRef(0))
     }
 
     fn new_local(
@@ -526,10 +574,10 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
         js_name: &str,
         symbol: Option<SymbolRef>,
         param: Option<usize>,
-        kind: Kind,
+        kind: &Kind,
         mutable: bool,
     ) -> LocalId {
-        let ty = self.kind_ty(&kind, symbol, param.map(|p| (self.id, p)));
+        let ty = self.kind_ty(kind, symbol, param.map(|p| (self.id, p)));
         self.new_local_ty(js_name, symbol, param, ty, mutable)
     }
 
@@ -544,7 +592,9 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
         let base = names::rust_ident(js_name);
         let mut name = base.clone();
         let mut n = 2;
-        while self.names.contains(names::bare(&name)) || RESERVED_FN_NAMES.contains(&names::bare(&name)) {
+        while self.names.contains(names::bare(&name))
+            || RESERVED_FN_NAMES.contains(&names::bare(&name))
+        {
             name = format!("{}_{n}", names::bare(&base));
             if base.starts_with("r#") && names::bare(&name) == names::bare(&base) {
                 name = format!("r#{name}");
@@ -573,19 +623,38 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
         }
         if let Some(param) = info.param {
             if let Some(overrides) = &self.overrides {
-                return normalize_param(overrides.get(param).cloned().unwrap_or(Kind::Bottom), param);
+                return normalize_param(
+                    overrides.get(param).cloned().unwrap_or(Kind::Bottom),
+                    param,
+                );
             }
-            let kind = self.lw.env.params.get(&(self.id, param)).cloned().unwrap_or(Kind::Bottom);
+            let kind = self
+                .lw
+                .env
+                .params
+                .get(&(self.id, param))
+                .cloned()
+                .unwrap_or(Kind::Bottom);
             return normalize_param(kind, param);
         }
         match info.symbol {
-            Some(symbol) => self.lw.env.locals.get(&symbol).cloned().unwrap_or(Kind::Bottom),
+            Some(symbol) => self
+                .lw
+                .env
+                .locals
+                .get(&symbol)
+                .cloned()
+                .unwrap_or(Kind::Bottom),
             None => kind_of_ty(self.locals[local.0].ty),
         }
     }
 
     fn local_value(&self, local: LocalId) -> V {
-        V::new(Expr::Local(local), self.locals[local.0].ty, self.local_kind(local))
+        V::new(
+            Expr::Local(local),
+            self.locals[local.0].ty,
+            self.local_kind(local),
+        )
     }
 
     // -------------------------------------------------------------------- constructors
@@ -621,11 +690,17 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
         let mut kinds = vec![Kind::Bottom; fields.len()];
         let mut values = Vec::new();
         for (index, init) in inits {
-            let Some(value) = self.expr(init) else { continue };
+            let Some(value) = self.expr(init) else {
+                continue;
+            };
             match &value.kind {
                 Kind::Num { .. } | Kind::Bool | Kind::Value { .. } => {}
                 other => {
-                    let message = format!("stores {} in the field `{}`", other.describe(), fields[index]);
+                    let message = format!(
+                        "stores {} in the field `{}`",
+                        other.describe(),
+                        fields[index]
+                    );
                     self.fail::<()>(init.span(), message);
                     continue;
                 }
@@ -645,14 +720,20 @@ impl<'l, 'w, 'a> FnCx<'l, 'w, 'a> {
             }
         }
         let field_tys: Vec<Ty> = if self.final_round() {
-            self.lw.structs[struct_ref.0].fields.iter().map(|(_, ty)| *ty).collect()
+            self.lw.structs[struct_ref.0]
+                .fields
+                .iter()
+                .map(|(_, ty)| *ty)
+                .collect()
         } else {
             vec![Ty::F64; fields.len()]
         };
         let mut lit = Vec::new();
         for (index, value) in values {
             let ty = field_tys.get(index).copied().unwrap_or(Ty::F64);
-            let Some(expr) = self.coerce(value, ty, false, Span::default()) else { continue };
+            let Some(expr) = self.coerce(value, ty, false, Span::default()) else {
+                continue;
+            };
             lit.push((fields[index].clone(), expr));
         }
         self.ctor_kinds = Some(kinds);
@@ -690,9 +771,7 @@ fn kind_of_ty(ty: Ty) -> Kind {
 
 fn trust_hint(trust: trioxide_analysis::Trust) -> &'static str {
     match trust {
-        trioxide_analysis::Trust::Declared => {
-            " (only TypeScript says so, and `trustTypes` is off)"
-        }
+        trioxide_analysis::Trust::Declared => " (only TypeScript says so, and `trustTypes` is off)",
         _ => "",
     }
 }
@@ -750,7 +829,9 @@ fn interface_order(module: &Module<'_>, name: &str) -> Vec<String> {
             {
                 return signature_names(&interface.body.body);
             }
-            Some(oxc_ast::ast::Declaration::TSTypeAliasDeclaration(alias)) if alias.id.name == name => {
+            Some(oxc_ast::ast::Declaration::TSTypeAliasDeclaration(alias))
+                if alias.id.name == name =>
+            {
                 if let oxc_ast::ast::TSType::TSTypeLiteral(literal) = &alias.type_annotation {
                     return signature_names(&literal.members);
                 }
@@ -796,15 +877,16 @@ fn boundary_value_problem(fields: &[Kind]) -> Option<&'static str> {
 /// Whether a parameter is annotated `number[]` or `Array<number>`.
 fn is_number_array_annotation(param: &FormalParameter<'_>) -> bool {
     use oxc_ast::ast::{TSType, TSTypeName};
-    let Some(annotation) = &param.type_annotation else { return false };
+    let Some(annotation) = &param.type_annotation else {
+        return false;
+    };
     match &annotation.type_annotation {
         TSType::TSArrayType(array) => matches!(array.element_type, TSType::TSNumberKeyword(_)),
         TSType::TSTypeReference(reference) => {
             matches!(&reference.type_name, TSTypeName::IdentifierReference(id) if id.name == "Array")
-                && reference
-                    .type_arguments
-                    .as_ref()
-                    .is_some_and(|args| matches!(args.params.as_slice(), [TSType::TSNumberKeyword(_)]))
+                && reference.type_arguments.as_ref().is_some_and(|args| {
+                    matches!(args.params.as_slice(), [TSType::TSNumberKeyword(_)])
+                })
         }
         _ => false,
     }

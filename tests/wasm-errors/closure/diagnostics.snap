@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/closure
+input_file: tests/wasm-errors/closure/input.ts
+---
+error[trioxide(wasm-ineligible)]: `apply` is forced into WASM but can't be compiled: creates a closure
+  --> input.ts:4:18 `(x: number) => x * 2`
+      `apply` creates a closure
+  --> input.ts:5:10 `double(n)`
+      `apply` calls `double`, which isn't a function declaration the backend can follow
+  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS

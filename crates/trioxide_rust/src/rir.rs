@@ -334,10 +334,14 @@ pub enum BinOp {
     IntSub,
     /// `*`, as [`BinOp::IntAdd`].
     IntMul,
-    /// `+` on `i32`s whose result goes straight through ToInt32: wrapping is the JS result.
+    /// `+` on `i32`s (or `u32`s) that may wrap: the result goes straight through `ToInt32`, or
+    /// an operand was reinterpreted between `i32` and `u32` while the result is proven in
+    /// range, so arithmetic modulo 2^32 gives the JS result.
     WrapAdd,
     /// `-`, as [`BinOp::WrapAdd`].
     WrapSub,
+    /// `*`, as [`BinOp::WrapAdd`].
+    WrapMul,
     /// `%` on two int32s: an `f64`, since the result may be `-0` or `NaN`.
     RemI32,
     /// `(a / b) | 0` on two int32s.
@@ -430,13 +434,13 @@ pub enum MathFn {
 /// A numeric conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Conv {
-    /// ToInt32 of an `f64`.
+    /// `ToInt32` of an `f64`.
     ToInt32,
-    /// ToUint32 of an `f64`.
+    /// `ToUint32` of an `f64`.
     ToUint32,
     /// An exact conversion: the value is representable in the target (`i32` → `f64`, or an
     /// `f64` the analysis proves is an int32, …), or a bit reinterpretation between `i32`
-    /// and `u32` where JS would apply ToInt32/ToUint32.
+    /// and `u32` where JS would apply `ToInt32`/`ToUint32`.
     Exact,
 }
 
@@ -506,7 +510,7 @@ pub enum Expr {
         /// Its length.
         len: Box<Expr>,
         /// `true`: `len` is a [`Ty::Index`] that is already a valid length; `false`: an `f64`
-        /// that goes through ToIndex and traps on invalid lengths, as the constructor throws.
+        /// that goes through `ToIndex` and traps on invalid lengths, as the constructor throws.
         exact: bool,
     },
     /// `test ? then : otherwise`.

@@ -1,5 +1,9 @@
 //! Expressions.
 
+#[allow(
+    clippy::wildcard_imports,
+    reason = "one impl split over modules (`expect` is unfulfilled in test builds)"
+)]
 use super::{stmt::is_pure, *};
 
 /// `Math` functions computed exactly as V8 does (`docs/ABI.md`, "Numerics"), by arity.
@@ -30,11 +34,17 @@ const INEXACT_MATH: &[&str] = &[
 ];
 
 impl<'a> FnCx<'_, '_, 'a> {
+    #[expect(
+        clippy::many_single_char_names,
+        reason = "one short name per node kind"
+    )]
     pub(super) fn expr(&mut self, expression: &'a Expression<'a>) -> Option<V> {
         let e = expression.get_inner_expression();
         match e {
             Expression::NumericLiteral(n) => Some(number_lit(n.value)),
-            Expression::BooleanLiteral(b) => Some(V::new(Expr::Lit(Lit::Bool(b.value)), Ty::Bool, Kind::Bool)),
+            Expression::BooleanLiteral(b) => {
+                Some(V::new(Expr::Lit(Lit::Bool(b.value)), Ty::Bool, Kind::Bool))
+            }
             Expression::Identifier(id) => self.identifier(id),
             Expression::BinaryExpression(b) => self.binary(b),
             Expression::LogicalExpression(l) => self.logical(l),
@@ -52,13 +62,21 @@ impl<'a> FnCx<'_, '_, 'a> {
                     _ => {
                         return self.fail(
                             c.span,
-                            format!("chooses between {} and {}", a.kind.describe(), b.kind.describe()),
+                            format!(
+                                "chooses between {} and {}",
+                                a.kind.describe(),
+                                b.kind.describe()
+                            ),
                         );
                     }
                 };
                 let a = self.coerce(a, ty, false, c.span)?;
                 let b = self.coerce(b, ty, false, c.span)?;
-                Some(V::new(Expr::Cond(Box::new(test), Box::new(a), Box::new(b)), ty, kind))
+                Some(V::new(
+                    Expr::Cond(Box::new(test), Box::new(a), Box::new(b)),
+                    ty,
+                    kind,
+                ))
             }
             Expression::CallExpression(c) => self.call(c),
             Expression::NewExpression(n) => self.new_expr(n),
@@ -67,7 +85,13 @@ impl<'a> FnCx<'_, '_, 'a> {
             Expression::ObjectExpression(o) => self.object(o),
             Expression::ThisExpression(t) => match self.class {
                 Some(class) => {
-                    let kind = self.lw.env.params.get(&(self.id, THIS)).cloned().unwrap_or(Kind::Bottom);
+                    let kind = self
+                        .lw
+                        .env
+                        .params
+                        .get(&(self.id, THIS))
+                        .cloned()
+                        .unwrap_or(Kind::Bottom);
                     let ty = Ty::Struct(self.struct_ref(StructSlot::Key(StructKey::Class(class))));
                     Some(V::new(Expr::SelfValue, ty, kind))
                 }
@@ -75,9 +99,15 @@ impl<'a> FnCx<'_, '_, 'a> {
                 None => self.fail(t.span, "uses `this` outside a method"),
             },
             Expression::UpdateExpression(u) => self.update_value(u),
-            Expression::AssignmentExpression(a) => self.fail(a.span, "uses an assignment as a value"),
-            Expression::StringLiteral(s) => self.fail(s.span, "uses a string (strings aren't supported in WASM)"),
-            Expression::TemplateLiteral(t) => self.fail(t.span, "uses a string (strings aren't supported in WASM)"),
+            Expression::AssignmentExpression(a) => {
+                self.fail(a.span, "uses an assignment as a value")
+            }
+            Expression::StringLiteral(s) => {
+                self.fail(s.span, "uses a string (strings aren't supported in WASM)")
+            }
+            Expression::TemplateLiteral(t) => {
+                self.fail(t.span, "uses a string (strings aren't supported in WASM)")
+            }
             Expression::ArrowFunctionExpression(f) => self.fail(f.span, "creates a closure"),
             Expression::FunctionExpression(f) => self.fail(f.span, "creates a closure"),
             Expression::ArrayExpression(a) => self.fail(a.span, "creates an array literal"),
@@ -89,7 +119,10 @@ impl<'a> FnCx<'_, '_, 'a> {
             Expression::SequenceExpression(s) => self.fail(s.span, "uses the comma operator"),
             Expression::RegExpLiteral(r) => self.fail(r.span, "uses a regular expression"),
             Expression::ClassExpression(c) => self.fail(c.span, "creates a class"),
-            other => self.fail(other.span(), "uses an expression the backend doesn't support"),
+            other => self.fail(
+                other.span(),
+                "uses an expression the backend doesn't support",
+            ),
         }
     }
 
@@ -120,9 +153,15 @@ impl<'a> FnCx<'_, '_, 'a> {
             (Kind::Bool, _) => Some(value.expr),
             (Kind::Num { .. } | Kind::Bottom, Ty::I32 | Ty::U32 | Ty::Index) => {
                 let zero = zero_of(value.ty);
-                Some(Expr::Binary(BinOp::Ne, Box::new(value.expr), Box::new(zero)))
+                Some(Expr::Binary(
+                    BinOp::Ne,
+                    Box::new(value.expr),
+                    Box::new(zero),
+                ))
             }
-            (Kind::Num { .. } | Kind::Bottom, _) => Some(Expr::Truthy(Ty::F64, Box::new(value.expr))),
+            (Kind::Num { .. } | Kind::Bottom, _) => {
+                Some(Expr::Truthy(Ty::F64, Box::new(value.expr)))
+            }
             (other, _) => {
                 let message = format!("tests the truthiness of {}", other.describe());
                 self.fail(span, message)
@@ -136,7 +175,11 @@ impl<'a> FnCx<'_, '_, 'a> {
         let Some(symbol) = self.module.reference_symbol(id.reference_id.get()) else {
             return match id.name.as_str() {
                 "NaN" => Some(V::new(Expr::Lit(Lit::F64(f64::NAN)), Ty::F64, Kind::NUM)),
-                "Infinity" => Some(V::new(Expr::Lit(Lit::F64(f64::INFINITY)), Ty::F64, Kind::NUM)),
+                "Infinity" => Some(V::new(
+                    Expr::Lit(Lit::F64(f64::INFINITY)),
+                    Ty::F64,
+                    Kind::NUM,
+                )),
                 "undefined" => self.fail(id.span, "uses `undefined`"),
                 "arguments" => self.fail(id.span, "uses `arguments`"),
                 name => self.fail(id.span, format!("uses the global `{name}` (a host API)")),
@@ -150,7 +193,10 @@ impl<'a> FnCx<'_, '_, 'a> {
             return Some(value);
         }
         if self.resolve_function(symbol).is_some() {
-            return self.fail(id.span, format!("uses the function `{}` as a value", id.name));
+            return self.fail(
+                id.span,
+                format!("uses the function `{}` as a value", id.name),
+            );
         }
         self.fail(
             id.span,
@@ -172,13 +218,21 @@ impl<'a> FnCx<'_, '_, 'a> {
         let symbol = self.resolve(symbol);
         if let Some(&reference) = self.lw.const_refs.get(&symbol) {
             let value = self.lw.consts[reference.0].value;
-            return Some(V::new(Expr::Const(reference), value.ty(), kind_of_ty(value.ty())));
+            return Some(V::new(
+                Expr::Const(reference),
+                value.ty(),
+                kind_of_ty(value.ty()),
+            ));
         }
         let module = self.lw.world.module(symbol.module)?;
         let (node, kind) = module.declaration(symbol.symbol);
-        let AstKind::VariableDeclarator(declarator) = kind else { return None };
+        let AstKind::VariableDeclarator(declarator) = kind else {
+            return None;
+        };
         let nodes = module.semantic.nodes();
-        let AstKind::VariableDeclaration(declaration) = nodes.parent_kind(node) else { return None };
+        let AstKind::VariableDeclaration(declaration) = nodes.parent_kind(node) else {
+            return None;
+        };
         if declaration.kind != VariableDeclarationKind::Const {
             return None;
         }
@@ -189,29 +243,43 @@ impl<'a> FnCx<'_, '_, 'a> {
         if !top_level {
             return None;
         }
-        let value = match declarator.init.as_ref().map(Expression::get_inner_expression) {
-            Some(Expression::BooleanLiteral(b)) => Lit::Bool(b.value),
-            _ => {
-                let fact = self.facts().symbol_ty(symbol);
-                if !self.facts().is_usable(fact.trust) {
-                    return None;
-                }
-                let Type::Number(n) = fact.value else { return None };
-                Lit::F64(n.as_constant()?)
+        let init = declarator
+            .init
+            .as_ref()
+            .map(Expression::get_inner_expression);
+        let value = if let Some(Expression::BooleanLiteral(b)) = init {
+            Lit::Bool(b.value)
+        } else {
+            let fact = self.facts().symbol_ty(symbol);
+            if !self.facts().is_usable(fact.trust) {
+                return None;
             }
+            let Type::Number(n) = fact.value else {
+                return None;
+            };
+            Lit::F64(n.as_constant()?)
         };
         let name = names::rust_ident(declarator.id.get_identifier_name()?.as_str());
         let mut unique = name.clone();
         let mut n = 2;
-        while self.lw.consts.iter().any(|c| c.name == unique) || self.lw.fn_names.values().any(|f| *f == unique) {
+        while self.lw.consts.iter().any(|c| c.name == unique)
+            || self.lw.fn_names.values().any(|f| *f == unique)
+        {
             unique = format!("{}_{n}", names::bare(&name));
             n += 1;
         }
         let reference = crate::rir::ConstRef(self.lw.consts.len());
-        self.lw.consts.push(crate::rir::ConstDef { name: unique, value });
+        self.lw.consts.push(crate::rir::ConstDef {
+            name: unique,
+            value,
+        });
         self.lw.const_refs.insert(symbol, reference);
         self.lw.env.changed = true;
-        Some(V::new(Expr::Const(reference), value.ty(), kind_of_ty(value.ty())))
+        Some(V::new(
+            Expr::Const(reference),
+            value.ty(),
+            kind_of_ty(value.ty()),
+        ))
     }
 
     /// The program function a binding names, if it is a plain, never reassigned function
@@ -223,7 +291,9 @@ impl<'a> FnCx<'_, '_, 'a> {
             return None;
         }
         let (node, kind) = module.declaration(symbol.symbol);
-        let AstKind::Function(_) = kind else { return None };
+        let AstKind::Function(_) = kind else {
+            return None;
+        };
         let id = module.node(node);
         let info = self.lw.world.functions.get(&id)?;
         (info.role == Role::Free).then_some(id)
@@ -288,20 +358,31 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
     }
 
-    /// An operand of a bitwise operator, which applies ToInt32 to it: `a + b` and `a - b` on
+    /// An operand of a bitwise operator, which applies `ToInt32` to it: `a + b` and `a - b` on
     /// two int32s wrap exactly (the exact sum is below 2^33, so the number JS computes is
-    /// exact too, and ToInt32 keeps it modulo 2^32).
+    /// exact too, and `ToInt32` keeps it modulo 2^32).
     fn int32_operand(&mut self, expression: &'a Expression<'a>) -> Option<V> {
         if let Expression::BinaryExpression(inner) = expression.get_inner_expression()
-            && matches!(inner.operator, BinaryOperator::Addition | BinaryOperator::Subtraction)
+            && matches!(
+                inner.operator,
+                BinaryOperator::Addition | BinaryOperator::Subtraction
+            )
         {
             let left = self.expr(&inner.left)?;
             let right = self.expr(&inner.right)?;
             if matches!(left.ty, Ty::I32 | Ty::U32) && matches!(right.ty, Ty::I32 | Ty::U32) {
-                let op = if inner.operator == BinaryOperator::Addition { BinOp::WrapAdd } else { BinOp::WrapSub };
+                let op = if inner.operator == BinaryOperator::Addition {
+                    BinOp::WrapAdd
+                } else {
+                    BinOp::WrapSub
+                };
                 let l = reinterpret(left, Ty::I32);
                 let r = reinterpret(right, Ty::I32);
-                return Some(V::new(Expr::Binary(op, Box::new(l), Box::new(r)), Ty::I32, Kind::NUM));
+                return Some(V::new(
+                    Expr::Binary(op, Box::new(l), Box::new(r)),
+                    Ty::I32,
+                    Kind::NUM,
+                ));
             }
             let fact = self.num_fact(inner.node_id());
             return self.arith(inner.operator, left, right, fact, inner.span);
@@ -353,7 +434,10 @@ impl<'a> FnCx<'_, '_, 'a> {
             | BinaryOperator::Inequality
             | BinaryOperator::StrictEquality
             | BinaryOperator::StrictInequality => {
-                let bin = if matches!(op, BinaryOperator::Equality | BinaryOperator::StrictEquality) {
+                let bin = if matches!(
+                    op,
+                    BinaryOperator::Equality | BinaryOperator::StrictEquality
+                ) {
                     BinOp::Eq
                 } else {
                     BinOp::Ne
@@ -373,7 +457,10 @@ impl<'a> FnCx<'_, '_, 'a> {
                         span,
                         "compares two values that may both be undefined (unchecked array reads)",
                     ),
-                    (a, b) => self.fail(span, format!("compares {} with {}", a.describe(), b.describe())),
+                    (a, b) => self.fail(
+                        span,
+                        format!("compares {} with {}", a.describe(), b.describe()),
+                    ),
                 }
             }
             _ => self.fail(span, format!("uses `{}`", op.as_str())),
@@ -381,6 +468,24 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     fn compare(&mut self, op: BinOp, left: V, right: V, span: Span) -> Option<V> {
+        // Comparisons with a literal NaN are constant (`!=` is true, the rest false); both
+        // sides are still evaluated.
+        let is_nan = |v: &V| matches!(v.expr, Expr::Lit(Lit::F64(x)) if x.is_nan());
+        if is_nan(&left) || is_nan(&right) {
+            let result = Expr::Lit(Lit::Bool(op == BinOp::Ne));
+            let mut stmts = Vec::new();
+            for side in [left, right] {
+                if !is_pure(&side.expr) {
+                    stmts.push(Stmt::Expr(side.expr));
+                }
+            }
+            let expr = if stmts.is_empty() {
+                result
+            } else {
+                Expr::Block(stmts, Box::new(result))
+            };
+            return Some(V::new(expr, Ty::Bool, Kind::Bool));
+        }
         let ty = match (left.ty, right.ty) {
             (Ty::I32, Ty::I32) => Ty::I32,
             (Ty::U32, Ty::U32) => Ty::U32,
@@ -389,7 +494,11 @@ impl<'a> FnCx<'_, '_, 'a> {
         };
         let l = self.coerce(left, ty, false, span)?;
         let r = self.coerce(right, ty, false, span)?;
-        Some(V::new(Expr::Binary(op, Box::new(l), Box::new(r)), Ty::Bool, Kind::Bool))
+        Some(V::new(
+            Expr::Binary(op, Box::new(l), Box::new(r)),
+            Ty::Bool,
+            Kind::Bool,
+        ))
     }
 
     /// `+ - * / %` on numbers. `result` is the range fact of the result, which decides
@@ -420,10 +529,24 @@ impl<'a> FnCx<'_, '_, 'a> {
                 None
             };
             if let Some(target) = target {
-                // Arithmetic modulo 2^32 is exact here: the result is proven in range.
+                // Arithmetic modulo 2^32 is exact here: the result is proven in range. An
+                // operand reinterpreted between i32 and u32 may wrap on the way there.
+                let wrap = if left.ty == target && right.ty == target {
+                    wrap
+                } else {
+                    match wrap {
+                        BinOp::IntAdd => BinOp::WrapAdd,
+                        BinOp::IntSub => BinOp::WrapSub,
+                        _ => BinOp::WrapMul,
+                    }
+                };
                 let l = reinterpret(left, target);
                 let r = reinterpret(right, target);
-                return Some(V::new(Expr::Binary(wrap, Box::new(l), Box::new(r)), target, Kind::NUM));
+                return Some(V::new(
+                    Expr::Binary(wrap, Box::new(l), Box::new(r)),
+                    target,
+                    Kind::NUM,
+                ));
             }
         }
         if op == BinaryOperator::Remainder && left.ty == Ty::I32 && right.ty == Ty::I32 {
@@ -442,7 +565,11 @@ impl<'a> FnCx<'_, '_, 'a> {
         };
         let l = self.coerce(left, Ty::F64, false, span)?;
         let r = self.coerce(right, Ty::F64, false, span)?;
-        Some(V::new(Expr::Binary(bin, Box::new(l), Box::new(r)), Ty::F64, Kind::NUM))
+        Some(V::new(
+            Expr::Binary(bin, Box::new(l), Box::new(r)),
+            Ty::F64,
+            Kind::NUM,
+        ))
     }
 
     /// `x ** n` for the exponents where the result is exact in both V8 and the runtime.
@@ -455,11 +582,16 @@ impl<'a> FnCx<'_, '_, 'a> {
         match exponent_value {
             Some(2.0) => {
                 if is_pure(&base_expr) {
-                    let mul = Expr::Binary(BinOp::Mul, Box::new(base_expr.clone()), Box::new(base_expr));
+                    let mul =
+                        Expr::Binary(BinOp::Mul, Box::new(base_expr.clone()), Box::new(base_expr));
                     return Some(V::new(mul, Ty::F64, Kind::NUM));
                 }
                 let local = self.temp("base", Ty::F64);
-                let mul = Expr::Binary(BinOp::Mul, Box::new(Expr::Local(local)), Box::new(Expr::Local(local)));
+                let mul = Expr::Binary(
+                    BinOp::Mul,
+                    Box::new(Expr::Local(local)),
+                    Box::new(Expr::Local(local)),
+                );
                 Some(V::new(
                     Expr::Block(vec![Stmt::Let(local, base_expr)], Box::new(mul)),
                     Ty::F64,
@@ -475,13 +607,13 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
     }
 
-    /// The bitwise and shift operators: ToInt32 on both sides.
+    /// The bitwise and shift operators: `ToInt32` on both sides.
     fn bits(&mut self, op: BinaryOperator, left: V, right: V, span: Span) -> Option<V> {
         let left = self.require_number(left, span)?;
         let right = self.require_number(right, span)?;
         let right_is_zero = matches!(right.expr, Expr::Lit(Lit::I32(0)));
         if right_is_zero && op == BinaryOperator::BitwiseOR {
-            return Some(V::new(self.to_int32(left), Ty::I32, Kind::NUM));
+            return Some(V::new(Self::int32_of(left), Ty::I32, Kind::NUM));
         }
         if right_is_zero && op == BinaryOperator::ShiftRightZeroFill {
             let expr = match left.ty {
@@ -494,8 +626,8 @@ impl<'a> FnCx<'_, '_, 'a> {
             };
             return Some(V::new(expr, Ty::U32, Kind::NUM));
         }
-        let l = self.to_int32(left);
-        let r = self.to_int32(right);
+        let l = Self::int32_of(left);
+        let r = Self::int32_of(right);
         let (bin, ty) = match op {
             BinaryOperator::BitwiseAnd => (BinOp::BitAnd, Ty::I32),
             BinaryOperator::BitwiseOR => (BinOp::BitOr, Ty::I32),
@@ -504,11 +636,15 @@ impl<'a> FnCx<'_, '_, 'a> {
             BinaryOperator::ShiftRight => (BinOp::Shr, Ty::I32),
             _ => (BinOp::Ushr, Ty::U32),
         };
-        Some(V::new(Expr::Binary(bin, Box::new(l), Box::new(r)), ty, Kind::NUM))
+        Some(V::new(
+            Expr::Binary(bin, Box::new(l), Box::new(r)),
+            ty,
+            Kind::NUM,
+        ))
     }
 
-    /// ToInt32 of a number.
-    fn to_int32(&mut self, value: V) -> Expr {
+    /// `ToInt32` of a number.
+    fn int32_of(value: V) -> Expr {
         match value.ty {
             Ty::I32 => value.expr,
             Ty::U32 => convert(Conv::Exact, Ty::U32, Ty::I32, value.expr),
@@ -530,13 +666,21 @@ impl<'a> FnCx<'_, '_, 'a> {
         let right = self.expr(&l.right)?;
         match (&left.kind, &right.kind) {
             (Kind::Bool, Kind::Bool) => Some(V::new(
-                Expr::Binary(if or { BinOp::Or } else { BinOp::And }, Box::new(left.expr), Box::new(right.expr)),
+                Expr::Binary(
+                    if or { BinOp::Or } else { BinOp::And },
+                    Box::new(left.expr),
+                    Box::new(right.expr),
+                ),
                 Ty::Bool,
                 Kind::Bool,
             )),
             (Kind::Num { .. }, Kind::Num { .. }) => {
                 let kind = left.kind.join(&right.kind);
-                let ty = if left.ty == right.ty && left.ty != Ty::Index { left.ty } else { Ty::F64 };
+                let ty = if left.ty == right.ty && left.ty != Ty::Index {
+                    left.ty
+                } else {
+                    Ty::F64
+                };
                 let lhs = self.coerce(left, ty, false, l.span)?;
                 let rhs = self.coerce(right, ty, false, l.span)?;
                 Some(V::new(
@@ -552,7 +696,12 @@ impl<'a> FnCx<'_, '_, 'a> {
             }
             (a, b) => self.fail(
                 l.span,
-                format!("combines {} and {} with `{}`", a.describe(), b.describe(), l.operator.as_str()),
+                format!(
+                    "combines {} and {} with `{}`",
+                    a.describe(),
+                    b.describe(),
+                    l.operator.as_str()
+                ),
             ),
         }
     }
@@ -561,24 +710,52 @@ impl<'a> FnCx<'_, '_, 'a> {
         match u.operator {
             UnaryOperator::UnaryNegation => {
                 let value = self.number(&u.argument)?;
+                match value.expr {
+                    Expr::Lit(Lit::I32(v)) if v != 0 && v != i32::MIN => {
+                        return Some(V::new(Expr::Lit(Lit::I32(-v)), Ty::I32, Kind::NUM));
+                    }
+                    Expr::Lit(Lit::F64(v)) => {
+                        return Some(V::new(Expr::Lit(Lit::F64(-v)), Ty::F64, Kind::NUM));
+                    }
+                    _ => {}
+                }
                 if value.ty == Ty::I32 && self.num_fact(u.node_id()).is_some_and(is_int32) {
-                    return Some(V::new(Expr::Unary(UnOp::NegI32, Box::new(value.expr)), Ty::I32, Kind::NUM));
+                    return Some(V::new(
+                        Expr::Unary(UnOp::NegI32, Box::new(value.expr)),
+                        Ty::I32,
+                        Kind::NUM,
+                    ));
                 }
                 let f = self.coerce(value, Ty::F64, false, u.span)?;
-                Some(V::new(Expr::Unary(UnOp::NegF64, Box::new(f)), Ty::F64, Kind::NUM))
+                Some(V::new(
+                    Expr::Unary(UnOp::NegF64, Box::new(f)),
+                    Ty::F64,
+                    Kind::NUM,
+                ))
             }
             UnaryOperator::UnaryPlus => {
                 let value = self.number(&u.argument)?;
-                Some(V { kind: Kind::NUM, ..value })
+                Some(V {
+                    kind: Kind::NUM,
+                    ..value
+                })
             }
             UnaryOperator::LogicalNot => {
                 let test = self.condition(&u.argument)?;
-                Some(V::new(Expr::Unary(UnOp::Not, Box::new(test)), Ty::Bool, Kind::Bool))
+                Some(V::new(
+                    Expr::Unary(UnOp::Not, Box::new(test)),
+                    Ty::Bool,
+                    Kind::Bool,
+                ))
             }
             UnaryOperator::BitwiseNot => {
                 let value = self.number(&u.argument)?;
-                let i = self.to_int32(value);
-                Some(V::new(Expr::Unary(UnOp::BitNot, Box::new(i)), Ty::I32, Kind::NUM))
+                let i = Self::int32_of(value);
+                Some(V::new(
+                    Expr::Unary(UnOp::BitNot, Box::new(i)),
+                    Ty::I32,
+                    Kind::NUM,
+                ))
             }
             op => self.fail(u.span, format!("uses `{}`", op.as_str())),
         }
@@ -617,7 +794,11 @@ impl<'a> FnCx<'_, '_, 'a> {
 
     // ------------------------------------------------------------------------------ calls
 
-    fn args(&mut self, arguments: &'a [Argument<'a>], span: Span) -> Option<Vec<(V, Span, &'a Expression<'a>)>> {
+    fn args(
+        &mut self,
+        arguments: &'a [Argument<'a>],
+        span: Span,
+    ) -> Option<Vec<(V, Span, &'a Expression<'a>)>> {
         let mut values = Vec::new();
         let mut ok = true;
         for argument in arguments {
@@ -656,19 +837,29 @@ impl<'a> FnCx<'_, '_, 'a> {
                         key: StructKey::Class(class),
                         ..
                     } => self.method_call(*class, receiver, name, c),
-                    Kind::Array { .. } => self.fail(c.span, format!("calls the array method `.{name}()`")),
-                    other => self.fail(c.span, format!("calls `.{name}()` on {}", other.describe())),
+                    Kind::Array { .. } => {
+                        self.fail(c.span, format!("calls the array method `.{name}()`"))
+                    }
+                    other => {
+                        self.fail(c.span, format!("calls `.{name}()` on {}", other.describe()))
+                    }
                 }
             }
             Expression::Identifier(id) => {
                 let Some(symbol) = self.module.reference_symbol(id.reference_id.get()) else {
-                    return self.fail(c.span, format!("calls the global `{}` (a host API)", id.name));
+                    return self.fail(
+                        c.span,
+                        format!("calls the global `{}` (a host API)", id.name),
+                    );
                 };
                 let symbol = self.module.symbol(symbol);
                 let Some(callee) = self.resolve_function(symbol) else {
                     return self.fail(
                         c.span,
-                        format!("calls `{}`, which isn't a function declaration the backend can follow", id.name),
+                        format!(
+                            "calls `{}`, which isn't a function declaration the backend can follow",
+                            id.name
+                        ),
                     );
                 };
                 self.function_call(callee, None, c.arguments.as_slice(), c.span)
@@ -738,7 +929,10 @@ impl<'a> FnCx<'_, '_, 'a> {
                             format!("passes an array that may be one of its parameters to `{name}`, which writes to it"),
                         );
                     }
-                    if passed.iter().any(|&(l, m)| l == local && (m || callee_mutates)) {
+                    if passed
+                        .iter()
+                        .any(|&(l, m)| l == local && (m || callee_mutates))
+                    {
                         let name = self.lw.display_name(callee);
                         return self.fail(arg_span, format!("passes the same array or object twice to `{name}`, which writes to it"));
                     }
@@ -753,7 +947,14 @@ impl<'a> FnCx<'_, '_, 'a> {
             lowered.push(self.coerce(value, ty, true, arg_span)?);
         }
         let ret = self.ret_ty(callee);
-        let kind = match self.lw.env.rets.get(&callee).cloned().unwrap_or(Kind::Bottom) {
+        let kind = match self
+            .lw
+            .env
+            .rets
+            .get(&callee)
+            .cloned()
+            .unwrap_or(Kind::Bottom)
+        {
             Kind::Bottom => Kind::Bottom,
             Kind::Array { elem, .. } => Kind::Array {
                 elem,
@@ -779,7 +980,12 @@ impl<'a> FnCx<'_, '_, 'a> {
     /// The Rust type of parameter `index` of `callee`, as the callee itself computes it.
     fn param_ty(&self, callee: FunctionId, index: usize) -> Ty {
         let kind = normalize_param(
-            self.lw.env.params.get(&(callee, index)).cloned().unwrap_or(Kind::Bottom),
+            self.lw
+                .env
+                .params
+                .get(&(callee, index))
+                .cloned()
+                .unwrap_or(Kind::Bottom),
             index,
         );
         let symbol = self.lw.world.functions.get(&callee).and_then(|info| {
@@ -794,13 +1000,25 @@ impl<'a> FnCx<'_, '_, 'a> {
         self.kind_ty(&kind, symbol, Some((callee, index)))
     }
 
-    fn method_call(&mut self, class: ClassId, receiver: V, name: &str, c: &'a CallExpression<'a>) -> Option<V> {
+    fn method_call(
+        &mut self,
+        class: ClassId,
+        receiver: V,
+        name: &str,
+        c: &'a CallExpression<'a>,
+    ) -> Option<V> {
         let Ok(model) = self.lw.class_model(class) else {
-            return self.fail(c.span, "calls a method of a class the backend can't compile");
+            return self.fail(
+                c.span,
+                "calls a method of a class the backend can't compile",
+            );
         };
         let Some(&method) = model.methods.get(name) else {
             let class_name = self.lw.class_name(class);
-            return self.fail(c.span, format!("calls `.{name}()`, which isn't a method of `{class_name}`"));
+            return self.fail(
+                c.span,
+                format!("calls `.{name}()`, which isn't a method of `{class_name}`"),
+            );
         };
         self.function_call(method, Some(receiver), c.arguments.as_slice(), c.span)
     }
@@ -815,7 +1033,12 @@ impl<'a> FnCx<'_, '_, 'a> {
         for (value, span, _) in args {
             values.push(self.require_number(value, span)?);
         }
-        let arity_error = |cx: &mut Self| cx.fail(c.span, format!("calls `Math.{name}` with {} arguments", c.arguments.len()));
+        let arity_error = |cx: &mut Self| {
+            cx.fail(
+                c.span,
+                format!("calls `Math.{name}` with {} arguments", c.arguments.len()),
+            )
+        };
         if let Some(&(_, function, arity)) = EXACT_MATH.iter().find(|(n, _, _)| *n == name) {
             if values.len() != arity {
                 return arity_error(self);
@@ -828,25 +1051,49 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         match name {
             "clz32" => {
-                let [value] = <[V; 1]>::try_from(values).ok().or_else(|| arity_error(self).map(|_: V| unreachable!()))?;
+                let [value] = <[V; 1]>::try_from(values)
+                    .ok()
+                    .or_else(|| arity_error(self).map(|_: V| unreachable!()))?;
                 let x = self.coerce(value, Ty::F64, false, c.span)?;
                 let clz = Expr::Math(MathFn::Clz32, vec![x]);
-                Some(V::new(convert(Conv::Exact, Ty::U32, Ty::I32, clz), Ty::I32, Kind::NUM))
+                Some(V::new(
+                    convert(Conv::Exact, Ty::U32, Ty::I32, clz),
+                    Ty::I32,
+                    Kind::NUM,
+                ))
             }
             "imul" => {
-                let [a, b] = <[V; 2]>::try_from(values).ok().or_else(|| arity_error(self).map(|_: V| unreachable!()))?;
+                let [a, b] = <[V; 2]>::try_from(values)
+                    .ok()
+                    .or_else(|| arity_error(self).map(|_: V| unreachable!()))?;
                 if a.ty == Ty::I32 && b.ty == Ty::I32 {
-                    return Some(V::new(Expr::Math(MathFn::ImulI32, vec![a.expr, b.expr]), Ty::I32, Kind::NUM));
+                    return Some(V::new(
+                        Expr::Math(MathFn::ImulI32, vec![a.expr, b.expr]),
+                        Ty::I32,
+                        Kind::NUM,
+                    ));
                 }
                 let a = self.coerce(a, Ty::F64, false, c.span)?;
                 let b = self.coerce(b, Ty::F64, false, c.span)?;
-                Some(V::new(Expr::Math(MathFn::Imul, vec![a, b]), Ty::I32, Kind::NUM))
+                Some(V::new(
+                    Expr::Math(MathFn::Imul, vec![a, b]),
+                    Ty::I32,
+                    Kind::NUM,
+                ))
             }
             "max" | "min" => {
-                let function = if name == "max" { MathFn::Max } else { MathFn::Min };
+                let function = if name == "max" {
+                    MathFn::Max
+                } else {
+                    MathFn::Min
+                };
                 let mut values = values.into_iter();
                 let Some(first) = values.next() else {
-                    let value = if name == "max" { f64::NEG_INFINITY } else { f64::INFINITY };
+                    let value = if name == "max" {
+                        f64::NEG_INFINITY
+                    } else {
+                        f64::INFINITY
+                    };
                     return Some(V::new(Expr::Lit(Lit::F64(value)), Ty::F64, Kind::NUM));
                 };
                 let mut acc = self.coerce(first, Ty::F64, false, c.span)?;
@@ -869,7 +1116,9 @@ impl<'a> FnCx<'_, '_, 'a> {
                 Some(V::new(Expr::Math(function, args), Ty::F64, Kind::NUM))
             }
             "pow" => {
-                let [base, _] = <[V; 2]>::try_from(values).ok().or_else(|| arity_error(self).map(|_: V| unreachable!()))?;
+                let [base, _] = <[V; 2]>::try_from(values)
+                    .ok()
+                    .or_else(|| arity_error(self).map(|_: V| unreachable!()))?;
                 let exponent = c.arguments[1].as_expression().expect("checked by args");
                 self.power(base, exponent, c.span)
             }
@@ -881,7 +1130,10 @@ impl<'a> FnCx<'_, '_, 'a> {
                      (docs/ABI.md, \"Numerics\")"
                 ),
             ),
-            name => self.fail(c.span, format!("uses `Math.{name}`, which the backend doesn't support")),
+            name => self.fail(
+                c.span,
+                format!("uses `Math.{name}`, which the backend doesn't support"),
+            ),
         }
     }
 
@@ -895,10 +1147,19 @@ impl<'a> FnCx<'_, '_, 'a> {
             if let Some(kind) = TypedArrayKind::from_constructor_name(id.name.as_str()) {
                 return self.new_typed_array(n, kind);
             }
-            return self.fail(n.span, format!("constructs the global `{}` (a host API)", id.name));
+            return self.fail(
+                n.span,
+                format!("constructs the global `{}` (a host API)", id.name),
+            );
         };
         let Some(class) = self.resolve_class(self.module.symbol(symbol)) else {
-            return self.fail(n.span, format!("constructs `{}`, which isn't a class the backend can follow", id.name));
+            return self.fail(
+                n.span,
+                format!(
+                    "constructs `{}`, which isn't a class the backend can follow",
+                    id.name
+                ),
+            );
         };
         if let Err((span, message)) = self.lw.class_model(class) {
             let name = self.lw.class_name(class);
@@ -938,7 +1199,13 @@ impl<'a> FnCx<'_, '_, 'a> {
     fn ctor_field_kinds(&mut self, class: ClassId, n: &'a NewExpression<'a>) -> Vec<Kind> {
         let fallback = || -> Vec<Kind> { Vec::new() };
         if self.lw.ctor_depth > 4 {
-            return self.lw.env.class_fields.get(&class).cloned().unwrap_or_else(fallback);
+            return self
+                .lw
+                .env
+                .class_fields
+                .get(&class)
+                .cloned()
+                .unwrap_or_else(fallback);
         }
         // Argument kinds, lowered again without keeping anything.
         let mut kinds = Vec::new();
@@ -965,13 +1232,19 @@ impl<'a> FnCx<'_, '_, 'a> {
     fn new_typed_array(&mut self, n: &'a NewExpression<'a>, kind: TypedArrayKind) -> Option<V> {
         let fact = self.facts().ty(self.node(n.node_id()));
         if !self.facts().is_usable(fact.trust) || *fact.value != Type::TypedArray(kind) {
-            return self.fail(n.span, format!("can't prove `{}` is the builtin", kind.constructor_name()));
+            return self.fail(
+                n.span,
+                format!("can't prove `{}` is the builtin", kind.constructor_name()),
+            );
         }
         let Some(element) = typed_element(kind) else {
             return self.fail(n.span, "creates a bigint array");
         };
         let [argument] = n.arguments.as_slice() else {
-            return self.fail(n.span, "calls a typed array constructor with other than one argument");
+            return self.fail(
+                n.span,
+                "calls a typed array constructor with other than one argument",
+            );
         };
         let Some(length) = argument.as_expression() else {
             return self.fail(n.span, "spreads arguments");
@@ -997,7 +1270,7 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     /// A new array's length: exact (an [`Ty::Index`]) when it is another array's length, a
-    /// constant or proven a valid index; otherwise an `f64` for ToIndex.
+    /// constant or proven a valid index; otherwise an `f64` for `ToIndex`.
     fn array_length(&mut self, length: &'a Expression<'a>) -> Option<(Expr, bool)> {
         if let Expression::StaticMemberExpression(member) = length.get_inner_expression()
             && member.property.name == "length"
@@ -1021,7 +1294,11 @@ impl<'a> FnCx<'_, '_, 'a> {
     }
 
     /// `new Array(n).fill(0)`.
-    fn new_number_array(&mut self, c: &'a CallExpression<'a>, new: &'a NewExpression<'a>) -> Option<V> {
+    fn new_number_array(
+        &mut self,
+        c: &'a CallExpression<'a>,
+        new: &'a NewExpression<'a>,
+    ) -> Option<V> {
         let fact = self.facts().ty(self.node(c.node_id()));
         if !self.facts().is_usable(fact.trust) || !matches!(fact.value, Type::Array(_)) {
             return self.fail(c.span, "can't prove `Array` and `.fill` are the builtins");
@@ -1069,7 +1346,11 @@ impl<'a> FnCx<'_, '_, 'a> {
 
     /// Reads `m`; `target` when it is also assigned (`p.x += 1`), which has no type fact of
     /// its own: the field's other reads must prove it.
-    pub(super) fn member_read(&mut self, m: &'a StaticMemberExpression<'a>, target: bool) -> Option<V> {
+    pub(super) fn member_read(
+        &mut self,
+        m: &'a StaticMemberExpression<'a>,
+        target: bool,
+    ) -> Option<V> {
         if m.optional {
             return self.fail(m.span, "uses optional chaining");
         }
@@ -1083,10 +1364,16 @@ impl<'a> FnCx<'_, '_, 'a> {
         };
         if let Some(namespace) = namespace {
             // The fact proves the namespace is the builtin; the value is the spec's.
-            if let (Some(_), Some(value)) = (self.num_fact(m.node_id()), builtin_constant(namespace, name)) {
+            if let (Some(_), Some(value)) = (
+                self.num_fact(m.node_id()),
+                builtin_constant(namespace, name),
+            ) {
                 return Some(number_lit(value));
             }
-            return self.fail(m.span, format!("reads `{namespace}.{name}`, which the backend doesn't know"));
+            return self.fail(
+                m.span,
+                format!("reads `{namespace}.{name}`, which the backend doesn't know"),
+            );
         }
         let object = self.expr(&m.object)?;
         match object.kind.clone() {
@@ -1100,25 +1387,50 @@ impl<'a> FnCx<'_, '_, 'a> {
             }
             Kind::Value { key, fields } => {
                 let names = match key {
-                    StructKey::Class(class) => self.lw.classes.get(&class).map(|m| m.fields.clone()),
-                    StructKey::Literal(site) => self.lw.env.literals.get(&site).map(|m| m.fields.clone()),
+                    StructKey::Class(class) => {
+                        self.lw.classes.get(&class).map(|m| m.fields.clone())
+                    }
+                    StructKey::Literal(site) => {
+                        self.lw.env.literals.get(&site).map(|m| m.fields.clone())
+                    }
                 }
                 .unwrap_or_default();
                 let Some(index) = names.iter().position(|n| n == name) else {
-                    return self.fail(m.span, format!("reads `.{name}`, which the object doesn't have"));
+                    return self.fail(
+                        m.span,
+                        format!("reads `.{name}`, which the object doesn't have"),
+                    );
                 };
                 let kind = fields.get(index).cloned().unwrap_or(Kind::Bottom);
                 let joined = match key {
-                    StructKey::Class(class) => self.lw.env.class_fields.get(&class).and_then(|f| f.get(index).cloned()),
-                    StructKey::Literal(site) => self.lw.env.literals.get(&site).and_then(|m| m.kinds.get(index).cloned()),
+                    StructKey::Class(class) => self
+                        .lw
+                        .env
+                        .class_fields
+                        .get(&class)
+                        .and_then(|f| f.get(index).cloned()),
+                    StructKey::Literal(site) => self
+                        .lw
+                        .env
+                        .literals
+                        .get(&site)
+                        .and_then(|m| m.kinds.get(index).cloned()),
                 }
                 .unwrap_or(Kind::Bottom);
                 let ty = self.lw.value_field_ty(&joined);
-                Some(V::new(Expr::Field(Box::new(object.expr), name.to_string()), ty, kind))
+                Some(V::new(
+                    Expr::Field(Box::new(object.expr), name.to_string()),
+                    ty,
+                    kind,
+                ))
             }
             Kind::ParamStruct { group } if target => {
                 let read = self.lw.env.groups[group].field_mut(name).read;
-                let kind = if read == Some(FieldRead::Bool) { Kind::Bool } else { Kind::NUM };
+                let kind = if read == Some(FieldRead::Bool) {
+                    Kind::Bool
+                } else {
+                    Kind::NUM
+                };
                 if self.final_round() && read.is_none() {
                     return self.fail(
                         m.span,
@@ -1126,16 +1438,36 @@ impl<'a> FnCx<'_, '_, 'a> {
                     );
                 }
                 let ty = self.group_field_ty(group, name);
-                Some(V::new(Expr::Field(Box::new(object.expr), name.to_string()), ty, kind))
+                Some(V::new(
+                    Expr::Field(Box::new(object.expr), name.to_string()),
+                    ty,
+                    kind,
+                ))
             }
             Kind::ParamStruct { group } => {
                 let node = self.node(m.node_id());
                 if self.facts().call_graph().callees(node).next().is_some() {
-                    return self.fail(m.span, format!("reads `.{name}`, which may run an accessor"));
+                    return self.fail(
+                        m.span,
+                        format!("reads `.{name}`, which may run an accessor"),
+                    );
                 }
-                let fact = self.facts().ty(node);
+                // The analysis may know the field at function entry (`ExtraFacts`); otherwise
+                // this read's own fact must prove it.
+                let param_symbol = match &object.expr {
+                    Expr::Local(local) => self.info[local.0].symbol,
+                    _ => None,
+                };
+                let entry_fact =
+                    param_symbol.and_then(|symbol| self.lw.extra.param_field(symbol, name));
+                let fact = match &entry_fact {
+                    Some(fact) if self.facts().is_usable(fact.trust) => fact.as_ref(),
+                    _ => self.facts().ty(node),
+                };
                 let read = match fact.value {
-                    Type::Number(n) if self.facts().is_usable(fact.trust) => Some(FieldRead::Number(*n)),
+                    Type::Number(n) if self.facts().is_usable(fact.trust) => {
+                        Some(FieldRead::Number(*n))
+                    }
                     Type::Boolean if self.facts().is_usable(fact.trust) => Some(FieldRead::Bool),
                     _ => None,
                 };
@@ -1151,12 +1483,17 @@ impl<'a> FnCx<'_, '_, 'a> {
                 let entry = self.lw.env.groups[group].field_mut(name);
                 let joined = match (entry.read, read) {
                     (None, read) => Some(read),
-                    (Some(FieldRead::Number(a)), FieldRead::Number(b)) => Some(FieldRead::Number(a.join(b))),
+                    (Some(FieldRead::Number(a)), FieldRead::Number(b)) => {
+                        Some(FieldRead::Number(a.join(b)))
+                    }
                     (Some(FieldRead::Bool), FieldRead::Bool) => Some(FieldRead::Bool),
                     _ => None,
                 };
                 let Some(joined) = joined else {
-                    return self.fail(m.span, format!("`.{name}` is read as both a number and a boolean"));
+                    return self.fail(
+                        m.span,
+                        format!("`.{name}` is read as both a number and a boolean"),
+                    );
                 };
                 if entry.read != Some(joined) {
                     entry.read = Some(joined);
@@ -1164,8 +1501,16 @@ impl<'a> FnCx<'_, '_, 'a> {
                 }
                 entry.reads = entry.reads.max(1);
                 let ty = self.group_field_ty(group, name);
-                let kind = if read == FieldRead::Bool { Kind::Bool } else { Kind::NUM };
-                Some(V::new(Expr::Field(Box::new(object.expr), name.to_string()), ty, kind))
+                let kind = if read == FieldRead::Bool {
+                    Kind::Bool
+                } else {
+                    Kind::NUM
+                };
+                Some(V::new(
+                    Expr::Field(Box::new(object.expr), name.to_string()),
+                    ty,
+                    kind,
+                ))
             }
             other => self.fail(m.span, format!("reads `.{name}` of {}", other.describe())),
         }
@@ -1177,7 +1522,10 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         let array = self.expr(&m.object)?;
         let Kind::Array { elem, .. } = array.kind else {
-            let message = format!("reads a computed property of {} (dynamic keys)", array.kind.describe());
+            let message = format!(
+                "reads a computed property of {} (dynamic keys)",
+                array.kind.describe()
+            );
             return self.fail(m.span, message);
         };
         let index = self.index(&m.expression, m.node_id())?;
@@ -1188,7 +1536,14 @@ impl<'a> FnCx<'_, '_, 'a> {
                 let fact = self.facts().ty(self.node(m.node_id()));
                 // A `number[]` created in the island has no holes.
                 (self.facts().is_usable(fact.trust) && matches!(fact.value, Type::Number(_)))
-                    || matches!(array.kind, Kind::Array { fresh: true, params: 0, .. })
+                    || matches!(
+                        array.kind,
+                        Kind::Array {
+                            fresh: true,
+                            params: 0,
+                            ..
+                        }
+                    )
             }
         };
         let defined = (index.in_bounds || local) && proven_number;
@@ -1210,7 +1565,11 @@ impl<'a> FnCx<'_, '_, 'a> {
             index: Box::new(index),
         };
         if int {
-            return Some(V::new(convert(Conv::Exact, Ty::F64, Ty::I32, get), Ty::I32, Kind::NUM));
+            return Some(V::new(
+                convert(Conv::Exact, Ty::F64, Ty::I32, get),
+                Ty::I32,
+                Kind::NUM,
+            ));
         }
         Some(V::new(get, Ty::F64, Kind::Num { undef: !defined }))
     }
@@ -1237,7 +1596,12 @@ impl<'a> FnCx<'_, '_, 'a> {
             };
             let name = match &property.key {
                 PropertyKey::StaticIdentifier(id) if !property.computed => id.name.to_string(),
-                _ => return self.fail(property.span, "uses a computed or non-identifier property key"),
+                _ => {
+                    return self.fail(
+                        property.span,
+                        "uses a computed or non-identifier property key",
+                    );
+                }
             };
             if property.kind != PropertyKind::Init || property.method {
                 return self.fail(property.span, "defines a getter, setter or method");
@@ -1310,18 +1674,28 @@ impl<'a> FnCx<'_, '_, 'a> {
         }
         match (value.ty, ty) {
             (Ty::I32 | Ty::Index, Ty::F64) if matches!(value.expr, Expr::Len(..)) => {
-                let Expr::Len(array, _) = value.expr else { unreachable!("matched") };
+                let Expr::Len(array, _) = value.expr else {
+                    unreachable!("matched")
+                };
                 Some(Expr::Len(array, Ty::F64))
             }
-            (Ty::I32 | Ty::U32 | Ty::Index, Ty::F64) => Some(convert(Conv::Exact, value.ty, Ty::F64, value.expr)),
+            (Ty::I32 | Ty::U32 | Ty::Index, Ty::F64) => {
+                Some(convert(Conv::Exact, value.ty, Ty::F64, value.expr))
+            }
             (Ty::F64 | Ty::I32 | Ty::U32 | Ty::Index, Ty::I32 | Ty::U32 | Ty::Index) if proven => {
                 Some(convert(Conv::Exact, value.ty, ty, value.expr))
             }
-            (Ty::Array(from), Ty::Array(to)) if from.elem == to.elem => match (from.access, to.access) {
-                (_, Access::Shared) | (Access::Fresh | Access::Mut, Access::Mut) => Some(value.expr),
-                _ => self.fail(span, "writes to an array it only borrows"),
-            },
-            (Ty::StructRef(a, Access::Mut), Ty::StructRef(b, Access::Shared)) if a == b => Some(value.expr),
+            (Ty::Array(from), Ty::Array(to)) if from.elem == to.elem => {
+                match (from.access, to.access) {
+                    (_, Access::Shared) | (Access::Fresh | Access::Mut, Access::Mut) => {
+                        Some(value.expr)
+                    }
+                    _ => self.fail(span, "writes to an array it only borrows"),
+                }
+            }
+            (Ty::StructRef(a, Access::Mut), Ty::StructRef(b, Access::Shared)) if a == b => {
+                Some(value.expr)
+            }
             (Ty::Struct(a), Ty::Struct(b)) if a == b => Some(value.expr),
             _ => self.fail(
                 span,
@@ -1337,7 +1711,11 @@ impl<'a> FnCx<'_, '_, 'a> {
 /// A number literal, as `i32` or `u32` when it is one (never for `-0`).
 pub(super) fn number_lit(value: f64) -> V {
     let int = value.fract() == 0.0 && !(value == 0.0 && value.is_sign_negative());
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "range checked")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "range checked"
+    )]
     let lit = if int && (-2_147_483_648.0..=2_147_483_647.0).contains(&value) {
         Lit::I32(value as i32)
     } else if int && (0.0..=4_294_967_295.0).contains(&value) {
@@ -1356,9 +1734,20 @@ pub(super) fn convert(conv: Conv, from: Ty, to: Ty, arg: Expr) -> Expr {
             Lit::I32(v) => f64::from(v),
             Lit::U32(v) => f64::from(v),
             Lit::F64(v) => v,
-            Lit::Bool(_) => return Expr::Convert { conv, from, to, arg: Box::new(arg) },
+            Lit::Bool(_) => {
+                return Expr::Convert {
+                    conv,
+                    from,
+                    to,
+                    arg: Box::new(arg),
+                };
+            }
         };
-        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "exact by construction")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "exact by construction"
+        )]
         match to {
             Ty::F64 => return Expr::Lit(Lit::F64(value)),
             Ty::I32 if from != Ty::U32 => return Expr::Lit(Lit::I32(value as i32)),

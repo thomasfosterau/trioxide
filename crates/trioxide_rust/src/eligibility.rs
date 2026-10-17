@@ -55,9 +55,6 @@ pub fn check(
 /// restricted to them (PLAN D4, §5 "Clustering"). Components come out in the order of their
 /// first function in `eligible`, each sorted the same way.
 pub fn clusters(facts: &Facts, eligible: &[FunctionId]) -> Vec<Vec<FunctionId>> {
-    let index: FxHashMap<FunctionId, usize> =
-        eligible.iter().enumerate().map(|(i, &f)| (f, i)).collect();
-    let mut parent: Vec<usize> = (0..eligible.len()).collect();
     fn find(parent: &mut [usize], mut x: usize) -> usize {
         while parent[x] != x {
             parent[x] = parent[parent[x]];
@@ -65,6 +62,9 @@ pub fn clusters(facts: &Facts, eligible: &[FunctionId]) -> Vec<Vec<FunctionId>> 
         }
         x
     }
+    let index: FxHashMap<FunctionId, usize> =
+        eligible.iter().enumerate().map(|(i, &f)| (f, i)).collect();
+    let mut parent: Vec<usize> = (0..eligible.len()).collect();
     for edge in facts.call_graph().edges() {
         if !facts.is_usable(edge.trust) {
             continue;
@@ -86,5 +86,8 @@ pub fn clusters(facts: &Facts, eligible: &[FunctionId]) -> Vec<Vec<FunctionId>> 
         }
         group.push(function);
     }
-    order.into_iter().map(|root| groups.remove(&root).unwrap_or_default()).collect()
+    order
+        .into_iter()
+        .map(|root| groups.remove(&root).unwrap_or_default())
+        .collect()
 }

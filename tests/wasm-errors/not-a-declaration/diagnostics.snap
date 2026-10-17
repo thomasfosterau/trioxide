@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/not-a-declaration
+input_file: tests/wasm-errors/not-a-declaration/input.ts
+---
+error[trioxide(wasm-ineligible)]: only top-level function declarations can be forced into WASM
+  --> input.ts:3:3 `"use wasm";`

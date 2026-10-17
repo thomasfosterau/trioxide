@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/inexact-math
+input_file: tests/wasm-errors/inexact-math/input.ts
+---
+error[trioxide(wasm-ineligible)]: `wave` is forced into WASM but can't be compiled: uses `Math.sin`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  --> input.ts:5:10 `Math.sin(t)`
+      `wave` uses `Math.sin`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS

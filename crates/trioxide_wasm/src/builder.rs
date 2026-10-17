@@ -429,9 +429,9 @@ impl CargoIslandBuilder {
             let built = out_dir.join(format!("{}.wasm", package_name(&pending.key)));
             // Package names come from cache keys, so an existing output was built from these
             // exact sources, possibly by an earlier run; it only counts as failed if cargo
-            // says this package failed.
+            // says this package failed (warnings name the package too).
             let package = package_name(&pending.key);
-            let failed = stderr.contains(&format!("`{package}`"));
+            let failed = stderr.contains(&format!("could not compile `{package}`"));
             let result = match std::fs::read(&built) {
                 Ok(wasm) if !failed => self.finish(island, &pending.key, &built, wasm),
                 _ => Err(BuildError::Cargo {

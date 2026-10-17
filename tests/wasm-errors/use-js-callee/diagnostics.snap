@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/use-js-callee
+input_file: tests/wasm-errors/use-js-callee/input.ts
+---
+error[trioxide(wasm-ineligible)]: `caller` is forced into WASM but can't be compiled: calls `helper`, which is marked "use js"
+  --> input.ts:9:10 `helper(x)`
+      `caller` calls `helper`, which is marked "use js"
+  help: only numbers, booleans, typed arrays, `number[]`, plain-data objects, local control flow, arithmetic, `Math.*` and calls to other compilable functions can be compiled (docs/PLAN.md §5); remove the directive to keep it in JS
