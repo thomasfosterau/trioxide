@@ -1,0 +1,51 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/any-laundering
+input_file: tests/fixtures/analysis/any-laundering/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  fromAny (3:1): pure
+  main (7:8): reads writes allocates throws calls-unknown
+    calls 13:21 -> fromAny
+nodes:
+  3:10 bind `fromAny`: function@proven
+  7:17 bind `main`: function@proven
+  8:9 bind `a`: string@proven
+  9:9 bind `n`: string@proven
+  9:21 ref `a`: string@proven
+  11:3 call `console.log(n /*@proven string*/)`: unknown
+  11:3 member `console.log`: unknown
+  11:3 ref `console`: unknown
+  11:15 ref `n`: string@proven
+  13:9 bind `b`: string@proven
+  13:21 call `fromAny()`: string@proven
+  13:21 ref `fromAny`: function@proven
+  15:3 call `console.log(b /*@proven string*/, typ...`: unknown
+  15:3 member `console.log`: unknown
+  15:3 ref `console`: unknown
+  15:15 ref `b`: string@proven
+  15:37 unary `typeof b`: string@proven
+  15:44 ref `b`: string@proven
+  17:9 bind `json`: unknown
+  17:16 call `JSON.parse("[1, 2]")`: unknown
+  17:16 member `JSON.parse`: unknown
+  17:16 ref `JSON`: unknown
+  18:9 bind `first`: number@declared
+  18:25 member `json[0]`: unknown
+  18:25 ref `json`: unknown
+  20:3 call `console.log(first /*@declared number*/)`: unknown
+  20:3 member `console.log`: unknown
+  20:3 ref `console`: unknown
+  20:15 ref `first`: number@declared
+  22:9 bind `laundered`: number[]@declared
+  22:21 cast `(json as unknown) as number[]`: number[]@declared
+  22:22 cast `json as unknown`: unknown
+  22:22 ref `json`: unknown
+  23:3 call `console.log(laundered /*@declared arr...`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 ref `laundered`: number[]@declared
+  23:46 member `laundered.length`: number[0, 4294967295] int nonNaN nonNegZero@declared
+  23:46 ref `laundered`: number[]@declared

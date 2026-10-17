@@ -14,6 +14,21 @@ workspace = true
 [dependencies]
 trioxide_common.workspace = true
 trioxide_types.workspace = true
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
+oxc_ecmascript.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
 oxc_syntax.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+trioxide.workspace = true
+trioxide_project.workspace = true
+trioxide_types = { workspace = true, features = ["tsrs"] }

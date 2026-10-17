@@ -1,0 +1,85 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/basics
+input_file: tests/fixtures/analysis/basics/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  square (3:1): pure
+  sum (7:8): reads
+  main (15:8): reads writes allocates throws calls-unknown
+    calls 18:15 -> square
+    calls 20:29 -> sum
+nodes:
+  3:10 bind `square`: function@proven
+  3:17 bind `x`: number[0, 3] int nonNaN nonNegZero@proven
+  4:10 binary `x * x`: number[0, 9] int nonNaN nonNegZero@proven
+  4:10 ref `x`: number[0, 3] int nonNaN nonNegZero@proven
+  4:14 ref `x`: number[0, 3] int nonNaN nonNegZero@proven
+  7:17 bind `sum`: function@proven
+  7:21 bind `values`: Float64Array@proven
+  7:29 ref `Float64Array`: unknown
+  8:7 bind `total`: 0@proven
+  9:12 bind `i`: 0@proven
+  9:19 binary `i < values.length`: boolean@proven
+  9:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  9:23 member `values.length`: 4@proven
+  9:23 ref `values`: Float64Array@proven
+  9:38 unary `i++`: number[0, 3] int nonNaN nonNegZero@proven
+  9:38 ref `i`: number[0, 4] int nonNaN nonNegZero@proven
+  10:5 assign `total += values[i]`: number nonNegZero@proven
+  10:5 ref `total`: number nonNegZero@proven
+  10:14 member `values[i]`: number@proven in-bounds@proven
+  10:14 ref `values`: Float64Array@proven
+  10:21 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  12:10 ref `total`: number nonNegZero@proven
+  15:17 bind `main`: function@proven
+  16:9 bind `data`: Float64Array@proven
+  16:16 new `new Float64Array(4)`: Float64Array@proven escape=known
+  16:20 ref `Float64Array`: unknown
+  17:12 bind `i`: 0@proven
+  17:19 binary `i < data.length`: boolean@proven
+  17:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  17:23 member `data.length`: 4@proven
+  17:23 ref `data`: Float64Array@proven
+  17:36 unary `i++`: number[0, 3] int nonNaN nonNegZero@proven
+  17:36 ref `i`: number[0, 4] int nonNaN nonNegZero@proven
+  18:5 assign `data[i] = square(i) | 0`: number[0, 9] int nonNaN nonNegZero@proven
+  18:5 member `data[i]`: unknown
+  18:5 ref `data`: Float64Array@proven
+  18:10 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  18:15 binary `square(i) | 0`: number[0, 9] int nonNaN nonNegZero@proven
+  18:15 call `square(i)`: number[0, 9] int nonNaN nonNegZero@proven
+  18:15 ref `square`: function@proven
+  18:22 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  20:9 bind `label`: string@proven
+  20:17 binary `"total: " + sum(data)`: string@proven
+  20:29 call `sum(data)`: number nonNegZero@proven
+  20:29 ref `sum`: function@proven
+  20:33 ref `data`: Float64Array@proven
+  21:9 bind `point`: {| x: 1, y: 2 |}@proven
+  21:17 object `{ x: 1, y: 2 }`: {| x: 1, y: 2 |}@proven escape=none stable-shape
+  22:9 bind `len`: 2.23606797749979@proven
+  22:15 call `Math.sqrt(point.x * point.x + point.y...`: 2.23606797749979@proven
+  22:15 member `Math.sqrt`: unknown
+  22:15 ref `Math`: unknown
+  22:25 binary `point.x * point.x + point.y * point.y`: 5@proven
+  22:25 binary `point.x * point.x`: 1@proven
+  22:25 member `point.x`: 1@proven
+  22:25 ref `point`: {| x: 1, y: 2 |}@proven
+  22:35 member `point.x`: 1@proven
+  22:35 ref `point`: {| x: 1, y: 2 |}@proven
+  22:45 binary `point.y * point.y`: 4@proven
+  22:45 member `point.y`: 2@proven
+  22:45 ref `point`: {| x: 1, y: 2 |}@proven
+  22:55 member `point.y`: 2@proven
+  22:55 ref `point`: {| x: 1, y: 2 |}@proven
+  23:3 call `console.log(label, Math.floor(len))`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 ref `label`: string@proven
+  23:22 call `Math.floor(len)`: 2@proven
+  23:22 member `Math.floor`: unknown
+  23:22 ref `Math`: unknown
+  23:33 ref `len`: 2.23606797749979@proven

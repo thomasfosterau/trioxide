@@ -1860,10 +1860,22 @@ dependencies = [
 name = "trioxide_analysis"
 version = "0.0.0"
 dependencies = [
+ "insta",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_ecmascript",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
  "oxc_syntax",
  "rustc-hash",
  "serde",
+ "serde_json",
+ "tempfile",
+ "trioxide",
  "trioxide_common",
+ "trioxide_project",
  "trioxide_types",
 ]
 

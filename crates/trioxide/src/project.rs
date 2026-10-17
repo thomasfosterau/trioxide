@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use trioxide_analysis::{Analysis, AnalysisOptions, analyze};
+use trioxide_analysis::{Analysis, AnalysisOptions, ModuleInput, analyze};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
 use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
 use trioxide_project::{
-    CompilerSettings, ContentCache, ContentHash, GraphOptions, ModuleGraph, find_tsconfig,
+    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, ModuleGraph,
+    find_tsconfig,
 };
 use trioxide_types::{OracleInput, SourceText, TypeOracle, default_oracle};
 
@@ -97,7 +98,7 @@ impl Project {
                 .expect("options serialise")
                 .as_bytes(),
         );
-        let analysis = analyze(AnalysisOptions {
+        let analysis = Analysis::empty(AnalysisOptions {
             closed_world: false,
             trust_types: options.trust_types,
         });
@@ -229,10 +230,15 @@ impl Project {
         }
 
         let world = self.options.world_or(self.built_from_entries);
-        self.analysis = analyze(AnalysisOptions {
-            closed_world: world == World::App,
-            trust_types: self.options.trust_types,
-        });
+        let inputs = analysis_inputs(&self.graph);
+        self.analysis = analyze(
+            &inputs,
+            &mut *self.oracle,
+            AnalysisOptions {
+                closed_world: world == World::App,
+                trust_types: self.options.trust_types,
+            },
+        );
         diagnostics.append(&mut self.analysis.diagnostics);
 
         let partitioner = Partitioner::new(PartitionOptions {
@@ -246,8 +252,8 @@ impl Project {
         let partition = partitioner.partition(&self.analysis.facts);
         debug_assert!(partition.is_all_js(), "island emission is not wired up yet");
 
-        // The analysis may have changed, so cached outputs computed against older facts are
-        // stale. Without real facts yet, every module's output only depends on its source.
+        // The facts changed, so outputs computed against older facts are stale.
+        self.outputs.clear();
         self.diagnostics
             .retain(|diagnostic| diagnostic.code.as_deref() == Some("trioxide(target)"));
         self.diagnostics.extend(diagnostics);
@@ -299,6 +305,31 @@ impl Project {
             diagnostics: self.diagnostics.clone(),
         }
     }
+}
+
+/// The analysis inputs for every module of `graph`.
+fn analysis_inputs(graph: &ModuleGraph) -> Vec<ModuleInput<'_>> {
+    graph
+        .modules()
+        .iter()
+        .map(|module| ModuleInput {
+            id: module.id,
+            path: &module.path,
+            source: &module.source,
+            source_type: module.source_type,
+            imports: module
+                .imports
+                .iter()
+                .map(|import| {
+                    let target = match import.target {
+                        ImportTarget::Module(id) => Some(id),
+                        _ => None,
+                    };
+                    (import.specifier.clone(), target)
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Strips TypeScript from one module without analysis or optimisation: plain

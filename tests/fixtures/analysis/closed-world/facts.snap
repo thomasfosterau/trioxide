@@ -1,0 +1,51 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/closed-world
+input_file: tests/fixtures/analysis/closed-world/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  scale (3:8): pure
+  bump (9:8): reads writes
+  escaping (14:1) open: throws calls-unknown (declared: pure)
+  main (18:8): reads writes allocates throws calls-unknown
+    calls 19:15 -> scale
+    calls 19:28 -> scale
+    calls 19:41 -> bump
+nodes:
+  3:17 bind `scale`: function@proven
+  3:23 bind `value`: number[2, 4] int nonNaN nonNegZero@proven
+  3:38 bind `factor`: number[3, 5] int nonNaN nonNegZero@proven
+  4:10 binary `value /*@proven number int*/ * factor`: number[6, 20] int nonNaN nonNegZero@proven
+  4:10 ref `value`: number[2, 4] int nonNaN nonNegZero@proven
+  4:41 ref `factor`: number[3, 5] int nonNaN nonNegZero@proven
+  7:14 bind `shared`: {| count: number[0, inf] int nonNaN nonNegZero |}@proven
+  7:23 object `{ count: 0 }`: {| count: number[0, inf] int nonNaN nonNegZero |}@proven escape=known stable-shape
+  9:17 bind `bump`: function@proven
+  10:3 unary `shared.count++`: number[0, inf] int nonNaN nonNegZero@proven
+  10:3 member `shared.count`: unknown
+  10:3 ref `shared`: {| count: number[0, inf] int nonNaN nonNegZero |}@proven
+  11:10 member `shared.count`: number[0, inf] int nonNaN nonNegZero@proven
+  11:10 ref `shared`: {| count: number[0, inf] int nonNaN nonNegZero |}@proven
+  14:10 bind `escaping`: function@proven
+  14:19 bind `value`: number@declared
+  15:10 binary `value /*@declared number*/ + 1`: number nonNegZero@declared
+  15:10 ref `value`: number@declared
+  18:17 bind `main`: function@proven
+  19:3 call `console.log(scale(2, 3), scale(4, 5),...`: unknown
+  19:3 member `console.log`: unknown
+  19:3 ref `console`: unknown
+  19:15 call `scale(2, 3)`: number[6, 20] int nonNaN nonNegZero@proven
+  19:15 ref `scale`: function@proven
+  19:28 call `scale(4, 5)`: number[6, 20] int nonNaN nonNegZero@proven
+  19:28 ref `scale`: function@proven
+  19:41 call `bump()`: number[0, inf] int nonNaN nonNegZero@proven
+  19:41 ref `bump`: function@proven
+  21:3 call `[1, 2].forEach(escaping)`: undefined@declared
+  21:3 member `[1, 2].forEach`: unknown
+  21:3 array `[1, 2]`: unknown[]@proven escape=unknown
+  21:18 ref `escaping`: function@proven
+  22:3 call `setTimeout(escaping, 0)`: number@declared
+  22:3 ref `setTimeout`: function@declared
+  22:14 ref `escaping`: function@proven

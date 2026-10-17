@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use trioxide_common::{NodeRef, SymbolRef};
-use trioxide_types::{FunctionId, Type};
+use trioxide_common::{NodeRef, Span, SymbolRef};
+use trioxide_types::{ClassId, FunctionId, NumberType, Type};
 
 /// How far a fact can be relied on (PLAN D1).
 ///
@@ -116,6 +116,160 @@ impl Effects {
     }
 }
 
+/// How far an allocated object may travel from the code that creates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Escape {
+    /// Only the creating function (or module) ever holds it: it is never returned, stored
+    /// outside its locals, passed to a call or captured by a closure that could outlive it.
+    None,
+    /// Other analysed code may hold it, but nothing trioxide can't see.
+    Known,
+    /// Code outside the analysis may hold it. The default: nothing is known.
+    #[default]
+    Unknown,
+}
+
+/// What kind of object an allocation site creates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AllocKind {
+    /// An object literal.
+    Object,
+    /// An array literal, `new Array` or an array a builtin returns.
+    Array,
+    /// A typed array.
+    TypedArray(trioxide_types::TypedArrayKind),
+    /// An instance of a program class.
+    Instance(ClassId),
+    /// A function or arrow.
+    Function,
+    /// A class.
+    Class,
+    /// Something else (a regexp, `new Map`, …).
+    Other,
+}
+
+/// Facts about one allocation site.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Allocation {
+    /// What it creates.
+    pub kind: AllocKind,
+    /// How far its objects travel.
+    pub escape: Fact<Escape>,
+    /// For object literals and arrays: the exact shape every object from the site keeps (no
+    /// property added after creation, none deleted, no computed keys), if there is one.
+    pub stable_shape: Fact<bool>,
+}
+
+/// Hidden-class facts for a class (PLAN §4 pass 10).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ClassShape {
+    /// Fields every instance has before any code can observe it, in definition order (class
+    /// fields, then constructor assignments).
+    pub fields: Vec<String>,
+    /// Properties instances get after construction, outside the constructor.
+    pub added_later: Vec<String>,
+    /// Some instance property is deleted.
+    pub deletes: bool,
+    /// Instance properties are written with computed keys or redefined.
+    pub dynamic: bool,
+}
+
+impl ClassShape {
+    /// Whether instances keep one shape for life.
+    pub fn is_stable(&self) -> bool {
+        self.added_later.is_empty() && !self.deletes && !self.dynamic
+    }
+}
+
+/// A call edge between code units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CallEdge {
+    /// The call (or `new`, accessor use, or builtin callback) site.
+    pub site: NodeRef,
+    /// The unit containing the site.
+    pub caller: FunctionId,
+    /// The unit called.
+    pub callee: FunctionId,
+    /// `Proven` from points-to; `Declared` from the receiver's TypeScript class.
+    pub trust: Trust,
+}
+
+/// The call graph over code units: functions, methods, arrows, module top levels, class field
+/// initialisers and static blocks.
+#[derive(Debug, Clone, Default)]
+pub struct CallGraph {
+    units: Vec<FunctionId>,
+    edges: Vec<CallEdge>,
+    sccs: Vec<Vec<FunctionId>>,
+    by_caller: FxHashMap<FunctionId, Vec<usize>>,
+    by_site: FxHashMap<NodeRef, Vec<usize>>,
+}
+
+impl CallGraph {
+    /// A call graph over `units` with `edges` and their strongly connected components.
+    pub fn new(units: Vec<FunctionId>, edges: Vec<CallEdge>, sccs: Vec<Vec<FunctionId>>) -> Self {
+        let mut by_caller: FxHashMap<FunctionId, Vec<usize>> = FxHashMap::default();
+        let mut by_site: FxHashMap<NodeRef, Vec<usize>> = FxHashMap::default();
+        for (index, edge) in edges.iter().enumerate() {
+            by_caller.entry(edge.caller).or_default().push(index);
+            by_site.entry(edge.site).or_default().push(index);
+        }
+        Self {
+            units,
+            edges,
+            sccs,
+            by_caller,
+            by_site,
+        }
+    }
+
+    /// Every unit.
+    pub fn units(&self) -> &[FunctionId] {
+        &self.units
+    }
+
+    /// Every edge, sorted by caller and site.
+    pub fn edges(&self) -> &[CallEdge] {
+        &self.edges
+    }
+
+    /// The edges out of `caller`.
+    pub fn edges_from(&self, caller: FunctionId) -> impl Iterator<Item = &CallEdge> {
+        self.by_caller
+            .get(&caller)
+            .into_iter()
+            .flatten()
+            .map(|&index| &self.edges[index])
+    }
+
+    /// The units a call site may call.
+    pub fn callees(&self, site: NodeRef) -> impl Iterator<Item = &CallEdge> {
+        self.by_site
+            .get(&site)
+            .into_iter()
+            .flatten()
+            .map(|&index| &self.edges[index])
+    }
+
+    /// Strongly connected components, callees before callers.
+    pub fn sccs(&self) -> &[Vec<FunctionId>] {
+        &self.sccs
+    }
+}
+
+/// What the analysis knows about one code unit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionInfo {
+    /// Its name, if it has one.
+    pub name: Option<String>,
+    /// Its span.
+    pub span: Span,
+    /// Whether code trioxide does not see may call it (its parameters are then only
+    /// `Declared`).
+    pub open: bool,
+}
+
 /// The analysis side tables for a whole project (PLAN §2 step 4).
 ///
 /// Tables are keyed by [`NodeRef`] or [`SymbolRef`], i.e. `(ModuleId, NodeId/SymbolId)`. A
@@ -123,14 +277,19 @@ impl Effects {
 /// have to distinguish "not analysed" from "analysed, unknown".
 ///
 /// Passes must check trust before acting: use [`Facts::is_usable`], which honours
-/// `trustTypes`. S2 owns this type and will add tables (ranges, escape, shapes, call graph);
-/// adding a table is not a breaking change for readers.
+/// `trustTypes`.
 #[derive(Debug, Default)]
 pub struct Facts {
     trust_types: bool,
     node_types: FxHashMap<NodeRef, Fact<Type>>,
     symbol_types: FxHashMap<SymbolRef, Fact<Type>>,
-    effects: FxHashMap<FunctionId, Fact<Effects>>,
+    effects: FxHashMap<FunctionId, (Effects, Effects)>,
+    in_bounds: FxHashMap<NodeRef, Trust>,
+    allocations: FxHashMap<NodeRef, Allocation>,
+    class_shapes: FxHashMap<ClassId, Fact<ClassShape>>,
+    functions: FxHashMap<FunctionId, FunctionInfo>,
+    imports: FxHashMap<SymbolRef, SymbolRef>,
+    call_graph: CallGraph,
 }
 
 impl Facts {
@@ -140,6 +299,11 @@ impl Facts {
             trust_types,
             ..Self::default()
         }
+    }
+
+    /// Whether `Declared` facts count as proof here.
+    pub const fn trust_types(&self) -> bool {
+        self.trust_types
     }
 
     /// Whether a fact at `trust` may justify a semantics-changing rewrite: always for
@@ -159,6 +323,21 @@ impl Facts {
             .map_or(UNKNOWN_TYPE.as_ref(), Fact::as_ref)
     }
 
+    /// The numeric range of an expression, if it is a number.
+    pub fn range(&self, node: NodeRef) -> Fact<NumberType> {
+        let fact = self.ty(node);
+        match fact.value {
+            Type::Number(number) => Fact {
+                value: *number,
+                trust: fact.trust,
+            },
+            _ => Fact {
+                value: NumberType::ANY,
+                trust: Trust::Unknown,
+            },
+        }
+    }
+
     /// The type of every value a symbol (binding) can hold.
     pub fn symbol_ty(&self, symbol: SymbolRef) -> Fact<&Type> {
         self.symbol_types
@@ -166,12 +345,82 @@ impl Facts {
             .map_or(UNKNOWN_TYPE.as_ref(), Fact::as_ref)
     }
 
-    /// What calling `function` may do.
+    /// What calling `function` may do, including its callees. With `trustTypes` this is the
+    /// summary that takes declared types as proof (`Declared` unless it agrees with the proven
+    /// one); otherwise the proven summary.
     pub fn effects(&self, function: FunctionId) -> Fact<Effects> {
-        self.effects
-            .get(&function)
-            .cloned()
-            .unwrap_or_else(Fact::unknown)
+        match self.effects.get(&function) {
+            Some(&(proven, declared)) if self.trust_types && declared != proven => {
+                Fact::declared(declared)
+            }
+            Some(&(proven, _)) => Fact::proven(proven),
+            None => Fact::unknown(),
+        }
+    }
+
+    /// Both effect summaries of `function`: `(proven, declared)`.
+    pub fn effect_summaries(&self, function: FunctionId) -> Option<(Effects, Effects)> {
+        self.effects.get(&function).copied()
+    }
+
+    /// Whether the element access at `node` (`a[i]`) is within the array's bounds.
+    pub fn in_bounds(&self, node: NodeRef) -> Fact<bool> {
+        match self.in_bounds.get(&node) {
+            Some(&trust) => Fact { value: true, trust },
+            None => Fact {
+                value: false,
+                trust: Trust::Unknown,
+            },
+        }
+    }
+
+    /// How far objects created at `site` (an object or array literal, `new` or function)
+    /// travel.
+    pub fn escapes(&self, site: NodeRef) -> Fact<Escape> {
+        self.allocations
+            .get(&site)
+            .map_or(Fact::unknown(), |allocation| allocation.escape.clone())
+    }
+
+    /// Everything known about the allocation site `site`.
+    pub fn allocation(&self, site: NodeRef) -> Option<&Allocation> {
+        self.allocations.get(&site)
+    }
+
+    /// Every allocation site, sorted.
+    pub fn allocations(&self) -> Vec<(NodeRef, &Allocation)> {
+        let mut all: Vec<_> = self.allocations.iter().map(|(k, v)| (*k, v)).collect();
+        all.sort_by_key(|(site, _)| *site);
+        all
+    }
+
+    /// Hidden-class facts for a class.
+    pub fn class_shape(&self, class: ClassId) -> Fact<&ClassShape> {
+        self.class_shapes
+            .get(&class)
+            .map_or(UNKNOWN_SHAPE.as_ref(), Fact::as_ref)
+    }
+
+    /// The call graph.
+    pub fn call_graph(&self) -> &CallGraph {
+        &self.call_graph
+    }
+
+    /// What the analysis knows about a code unit.
+    pub fn function(&self, function: FunctionId) -> Option<&FunctionInfo> {
+        self.functions.get(&function)
+    }
+
+    /// The exported binding an import binding refers to (the linker's answer).
+    pub fn resolve_import(&self, symbol: SymbolRef) -> Option<SymbolRef> {
+        self.imports.get(&symbol).copied()
+    }
+
+    /// Every node with a type fact, sorted.
+    pub fn node_types(&self) -> Vec<(NodeRef, &Fact<Type>)> {
+        let mut all: Vec<_> = self.node_types.iter().map(|(k, v)| (*k, v)).collect();
+        all.sort_by_key(|(node, _)| *node);
+        all
     }
 
     /// Records the type of a node. Replaces any previous fact.
@@ -186,9 +435,53 @@ impl Facts {
 
     /// Records a function's effect summary. Replaces any previous fact.
     pub fn set_effects(&mut self, function: FunctionId, fact: Fact<Effects>) {
-        self.effects.insert(function, fact);
+        let declared = fact.value;
+        let proven = if fact.trust == Trust::Proven {
+            fact.value
+        } else {
+            Effects::ANY
+        };
+        self.effects.insert(function, (proven, declared));
+    }
+
+    pub(crate) fn set_effect_summaries(&mut self, function: FunctionId, proven: Effects, declared: Effects) {
+        self.effects.insert(function, (proven, declared));
+    }
+
+    pub(crate) fn set_in_bounds(&mut self, node: NodeRef, trust: Trust) {
+        self.in_bounds.insert(node, trust);
+    }
+
+    pub(crate) fn set_allocation(&mut self, site: NodeRef, allocation: Allocation) {
+        self.allocations.insert(site, allocation);
+    }
+
+    pub(crate) fn set_class_shape(&mut self, class: ClassId, shape: Fact<ClassShape>) {
+        self.class_shapes.insert(class, shape);
+    }
+
+    pub(crate) fn set_function(&mut self, function: FunctionId, info: FunctionInfo) {
+        self.functions.insert(function, info);
+    }
+
+    pub(crate) fn set_import(&mut self, import: SymbolRef, target: SymbolRef) {
+        self.imports.insert(import, target);
+    }
+
+    pub(crate) fn set_call_graph(&mut self, graph: CallGraph) {
+        self.call_graph = graph;
     }
 }
+
+static UNKNOWN_SHAPE: Fact<ClassShape> = Fact {
+    value: ClassShape {
+        fields: Vec::new(),
+        added_later: Vec::new(),
+        deletes: true,
+        dynamic: true,
+    },
+    trust: Trust::Unknown,
+};
 
 static UNKNOWN_TYPE: Fact<Type> = Fact {
     value: Type::Unknown,

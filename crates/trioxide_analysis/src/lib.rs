@@ -10,9 +10,45 @@
 //! [`analyze`] returns empty tables, so every query answers `Unknown`.
 
 mod facts;
+mod builtins;
+mod callgraph;
+mod interp;
+mod numeric;
+mod shapes;
+mod summary;
+mod value;
+mod link;
+mod render;
+mod world;
 
-pub use facts::{Effects, Fact, Facts, Trust};
-use trioxide_common::Diagnostic;
+pub use render::render;
+pub use facts::{
+    AllocKind, Allocation, CallEdge, CallGraph, ClassShape, Effects, Escape, Fact, Facts, FunctionInfo,
+    Trust,
+};
+use std::path::Path;
+
+use oxc_allocator::Allocator;
+use oxc_span::SourceType;
+use trioxide_common::{Diagnostic, ModuleId, Severity};
+use trioxide_types::TypeOracle;
+
+use crate::{link::Links, world::World};
+
+/// One module to analyse.
+#[derive(Debug, Clone)]
+pub struct ModuleInput<'s> {
+    /// The module's id in the graph.
+    pub id: ModuleId,
+    /// Its path.
+    pub path: &'s Path,
+    /// Its source.
+    pub source: &'s str,
+    /// How to parse it.
+    pub source_type: SourceType,
+    /// Each import specifier and the graph module it resolved to (`None`: outside the graph).
+    pub imports: Vec<(String, Option<ModuleId>)>,
+}
 
 /// Analysis settings derived from the user's options.
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,14 +69,55 @@ pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Analyses the whole program. Currently a no-op that returns empty facts.
+impl Analysis {
+    /// No facts at all: every query answers `Unknown`.
+    pub fn empty(options: AnalysisOptions) -> Self {
+        Self {
+            facts: Facts::new(options.trust_types),
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+/// Analyses the whole program: parses every module with oxc, registers its classes and
+/// functions with the type oracle, links imports, interprets every unit to a fixed point, and
+/// summarises the result as [`Facts`].
 ///
-/// S2 replaces this with the real pipeline; its inputs will grow to include the module graph,
-/// each module's semantic model and the type oracle. The facade owns the call site, so the
-/// signature can change without touching other streams.
-pub fn analyze(options: AnalysisOptions) -> Analysis {
-    Analysis {
-        facts: Facts::new(options.trust_types),
-        diagnostics: Vec::new(),
+/// The oracle must already have `load`ed the same sources; spans in queries are byte offsets
+/// into `modules[i].source`. Node ids match the ones the pipeline's own parse and semantic
+/// build produce for the same source.
+pub fn analyze(modules: &[ModuleInput<'_>], oracle: &mut dyn TypeOracle, options: AnalysisOptions) -> Analysis {
+    let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
+    let world = World::build(&allocators, modules);
+    register_declarations(&world, oracle);
+    let links = Links::build(&world);
+    let results = interp::run(&world, &links, oracle, options);
+    let mut diagnostics = Vec::new();
+    if !results.converged {
+        diagnostics.push(
+            Diagnostic::new(Severity::Advice, "analysis did not reach a fixed point; no facts are reported")
+                .with_code("trioxide(analysis)"),
+        );
+    }
+    let facts = summary::facts(&world, &links, &results, options);
+    Analysis { facts, diagnostics }
+}
+
+/// Tells the oracle which oxc nodes declare classes and functions, keyed by name span (or
+/// node span when anonymous), so its `Instance` and `Function` answers can name them.
+fn register_declarations(world: &World<'_>, oracle: &mut dyn TypeOracle) {
+    use oxc_ast::AstKind;
+    for module in &world.modules {
+        let mut declarations = Vec::new();
+        for node in module.semantic.nodes().iter() {
+            let span = match node.kind() {
+                AstKind::Function(function) => function.id.as_ref().map_or(function.span, |id| id.span),
+                AstKind::ArrowFunctionExpression(arrow) => arrow.span,
+                AstKind::Class(class) => class.id.as_ref().map_or(class.span, |id| id.span),
+                _ => continue,
+            };
+            declarations.push((span, node.id()));
+        }
+        oracle.register_declarations(module.id, &declarations);
     }
 }
