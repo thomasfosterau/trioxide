@@ -18,7 +18,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { before, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -281,8 +281,10 @@ function sources() {
   return { modules, main };
 }
 
-function execute(entry) {
-  const script = `const m = await import(${JSON.stringify(pathToFileURL(entry).href)}); await m.main();`;
+/** Runs `entry`'s `main()` once every glue module in `ready` is instantiated. */
+function execute(entry, ready = []) {
+  const waits = ready.map((glue) => `await (await import(${JSON.stringify(pathToFileURL(glue).href)})).ready();`);
+  const script = `const m = await import(${JSON.stringify(pathToFileURL(entry).href)}); ${waits.join(' ')} await m.main();`;
   return spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
     encoding: 'utf8',
     cwd: path.dirname(entry),
@@ -329,7 +331,10 @@ test(`${count} random programs (seed ${seed}) agree in JS and WASM`, { timeout: 
   const build = spawnSync(trioxide, ['build', '--emit=js', '--require-wasm', '--root', src, '--out-dir', c, path.join(src, 'input.ts')], { encoding: 'utf8' });
   assert.equal(build.status, 0, `seed ${seed}: build failed:\n${build.stderr}`);
   assert.doesNotMatch(build.stderr, /warning|error/, build.stderr);
-  const wasm = execute(path.join(c, 'input.js'));
+  const islands = path.join(c, '_islands');
+  const glues = readdirSync(islands).filter((name) => name.endsWith('.js')).map((name) => path.join(islands, name));
+  assert.equal(glues.length, modules.length, 'every module should become an island');
+  const wasm = execute(path.join(c, 'input.js'), glues);
   assert.equal(wasm.status, 0, wasm.stderr);
   const expected = stripped.stdout.split('\n');
   const actual = wasm.stdout.split('\n');

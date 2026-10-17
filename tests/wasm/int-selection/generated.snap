@@ -113,7 +113,8 @@ input_file: tests/wasm/int-selection/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/int-selection/kernel.ts"
 }
 
 //- kernel/src/lib.rs

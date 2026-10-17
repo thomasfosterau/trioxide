@@ -170,7 +170,7 @@ input_file: tests/islands/multi/wasm/input.ts
     }
   ],
   "structs": [],
-  "fallback": "../kernel.js"
+  "fallback": "<repo>/tests/islands/multi/wasm/kernel.ts"
 }
 
 //- kernel/src/lib.rs

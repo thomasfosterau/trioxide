@@ -94,7 +94,8 @@ input_file: tests/wasm/remainder/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/remainder/kernel.ts"
 }
 
 //- kernel/src/lib.rs

@@ -13,8 +13,8 @@ use trioxide_types::{SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
-    BuildOutput, Error, ExplainQuery, Invalidation, Mode, ModuleOutput, Options, Report, Result,
-    World,
+    BuildOutput, Error, ExplainQuery, GlueMode, Invalidation, Mode, ModuleOutput, Options, Report,
+    Result, World,
     analysis::{self, FactRefresher, analysis_inputs},
     islands,
     pipeline::{ModuleCompiler, ModuleSource},
@@ -229,11 +229,12 @@ impl Project {
             let Some(mut source) = plan.source.clone() else {
                 continue;
             };
-            if plan.needs_fallback
+            // Ready-mode glue runs the JS versions until the island is instantiated.
+            if (plan.needs_fallback || self.options.wasm.glue == GlueMode::Ready)
                 && let Some(module) = plan.module
             {
                 let path = &self.graph.module(module).path;
-                source.spec.fallback = Some(islands::fallback_specifier(&self.root, path));
+                source.spec.fallback = Some(islands::fallback_specifier(path));
             }
             sources.push(source);
         }
@@ -263,7 +264,10 @@ impl Project {
                     module: plan.module?,
                     bindings: plan.bindings.clone(),
                     members: plan.functions.clone(),
-                    needs_fallback: plan.needs_fallback,
+                    // Ready-mode glue has no top-level await, so the module it falls back to
+                    // may import it too (it only calls the JS versions until ready).
+                    local_calls: self.options.wasm.glue == GlueMode::Ready || !plan.needs_fallback,
+                    fallback: plan.needs_fallback || self.options.wasm.glue == GlueMode::Ready,
                 })
             })
             .collect();

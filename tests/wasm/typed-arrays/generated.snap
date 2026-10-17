@@ -274,7 +274,8 @@ input_file: tests/wasm/typed-arrays/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/typed-arrays/kernel.ts"
 }
 
 //- kernel/src/lib.rs

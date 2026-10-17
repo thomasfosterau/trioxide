@@ -42,14 +42,15 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "particles" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "particles")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "particles" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
-// Copies a typed array or number[] into the arena as View elements.
+// Copies a typed array into the arena as View elements. (A detached one has no elements,
+// and `set` would throw.)
 function $copyIn(array, View) {
   const ptr = $alloc(array.length * View.BYTES_PER_ELEMENT, View.BYTES_PER_ELEMENT);
-  new View($wasm.memory.buffer, ptr, array.length).set(array);
+  if (array.length !== 0) new View($wasm.memory.buffer, ptr, array.length).set(array);
   return ptr;
 }
 
@@ -106,14 +107,19 @@ export function spread(xs, ys) {
 }
 
 export function step(body, ax, ay, dt) {
+  let $0;
+  let $called = false;
   try {
-    const $0 = $alloc(48, 8);
+    $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, body);
+    $called = true;
     $wasm.step($0, ax, ay, dt);
-    $updateBody(new DataView($wasm.memory.buffer), $0, body);
   } catch ($error) {
     throw $trap($error, "step");
   } finally {
+    if ($called) {
+      $updateBody(new DataView($wasm.memory.buffer), $0, body);
+    }
     $wasm.__trioxide_reset();
   }
 }
@@ -122,18 +128,23 @@ export function collide(a, b) {
   if (a === b) {
     return $fallback.collide(a, b);
   }
+  let $0, $1;
+  let $called = false;
   try {
-    const $0 = $alloc(48, 8);
+    $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, a);
-    const $1 = $alloc(48, 8);
+    $1 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $1, b);
+    $called = true;
     const $ret = $wasm.collide($0, $1);
-    $updateBody(new DataView($wasm.memory.buffer), $0, a);
-    $updateBody(new DataView($wasm.memory.buffer), $1, b);
     return $ret !== 0;
   } catch ($error) {
     throw $trap($error, "collide");
   } finally {
+    if ($called) {
+      $updateBody(new DataView($wasm.memory.buffer), $0, a);
+      $updateBody(new DataView($wasm.memory.buffer), $1, b);
+    }
     $wasm.__trioxide_reset();
   }
 }

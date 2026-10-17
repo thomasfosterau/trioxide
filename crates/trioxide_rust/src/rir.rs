@@ -226,6 +226,8 @@ pub enum Stmt {
     ArraySet {
         /// The array.
         array: Expr,
+        /// Its elements.
+        elem: Elem,
         /// The index.
         index: Index,
         /// The value, a number.

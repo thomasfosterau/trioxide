@@ -303,7 +303,8 @@ input_file: tests/wasm/bitwise/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/bitwise/kernel.ts"
 }
 
 //- kernel/src/lib.rs

@@ -346,7 +346,7 @@ fn build_once(
         }
     }
     for island in &output.islands {
-        write_island(out_dir, island)?;
+        write_island(project.root(), out_dir, island)?;
     }
     Ok(())
 }
@@ -480,12 +480,18 @@ fn print_stdout(text: &str) {
 }
 
 /// Writes a module (and its sourcemap) under `out_dir`, mirroring its path under `root`.
-fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<(), Failure> {
-    let relative = module.path.strip_prefix(root).map_or_else(
-        |_| PathBuf::from("_external").join(module.path.file_name().unwrap_or_default()),
+/// Where `trioxide build` writes the module at `path`, relative to the output directory.
+fn output_path(root: &Path, path: &Path) -> PathBuf {
+    let relative = path.strip_prefix(root).map_or_else(
+        |_| PathBuf::from("_external").join(path.file_name().unwrap_or_default()),
         Path::to_path_buf,
     );
-    let destination = out_dir.join(output_name(&relative));
+    output_name(&relative)
+}
+
+fn write_module(root: &Path, out_dir: &Path, module: &ModuleOutput) -> Result<(), Failure> {
+    let relative = output_path(root, &module.path);
+    let destination = out_dir.join(&relative);
     let io_error =
         |error: std::io::Error| Failure::Error(format!("{}: {error}", destination.display()));
     if let Some(parent) = destination.parent() {
@@ -537,12 +543,24 @@ fn link_islands(code: &str, islands: &[trioxide::IslandRef], depth: usize) -> St
 
 /// Writes an island's glue and `.wasm` into `<out_dir>/_islands/`, pointing the glue at the
 /// `.wasm` next to it.
-fn write_island(out_dir: &Path, island: &IslandArtifact) -> Result<(), Failure> {
+fn write_island(root: &Path, out_dir: &Path, island: &IslandArtifact) -> Result<(), Failure> {
     let dir = out_dir.join(ISLANDS_DIR);
-    let glue = island.glue.replace(
+    let mut glue = island.glue.replace(
         WASM_URL_PLACEHOLDER,
         &format!("./{}", island.wasm_file_name()),
     );
+    // The glue names its fallback by source path; point it at the compiled module.
+    if let Some(fallback) = &island.spec.fallback
+        && Path::new(fallback).is_absolute()
+    {
+        let relative = output_path(root, Path::new(fallback));
+        let parts: Vec<String> = relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let quote = |text: &str| serde_json::to_string(text).expect("strings serialise");
+        glue = glue.replace(&quote(fallback), &quote(&format!("../{}", parts.join("/"))));
+    }
     write_file(&dir.join(island.glue_file_name()), glue.as_bytes())?;
     write_file(&dir.join(island.wasm_file_name()), &island.wasm)
 }

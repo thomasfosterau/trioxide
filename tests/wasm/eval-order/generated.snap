@@ -172,7 +172,7 @@ input_file: tests/wasm/eval-order/input.ts
     }
   ],
   "structs": [],
-  "fallback": "../kernel.js"
+  "fallback": "<repo>/tests/wasm/eval-order/kernel.ts"
 }
 
 //- kernel/src/lib.rs

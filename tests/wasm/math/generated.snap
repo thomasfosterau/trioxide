@@ -32,7 +32,8 @@ input_file: tests/wasm/math/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/math/kernel.ts"
 }
 
 //- kernel/src/lib.rs
@@ -63,7 +64,7 @@ fn all(x: f64, y: f64) -> &'static mut [f64] {
     array::set_i32(out, 15, math::log2(x));
     array::set_i32(out, 16, math::expm1(x));
     array::set_i32(out, 17, x * x);
-    array::set_i32(out, 18, y);
+    array::set_i32(out, 18, array::store_number(y));
     array::set_i32(out, 19, 3.141592653589793 * x + f64::NEG_INFINITY + y);
     out
 }

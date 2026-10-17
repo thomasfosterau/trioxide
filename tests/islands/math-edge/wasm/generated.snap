@@ -443,7 +443,8 @@ input_file: tests/islands/math-edge/wasm/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/islands/math-edge/wasm/kernel.ts"
 }
 
 //- kernel/src/lib.rs

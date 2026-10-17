@@ -103,7 +103,8 @@ input_file: tests/wasm/recursion/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/recursion/kernel.ts"
 }
 
 //- kernel/src/lib.rs

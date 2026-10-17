@@ -168,7 +168,8 @@ input_file: tests/wasm/structs/input.ts
         }
       ]
     }
-  ]
+  ],
+  "fallback": "<repo>/tests/wasm/structs/kernel.ts"
 }
 
 //- kernel/src/lib.rs

@@ -138,7 +138,8 @@ input_file: tests/wasm/control-flow/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/control-flow/kernel.ts"
 }
 
 //- kernel/src/lib.rs

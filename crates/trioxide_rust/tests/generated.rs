@@ -115,7 +115,11 @@ fn generated_islands() {
                 text,
                 "//- {}/island.json\n{}",
                 island.spec.id,
-                island.spec.to_json()
+                // The fallback is the module's absolute path.
+                island
+                    .spec
+                    .to_json()
+                    .replace(&repo.to_string_lossy().replace('\\', "/"), "<repo>")
             )
             .unwrap();
             for (path, source) in &island.files {

@@ -212,7 +212,7 @@ input_file: tests/islands/particles/wasm/input.ts
       ]
     }
   ],
-  "fallback": "../kernel.js"
+  "fallback": "<repo>/tests/islands/particles/wasm/kernel.ts"
 }
 
 //- kernel/src/lib.rs

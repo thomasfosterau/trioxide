@@ -1107,6 +1107,7 @@ impl<'a> FnCx<'_, '_, 'a> {
         out.extend(prelude);
         out.push(Stmt::ArraySet {
             array: array_expr,
+            elem,
             index,
             value,
         });

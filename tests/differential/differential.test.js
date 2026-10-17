@@ -4,6 +4,7 @@
 //   a. types stripped only (`trioxide strip`, plain oxc_transformer)
 //   b. trioxide's optimised JS (`trioxide build --emit=js`)
 //   c. trioxide JS + WASM islands, once with top-level-await glue and once with `ready()` glue
+//      (or only the one a fixture's config sets in `wasm.glue`)
 //
 // Fixtures come from tests/fixtures, tests/islands and tests/wasm. Leg b builds with
 // `--no-wasm`. Leg c runs on two kinds of fixture:
@@ -72,12 +73,13 @@ function runWithStderr(args) {
 
 /**
  * Imports `entry` in a fresh Node process, awaits its `main()` and returns stdout. `ready`
- * lists glue modules whose `ready()` must resolve first.
+ * lists glue modules whose `ready()` must resolve before `main()` runs (module top-level code
+ * runs first, as it would for users, with the islands' JS versions).
  */
 function execute(entry, ready = []) {
   const waits = ready.map((glue) => `await (await import(${JSON.stringify(pathToFileURL(glue).href)})).ready();\n`);
-  const script = `${waits.join('')}const m = await import(${JSON.stringify(pathToFileURL(entry).href)});
-if (typeof m.main !== 'function') { process.stderr.write('no main()'); process.exit(3); }
+  const script = `const m = await import(${JSON.stringify(pathToFileURL(entry).href)});
+${waits.join('')}if (typeof m.main !== 'function') { process.stderr.write('no main()'); process.exit(3); }
 await m.main();`;
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
     encoding: 'utf8',
@@ -192,6 +194,8 @@ for (const entry of entries) {
     for (const glue of ['tla', 'ready']) {
       test(`c: trioxide JS+WASM (${glue} glue)`, (t) => {
         if (!hasIsland && !generated) return t.skip('no islands');
+        const only = fixtureConfig(fixture).wasm?.glue;
+        if (only && only !== glue) return t.skip(`the fixture uses ${only} glue`);
         if (stripped?.status !== 0) return t.skip('baseline failed');
         const dir = path.join(work, `c-${glue}`);
         const gluePaths = generated

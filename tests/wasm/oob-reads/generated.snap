@@ -174,7 +174,8 @@ input_file: tests/wasm/oob-reads/input.ts
       "ret": null
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/oob-reads/kernel.ts"
 }
 
 //- kernel/src/lib.rs

@@ -30,14 +30,16 @@ async function $instantiate() {
   return instance.exports;
 }
 
-let $wasm;
-const $ready = $instantiate().then((exports) => {
+// `var`: a module this glue imports (its fallback) may call a wrapper before this body runs.
+var $wasm;
+var $ready = $instantiate().then((exports) => {
   $wasm = exports;
 });
 // Rejections surface through ready(); don't also report them as unhandled.
 $ready.catch(() => {});
 
-/** Resolves once the island is instantiated. Its functions throw until then. */
+/** Resolves once the island is instantiated. Until then its functions run their JS versions
+ * (the spec's fallback), or throw if there is none. */
 export function ready() {
   return $ready;
 }
@@ -56,14 +58,15 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "particles" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "particles")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "particles" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
-// Copies a typed array or number[] into the arena as View elements.
+// Copies a typed array into the arena as View elements. (A detached one has no elements,
+// and `set` would throw.)
 function $copyIn(array, View) {
   const ptr = $alloc(array.length * View.BYTES_PER_ELEMENT, View.BYTES_PER_ELEMENT);
-  new View($wasm.memory.buffer, ptr, array.length).set(array);
+  if (array.length !== 0) new View($wasm.memory.buffer, ptr, array.length).set(array);
   return ptr;
 }
 
@@ -95,7 +98,7 @@ function $readPoint(view, ptr) {
 }
 
 export function centroid(xs, ys) {
-  $check();
+  if ($wasm === undefined) return $fallback.centroid(xs, ys);
   try {
     const $0 = $copyIn(xs, Float64Array);
     const $1 = $copyIn(ys, Float64Array);
@@ -109,7 +112,7 @@ export function centroid(xs, ys) {
 }
 
 export function spread(xs, ys) {
-  $check();
+  if ($wasm === undefined) return $fallback.spread(xs, ys);
   try {
     const $0 = $copyIn(xs, Float64Array);
     const $1 = $copyIn(ys, Float64Array);
@@ -122,42 +125,52 @@ export function spread(xs, ys) {
 }
 
 export function step(body, ax, ay, dt) {
-  $check();
+  if ($wasm === undefined) return $fallback.step(body, ax, ay, dt);
+  let $0;
+  let $called = false;
   try {
-    const $0 = $alloc(48, 8);
+    $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, body);
+    $called = true;
     $wasm.step($0, ax, ay, dt);
-    $updateBody(new DataView($wasm.memory.buffer), $0, body);
   } catch ($error) {
     throw $trap($error, "step");
   } finally {
+    if ($called) {
+      $updateBody(new DataView($wasm.memory.buffer), $0, body);
+    }
     $wasm.__trioxide_reset();
   }
 }
 
 export function collide(a, b) {
-  $check();
+  if ($wasm === undefined) return $fallback.collide(a, b);
   if (a === b) {
     return $fallback.collide(a, b);
   }
+  let $0, $1;
+  let $called = false;
   try {
-    const $0 = $alloc(48, 8);
+    $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, a);
-    const $1 = $alloc(48, 8);
+    $1 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $1, b);
+    $called = true;
     const $ret = $wasm.collide($0, $1);
-    $updateBody(new DataView($wasm.memory.buffer), $0, a);
-    $updateBody(new DataView($wasm.memory.buffer), $1, b);
     return $ret !== 0;
   } catch ($error) {
     throw $trap($error, "collide");
   } finally {
+    if ($called) {
+      $updateBody(new DataView($wasm.memory.buffer), $0, a);
+      $updateBody(new DataView($wasm.memory.buffer), $1, b);
+    }
     $wasm.__trioxide_reset();
   }
 }
 
 export function momentum(a, b) {
-  $check();
+  if ($wasm === undefined) return $fallback.momentum(a, b);
   try {
     const $0 = $alloc(48, 8);
     $writeBody(new DataView($wasm.memory.buffer), $0, a);

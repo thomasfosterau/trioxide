@@ -240,25 +240,12 @@ pub fn forced_islands(
         let Some(island) = lowered.island else {
             continue;
         };
-        let spec = emit::spec(&island);
-        let lib = emit::lib_rs(&island, &spec);
-        let source = IslandSource::new(spec, lib);
-        if let Err(error) = source.validate() {
-            out.diagnostics.push(
-                Diagnostic::error(format!(
-                    "trioxide generated an invalid island (a bug): {error}"
-                ))
-                .with_code("trioxide(wasm-ineligible)")
-                .with_file(module.path),
-            );
-            continue;
-        }
         let exports: Vec<(FunctionId, String)> = island
             .exports
             .iter()
             .map(|export| (lowered.members[export.func.0], export.name.clone()))
             .collect();
-        let bindings = exports
+        let bindings: Vec<ExportBinding> = exports
             .iter()
             .filter_map(|(function, name)| {
                 let info = world.functions.get(function)?;
@@ -271,6 +258,26 @@ pub fn forced_islands(
                 })
             })
             .collect();
+        let mut spec = emit::spec(&island);
+        // The glue calls the JS version by the name the module exports it under.
+        for export in &mut spec.exports {
+            export.fallback_name = bindings
+                .iter()
+                .find(|b| b.name == export.name && !b.exported_as.contains(&export.name))
+                .and_then(|b| b.exported_as.first().cloned());
+        }
+        let lib = emit::lib_rs(&island, &spec);
+        let source = IslandSource::new(spec, lib);
+        if let Err(error) = source.validate() {
+            out.diagnostics.push(
+                Diagnostic::error(format!(
+                    "trioxide generated an invalid island (a bug): {error}"
+                ))
+                .with_code("trioxide(wasm-ineligible)")
+                .with_file(module.path),
+            );
+            continue;
+        }
         let needs_fallback = island.exports.iter().any(|export| {
             let aggregates = export
                 .params

@@ -118,9 +118,11 @@ pub(crate) struct IslandLink {
     pub bindings: Vec<trioxide_partition::ExportBinding>,
     /// Every function compiled into it.
     pub members: Vec<trioxide_types::FunctionId>,
-    /// The glue imports the defining module as its fallback, so that module can't import
-    /// the glue back.
-    pub needs_fallback: bool,
+    /// The defining module's own calls may go through the glue (it imports the glue).
+    pub local_calls: bool,
+    /// The glue calls the JS versions by their exported names, so only exported functions'
+    /// calls may go through it.
+    pub fallback: bool,
 }
 
 /// What rewriting one module's calls needs.
@@ -134,24 +136,11 @@ pub(crate) struct Rewrite<'r> {
     pub member_spans: Vec<oxc_span::Span>,
 }
 
-/// Where an island's glue expects the JS module `path` (its fallback) in `trioxide build`'s
-/// layout: `<out>/_islands/<id>.js` next to `<out>/<path relative to root>.js`.
-pub(crate) fn fallback_specifier(root: &Path, path: &Path) -> String {
-    let relative = path.strip_prefix(root).map_or_else(
-        |_| PathBuf::from("_external").join(path.file_name().unwrap_or_default()),
-        Path::to_path_buf,
-    );
-    let extension = match relative.extension().and_then(|ext| ext.to_str()) {
-        Some("mts" | "mjs") => "mjs",
-        Some("cts" | "cjs") => "cjs",
-        _ => "js",
-    };
-    let relative = relative.with_extension(extension);
-    let parts: Vec<String> = relative
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    format!("../{}", parts.join("/"))
+/// The `fallback` specifier for the JS module at `path`: its absolute path (with `/`), which
+/// bundlers resolve and compile; `trioxide build` rewrites it to the compiled module's path
+/// relative to the glue.
+pub(crate) fn fallback_specifier(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// Points direct calls of island exports at the island's glue: imports of exports from
@@ -273,17 +262,22 @@ pub(crate) fn rewrite_calls<'a>(
         index += 2;
     }
 
-    // Calls in the defining module, unless the glue imports this module back.
+    // Calls in the defining module, when it may import the glue.
     let mut renames: FxHashMap<oxc_syntax::reference::ReferenceId, &'a str> = FxHashMap::default();
     let mut added: Vec<Statement<'a>> = Vec::new();
     for link in rewrite
         .links
         .iter()
-        .filter(|l| l.module == rewrite.module && !l.needs_fallback)
+        .filter(|l| l.module == rewrite.module && l.local_calls)
     {
         let mut specifiers = oxc_allocator::Vec::new_in(&allocator);
         let taken: FxHashSet<String> = scoping.symbol_names().map(str::to_string).collect();
-        for name in link.bindings.iter().map(|b| &b.name) {
+        for name in link
+            .bindings
+            .iter()
+            .filter(|b| !link.fallback || !b.exported_as.is_empty())
+            .map(|b| &b.name)
+        {
             let Some(symbol) = scoping.get_root_binding(name.as_str().into()) else {
                 continue;
             };

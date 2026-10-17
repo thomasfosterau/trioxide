@@ -85,7 +85,8 @@ input_file: tests/islands/nbody/wasm/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/islands/nbody/wasm/kernel.ts"
 }
 
 //- kernel/src/lib.rs

@@ -22,7 +22,8 @@ input_file: tests/wasm/export-aliases/input.ts
       ],
       "ret": {
         "kind": "i32"
-      }
+      },
+      "fallbackName": "cube"
     },
     {
       "name": "cube",
@@ -38,7 +39,8 @@ input_file: tests/wasm/export-aliases/input.ts
       ],
       "ret": {
         "kind": "i32"
-      }
+      },
+      "fallbackName": "sq"
     },
     {
       "name": "tw",
@@ -57,7 +59,8 @@ input_file: tests/wasm/export-aliases/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/export-aliases/kernel.ts"
 }
 
 //- kernel/src/lib.rs

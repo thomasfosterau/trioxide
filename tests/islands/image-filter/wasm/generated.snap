@@ -102,7 +102,7 @@ input_file: tests/islands/image-filter/wasm/input.ts
     }
   ],
   "structs": [],
-  "fallback": "../kernel.js"
+  "fallback": "<repo>/tests/islands/image-filter/wasm/kernel.ts"
 }
 
 //- kernel/src/lib.rs

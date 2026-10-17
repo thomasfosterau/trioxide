@@ -61,7 +61,8 @@ input_file: tests/wasm/multi-function/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/multi-function/kernel.ts"
 }
 
 //- kernel/src/lib.rs

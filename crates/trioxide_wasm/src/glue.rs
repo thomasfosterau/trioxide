@@ -20,11 +20,13 @@ pub(crate) const TRAP_INVALID_LENGTH: u32 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GlueMode {
-    /// Top-level `await`: the island is ready when the glue module has evaluated.
-    #[default]
+    /// Top-level `await`: the island is ready when the glue module has evaluated, which
+    /// delays the evaluation of every module importing it past other pending tasks.
     Tla,
-    /// Export `ready()`, a promise that resolves once the island is instantiated, for targets
-    /// without top-level await. Wrappers throw until then.
+    /// Export `ready()`, a promise that resolves once the island is instantiated. Until then
+    /// wrappers call the spec's `fallback` (or throw without one). Module evaluation order is
+    /// unchanged.
+    #[default]
     Ready,
 }
 
@@ -61,6 +63,7 @@ pub struct GlueOptions {
 #[derive(Default)]
 struct Needs {
     copy_in: bool,
+    copy_in_numbers: bool,
     copy_back: bool,
     copy_back_numbers: bool,
     take_array: bool,
@@ -90,7 +93,7 @@ impl Needs {
                         needs.copy_back |= param.mutated;
                     }
                     AbiType::NumberArray => {
-                        needs.copy_in = true;
+                        needs.copy_in_numbers = true;
                         needs.copy_back_numbers |= param.mutated;
                     }
                     AbiType::Struct { index } => {
@@ -197,14 +200,16 @@ async function $instantiate() {{
         write!(
             out,
             r#"
-let $wasm;
-const $ready = $instantiate().then((exports) => {{
+// `var`: a module this glue imports (its fallback) may call a wrapper before this body runs.
+var $wasm;
+var $ready = $instantiate().then((exports) => {{
   $wasm = exports;
 }});
 // Rejections surface through ready(); don't also report them as unhandled.
 $ready.catch(() => {{}});
 
-/** Resolves once the island is instantiated. Its functions throw until then. */
+/** Resolves once the island is instantiated. Until then its functions run their JS versions
+ * (the spec's fallback), or throw if there is none. */
 export function ready() {{
   return $ready;
 }}
@@ -269,7 +274,7 @@ function $trap(error, name) {{
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === {TRAP_OUT_OF_MEMORY}) return new RangeError(`trioxide: island "{id}" ran out of memory in ${{name}}()`);
-  if (code === {TRAP_INVALID_LENGTH}) return new RangeError(`Invalid typed array length (in ${{name}}(), island "{id}")`);
+  if (code === {TRAP_INVALID_LENGTH}) return new RangeError(`Invalid typed array length: ${{$wasm.__trioxide_trap_value()}}`);
   return new Error(`trioxide: island "{id}" trapped in ${{name}}(); this is a trioxide bug`, {{ cause: error }});
 }}
 "#
@@ -278,10 +283,46 @@ function $trap(error, name) {{
     if needs.copy_in {
         out.push_str(
             r"
-// Copies a typed array or number[] into the arena as View elements.
+// Copies a typed array into the arena as View elements. (A detached one has no elements,
+// and `set` would throw.)
 function $copyIn(array, View) {
   const ptr = $alloc(array.length * View.BYTES_PER_ELEMENT, View.BYTES_PER_ELEMENT);
-  new View($wasm.memory.buffer, ptr, array.length).set(array);
+  if (array.length !== 0) new View($wasm.memory.buffer, ptr, array.length).set(array);
+  return ptr;
+}
+",
+        );
+    }
+    if needs.copy_in_numbers {
+        out.push_str(
+            r"
+// A number[] element that is `undefined` (a hole) enters the island as a signalling NaN
+// (trioxide_rt `array::HOLE`), which arithmetic turns into an ordinary NaN and which the
+// island never stores: elements still holding it weren't written.
+const $HOLE_HI = 0x7ff47472;
+const $HOLE_LO = 0x696f7869;
+
+function $isHole(words, i) {
+  return words[2 * i] === $HOLE_LO && words[2 * i + 1] === $HOLE_HI;
+}
+",
+        );
+    }
+    if needs.copy_in_numbers {
+        out.push_str(
+            r"
+function $copyInNumbers(array) {
+  const ptr = $alloc(array.length * 8, 8);
+  if (array.length !== 0) {
+    new Float64Array($wasm.memory.buffer, ptr, array.length).set(array);
+    const words = new Uint32Array($wasm.memory.buffer, ptr, array.length * 2);
+    for (let i = 0; i < array.length; i++) {
+      if (array[i] === undefined) {
+        words[2 * i] = $HOLE_LO;
+        words[2 * i + 1] = $HOLE_HI;
+      }
+    }
+  }
   return ptr;
 }
 ",
@@ -291,7 +332,7 @@ function $copyIn(array, View) {
         out.push_str(
             r"
 function $copyBack(array, View, ptr) {
-  array.set(new View($wasm.memory.buffer, ptr, array.length));
+  if (array.length !== 0) array.set(new View($wasm.memory.buffer, ptr, array.length));
 }
 ",
         );
@@ -299,10 +340,13 @@ function $copyBack(array, View, ptr) {
     if needs.copy_back_numbers {
         out.push_str(
             r"
-// Writes back only the elements that changed, so holes stay holes.
+// Writes back only the elements that changed, so holes the island didn't write stay holes.
 function $copyBackNumbers(array, ptr) {
   const view = new Float64Array($wasm.memory.buffer, ptr, array.length);
-  for (let i = 0; i < view.length; i++) if (!Object.is(view[i], +array[i])) array[i] = view[i];
+  const words = new Uint32Array($wasm.memory.buffer, ptr, array.length * 2);
+  for (let i = 0; i < view.length; i++) {
+    if (!$isHole(words, i) && !Object.is(view[i], array[i])) array[i] = view[i];
+  }
 }
 ",
         );
@@ -427,6 +471,22 @@ fn read_field(spec: &IslandSpec, field: &crate::spec::FieldLayout) -> String {
     }
 }
 
+/// The JS version of an export in the `fallback` module.
+fn fallback(export: &IslandExport) -> String {
+    let name = export.fallback_name.as_deref().unwrap_or(&export.name);
+    if crate::spec::is_js_name(name) {
+        format!("$fallback.{name}")
+    } else {
+        format!("$fallback[{}]", js_string(name))
+    }
+}
+
+/// How an argument's temporary is introduced: mutated ones are declared before the `try` so
+/// the `finally` can copy them back.
+fn declare(mutated: bool) -> &'static str {
+    if mutated { "" } else { "const " }
+}
+
 fn view_of(element: TypedArrayElement) -> &'static str {
     element.js_constructor()
 }
@@ -436,7 +496,15 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
     let params = params.join(", ");
     writeln!(out, "\nexport function {}({params}) {{", export.name).unwrap();
     if ready {
-        out.push_str("  $check();\n");
+        match &spec.fallback {
+            Some(_) => writeln!(
+                out,
+                "  if ($wasm === undefined) return {}({params});",
+                fallback(export)
+            )
+            .unwrap(),
+            None => out.push_str("  $check();\n"),
+        }
     }
 
     let checks = alias_checks(export);
@@ -454,7 +522,7 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
             .collect();
         writeln!(out, "  if ({}) {{", conditions.join(" || ")).unwrap();
         match &spec.fallback {
-            Some(_) => writeln!(out, "    return $fallback.{}({params});", export.name),
+            Some(_) => writeln!(out, "    return {}({params});", fallback(export)),
             None => writeln!(
                 out,
                 "    throw new TypeError('trioxide: {}() was called with overlapping arguments, which island \"{}\" cannot handle');",
@@ -476,7 +544,12 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
             AbiType::TypedArray { .. } | AbiType::NumberArray => {
                 let element = param.ty.array_element().expect("arrays have elements");
                 let view = view_of(element);
-                writeln!(body, "    const ${index} = $copyIn({name}, {view});").unwrap();
+                let copy_in = if param.ty == AbiType::NumberArray {
+                    format!("$copyInNumbers({name})")
+                } else {
+                    format!("$copyIn({name}, {view})")
+                };
+                writeln!(body, "    {}${index} = {copy_in};", declare(param.mutated)).unwrap();
                 args.push(format!("${index}"));
                 args.push(format!("{name}.length"));
                 if param.mutated {
@@ -494,8 +567,10 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
                 let struct_name = &spec.structs[*struct_index].name;
                 writeln!(
                     body,
-                    "    const ${index} = $alloc({}, {});\n    $write{struct_name}(new DataView($wasm.memory.buffer), ${index}, {name});",
-                    layout.size, layout.align
+                    "    {}${index} = $alloc({}, {});\n    $write{struct_name}(new DataView($wasm.memory.buffer), ${index}, {name});",
+                    declare(param.mutated),
+                    layout.size,
+                    layout.align
                 )
                 .unwrap();
                 args.push(format!("${index}"));
@@ -509,6 +584,9 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
     }
 
     let call = format!("$wasm.{}({})", export.wasm_name, args.join(", "));
+    if !copy_back.is_empty() {
+        body.push_str("    $called = true;\n");
+    }
     let result = match &export.ret {
         None => None,
         Some(AbiType::F64 | AbiType::I32) => Some("$ret".to_string()),
@@ -523,23 +601,38 @@ fn write_wrapper(out: &mut String, spec: &IslandSpec, export: &IslandExport, rea
             spec.structs[*index].name
         )),
     };
-    match (&result, copy_back.is_empty()) {
-        (None, _) => writeln!(body, "    {call};").unwrap(),
-        (Some(result), true) if result == "$ret" => writeln!(body, "    return {call};").unwrap(),
-        (Some(_), _) => writeln!(body, "    const $ret = {call};").unwrap(),
-    }
-    for line in &copy_back {
-        writeln!(body, "    {line}").unwrap();
+    match &result {
+        None => writeln!(body, "    {call};").unwrap(),
+        Some(result) if result == "$ret" => writeln!(body, "    return {call};").unwrap(),
+        Some(_) => writeln!(body, "    const $ret = {call};").unwrap(),
     }
     if let Some(result) = &result
-        && !(result == "$ret" && copy_back.is_empty())
+        && result != "$ret"
     {
         writeln!(body, "    return {result};").unwrap();
     }
 
+    // Mutated arguments are copied back once the island has run, even if it trapped: the
+    // writes it made before are visible in JS too.
+    let mut cleanup = String::new();
+    if !copy_back.is_empty() {
+        let temps: Vec<String> = export
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(_, param)| param.mutated)
+            .map(|(index, _)| format!("${index}"))
+            .collect();
+        writeln!(out, "  let {};\n  let $called = false;", temps.join(", ")).unwrap();
+        cleanup.push_str("    if ($called) {\n");
+        for line in &copy_back {
+            writeln!(cleanup, "      {line}").unwrap();
+        }
+        cleanup.push_str("    }\n");
+    }
     write!(
         out,
-        "  try {{\n{body}  }} catch ($error) {{\n    throw $trap($error, {});\n  }} finally {{\n    $wasm.__trioxide_reset();\n  }}\n}}\n",
+        "  try {{\n{body}  }} catch ($error) {{\n    throw $trap($error, {});\n  }} finally {{\n{cleanup}    $wasm.__trioxide_reset();\n  }}\n}}\n",
         js_string(&export.name)
     )
     .unwrap();

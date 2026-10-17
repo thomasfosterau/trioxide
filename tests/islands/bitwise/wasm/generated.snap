@@ -136,7 +136,8 @@ input_file: tests/islands/bitwise/wasm/input.ts
       }
     }
   ],
-  "structs": []
+  "structs": [],
+  "fallback": "<repo>/tests/islands/bitwise/wasm/kernel.ts"
 }
 
 //- kernel/src/lib.rs
