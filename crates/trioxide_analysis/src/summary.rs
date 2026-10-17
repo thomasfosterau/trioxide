@@ -605,7 +605,8 @@ fn induction_variables(
                         },
                         _ => None,
                     };
-                    step.filter(|step| once && step.is_finite())
+                    // Only whole steps can be exact.
+                    step.filter(|step| once && step.is_finite() && step.fract() == 0.0)
                 }
                 _ => None,
             };

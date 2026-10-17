@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/default-param
+input_file: tests/wasm-errors/default-param/input.ts
+---
+error[trioxide(wasm-ineligible)]: `offset` is forced into WASM but can't be compiled: gives `by` a default value
+  --> input.ts:2:28 `by = 1`
+      gives `by` a default value
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

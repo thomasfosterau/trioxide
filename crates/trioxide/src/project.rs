@@ -4,16 +4,17 @@ use std::path::{Path, PathBuf};
 use trioxide_analysis::{Analysis, AnalysisOptions};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
-use trioxide_partition::{PartitionMode, PartitionOptions, Partitioner};
+use trioxide_partition::{Partition, PartitionMode, PartitionOptions, Partitioner, SourceModule};
 use trioxide_project::{
-    CompilerSettings, ContentCache, ContentHash, GraphOptions, ModuleGraph, find_tsconfig,
+    CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, ModuleGraph,
+    find_tsconfig,
 };
 use trioxide_types::{SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
-    BuildOutput, Error, ExplainQuery, Invalidation, Mode, ModuleOutput, Options, Report, Result,
-    World,
+    BuildOutput, Error, ExplainQuery, GlueMode, Invalidation, Mode, ModuleOutput, Options, Report,
+    Result, World,
     analysis::{self, FactRefresher, analysis_inputs},
     islands,
     pipeline::{ModuleCompiler, ModuleSource},
@@ -53,6 +54,9 @@ pub struct Project {
     island_builder: Option<Box<dyn IslandBuilder>>,
     /// Fact refreshes during compilation, and the time they took.
     refreshes: (usize, std::time::Duration),
+    partition: Partition,
+    /// Islands from the partition that built: calls to their exports go to their glue.
+    links: Vec<islands::IslandLink>,
 }
 
 impl std::fmt::Debug for Project {
@@ -137,6 +141,8 @@ impl Project {
             debug_islands: Vec::new(),
             island_builder: None,
             refreshes: (0, std::time::Duration::ZERO),
+            partition: Partition::default(),
+            links: Vec::new(),
         })
     }
 
@@ -169,12 +175,13 @@ impl Project {
         self.built_from_entries = true;
         self.analyse();
 
+        // Islands first: modules only call the islands that built.
+        let islands = self.build_islands();
         let mut modules = Vec::with_capacity(self.graph.modules().len());
         for index in 0..self.graph.modules().len() {
             let id = ModuleId::new(u32::try_from(index).expect("module count fits u32"));
             modules.push(self.compile(id));
         }
-        let islands = self.build_islands();
         Ok(BuildOutput {
             modules,
             islands,
@@ -215,13 +222,26 @@ impl Project {
             })
     }
 
-    /// The islands this build compiles: debug islands for now; S8's plan later.
+    /// The islands this build compiles: debug islands and the partition's.
     fn island_sources(&self) -> Vec<IslandSource> {
-        if self.options.wasm.enabled {
-            self.debug_islands.clone()
-        } else {
-            Vec::new()
+        if !self.options.wasm.enabled {
+            return Vec::new();
         }
+        let mut sources = self.debug_islands.clone();
+        for plan in &self.partition.islands {
+            let Some(mut source) = plan.source.clone() else {
+                continue;
+            };
+            // Ready-mode glue runs the JS versions until the island is instantiated.
+            if (plan.needs_fallback || self.options.wasm.glue == GlueMode::Ready)
+                && let Some(module) = plan.module
+            {
+                let path = &self.graph.module(module).path;
+                source.spec.fallback = Some(islands::fallback_specifier(path));
+            }
+            sources.push(source);
+        }
+        sources
     }
 
     /// Builds the planned islands, recording fallbacks and failures as diagnostics.
@@ -236,6 +256,26 @@ impl Project {
         let (artifacts, diagnostics) =
             islands::build(builder.as_ref(), &sources, self.options.wasm.require);
         self.diagnostics.extend(diagnostics);
+        self.links = self
+            .partition
+            .islands
+            .iter()
+            .filter(|plan| artifacts.iter().any(|a| a.spec.id == plan.id))
+            .filter_map(|plan| {
+                Some(islands::IslandLink {
+                    id: plan.id.clone(),
+                    module: plan.module?,
+                    bindings: plan.bindings.clone(),
+                    members: plan.functions.clone(),
+                    // Ready-mode glue has no top-level await, so the module it falls back to
+                    // may import it too (it only calls the JS versions until ready).
+                    local_calls: self.options.wasm.glue == GlueMode::Ready || !plan.needs_fallback,
+                    fallback: plan.needs_fallback || self.options.wasm.glue == GlueMode::Ready,
+                })
+            })
+            .collect();
+        // Outputs compiled before now don't call the islands.
+        self.outputs.clear();
         artifacts
     }
 
@@ -341,7 +381,7 @@ impl Project {
 
     /// Runs the whole-program stages: type oracle, analysis and partitioning.
     fn analyse(&mut self) {
-        let diagnostics = self.run_analysis(&FxHashMap::default());
+        let mut diagnostics = self.run_analysis(&FxHashMap::default());
         self.analysed = true;
         self.stale = false;
         let partitioner = Partitioner::new(PartitionOptions {
@@ -352,8 +392,37 @@ impl Project {
             },
             wasm: self.options.wasm.enabled,
         });
-        let partition = partitioner.partition(&self.analysis.facts);
-        debug_assert!(partition.is_all_js(), "island emission is not wired up yet");
+        let imports: Vec<Vec<ModuleId>> = self
+            .graph
+            .modules()
+            .iter()
+            .map(|module| {
+                module
+                    .imports
+                    .iter()
+                    .filter_map(|import| match import.target {
+                        ImportTarget::Module(id) => Some(id),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .collect();
+        let sources: Vec<SourceModule<'_>> = self
+            .graph
+            .modules()
+            .iter()
+            .zip(&imports)
+            .map(|(module, imports)| SourceModule {
+                id: module.id,
+                path: &module.path,
+                source: &module.source,
+                source_type: module.source_type,
+                imports,
+            })
+            .collect();
+        self.partition = partitioner.partition_sources(&self.analysis.facts, &sources);
+        diagnostics.extend(self.partition.diagnostics.iter().cloned());
+        self.links.clear();
 
         // The facts changed, so outputs computed against older facts are stale.
         self.outputs.clear();
@@ -435,14 +504,45 @@ impl Project {
             source: &module.source,
             source_type: module.source_type,
         };
+        let rewrite = (!self.links.is_empty()).then(|| islands::Rewrite {
+            module: id,
+            links: &self.links,
+            imports: module
+                .imports
+                .iter()
+                .map(|import| {
+                    let target = match import.target {
+                        ImportTarget::Module(id) => Some(id),
+                        _ => None,
+                    };
+                    (import.specifier.clone(), target)
+                })
+                .collect(),
+            member_spans: self
+                .links
+                .iter()
+                .flat_map(|link| &link.members)
+                .filter(|member| member.module == id)
+                .filter_map(|&member| self.analysis.facts.function(member).map(|f| f.span))
+                .collect(),
+        });
         // Passes see facts refreshed after each group that changes the module; other modules
         // compile against the program's own facts, so those come back afterwards.
         let mut facts =
             FactRefresher::new(&mut *self.oracle, &self.graph, setup, &mut self.analysis);
-        let mut output = self.compiler.compile(&input, &mut facts, log, true);
+        let mut output = self
+            .compiler
+            .compile(&input, &mut facts, log, true, rewrite.as_ref());
         self.refreshes.0 += facts.refreshes();
         self.refreshes.1 += facts.refresh_time();
         facts.restore();
+        log.functions.extend(
+            self.partition
+                .decisions
+                .iter()
+                .filter(|(module, _)| *module == id)
+                .map(|(_, decision)| decision.clone()),
+        );
         let mut diagnostics = module.diagnostics.clone();
         diagnostics.append(&mut output.diagnostics);
         output.diagnostics = diagnostics;
@@ -494,5 +594,5 @@ pub fn strip_types(
     };
     Ok(project
         .compiler
-        .compile(&input, &mut facts, &mut log, false))
+        .compile(&input, &mut facts, &mut log, false, None))
 }

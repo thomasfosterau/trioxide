@@ -38,29 +38,35 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "nbody" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "nbody")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "nbody" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
-// Copies a typed array or number[] into the arena as View elements.
+// Copies a typed array into the arena as View elements. (A detached one has no elements,
+// and `set` would throw.)
 function $copyIn(array, View) {
   const ptr = $alloc(array.length * View.BYTES_PER_ELEMENT, View.BYTES_PER_ELEMENT);
-  new View($wasm.memory.buffer, ptr, array.length).set(array);
+  if (array.length !== 0) new View($wasm.memory.buffer, ptr, array.length).set(array);
   return ptr;
 }
 
 function $copyBack(array, View, ptr) {
-  array.set(new View($wasm.memory.buffer, ptr, array.length));
+  if (array.length !== 0) array.set(new View($wasm.memory.buffer, ptr, array.length));
 }
 
 export function advance(bodies, dt, steps) {
+  let $0;
+  let $called = false;
   try {
-    const $0 = $copyIn(bodies, Float64Array);
+    $0 = $copyIn(bodies, Float64Array);
+    $called = true;
     $wasm.advance($0, bodies.length, dt, steps);
-    $copyBack(bodies, Float64Array, $0);
   } catch ($error) {
     throw $trap($error, "advance");
   } finally {
+    if ($called) {
+      $copyBack(bodies, Float64Array, $0);
+    }
     $wasm.__trioxide_reset();
   }
 }

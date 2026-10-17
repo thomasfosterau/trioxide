@@ -1,0 +1,19 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/inexact-math
+input_file: tests/wasm-errors/inexact-math/input.ts
+---
+error[trioxide(wasm-ineligible)]: `wave` is forced into WASM but can't be compiled: uses `Math.sin`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  --> input.ts:5:10 `Math.sin(t)`
+      uses `Math.sin`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain
+error[trioxide(wasm-ineligible)]: `rare` is forced into WASM but can't be compiled (4 reasons)
+  --> input.ts:10:10 `Math.sinh(t)`
+      uses `Math.sinh`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  --> input.ts:10:25 `Math.atanh(t)`
+      uses `Math.atanh`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  --> input.ts:10:41 `Math.log1p(t)`
+      uses `Math.log1p`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  --> input.ts:10:57 `Math.atan2(t, 1)`
+      uses `Math.atan2`, whose result may differ from V8's in the last bit (docs/ABI.md, "Numerics")
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

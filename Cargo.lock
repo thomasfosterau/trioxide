@@ -1493,6 +1493,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "prettyplease"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bfe0f4c752e450fc2faf62654f1c134747922825d5b04ca717b8874f41a40c0"
+dependencies = [
+ "proc-macro2",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1961,11 +1971,13 @@ dependencies = [
  "json-strip-comments",
  "oxc_allocator",
  "oxc_ast",
+ "oxc_ast_visit",
  "oxc_codegen",
  "oxc_diagnostics",
  "oxc_parser",
  "oxc_semantic",
  "oxc_span",
+ "oxc_syntax",
  "rustc-hash",
  "schemars",
  "serde",
@@ -1977,6 +1989,7 @@ dependencies = [
  "trioxide_js",
  "trioxide_partition",
  "trioxide_project",
+ "trioxide_rust",
  "trioxide_types",
  "trioxide_wasm",
 ]
@@ -2073,6 +2086,7 @@ dependencies = [
  "serde",
  "trioxide_analysis",
  "trioxide_common",
+ "trioxide_rust",
  "trioxide_types",
  "trioxide_wasm",
 ]
@@ -2107,8 +2121,21 @@ dependencies = [
 name = "trioxide_rust"
 version = "0.0.0"
 dependencies = [
+ "insta",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_syntax",
+ "prettyplease",
+ "rustc-hash",
+ "syn 3.0.9",
+ "trioxide",
  "trioxide_analysis",
  "trioxide_common",
+ "trioxide_rt",
+ "trioxide_types",
  "trioxide_wasm",
 ]
 

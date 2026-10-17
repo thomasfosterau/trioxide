@@ -143,10 +143,13 @@ impl Default for WasmOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum GlueMode {
-    /// Top-level `await` in the glue module.
-    #[default]
+    /// Top-level `await` in the glue module: islands run from the first call, but modules
+    /// importing them finish evaluating later (after other pending tasks).
     Tla,
-    /// Export a `ready()` promise, for targets without top-level await.
+    /// No top-level `await`: functions run their JS versions until the island is
+    /// instantiated, and the glue exports a `ready()` promise. Module evaluation order is
+    /// unchanged.
+    #[default]
     Ready,
 }
 

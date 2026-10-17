@@ -37,7 +37,7 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "errors" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "errors")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "errors" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 

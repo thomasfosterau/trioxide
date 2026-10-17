@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/use-js-callee
+input_file: tests/wasm-errors/use-js-callee/input.ts
+---
+error[trioxide(wasm-ineligible)]: `caller` is forced into WASM but can't be compiled: calls `helper`, which is marked "use js"
+  --> input.ts:9:10 `helper(x)`
+      calls `helper`, which is marked "use js"
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

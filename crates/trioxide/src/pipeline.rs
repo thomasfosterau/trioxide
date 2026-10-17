@@ -8,9 +8,9 @@ use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
-use trioxide_js::{EmitOptions, FactSource, PassManager, PassOptions, emit};
+use trioxide_js::{EmitOptions, FactSource, PassManager, PassOptions, emit_with};
 
-use crate::{ModuleOutput, SourceMap};
+use crate::{ModuleOutput, SourceMap, islands::Rewrite};
 
 /// One module to compile.
 #[derive(Clone, Copy)]
@@ -29,13 +29,14 @@ pub(crate) struct ModuleCompiler {
 
 impl ModuleCompiler {
     /// Compiles one module. With `optimise` off, only strips types (the differential suite's
-    /// baseline).
+    /// baseline). `rewrite` points calls of WASM island exports at their glue.
     pub fn compile(
         &self,
         input: &ModuleSource<'_>,
         facts: &mut dyn FactSource,
         log: &mut ModuleLog,
         optimise: bool,
+        rewrite: Option<&Rewrite<'_>>,
     ) -> ModuleOutput {
         let ModuleSource {
             id,
@@ -83,13 +84,25 @@ impl ModuleCompiler {
             }
         }
 
-        let out = emit(&allocator, &mut program, scoping, path, &self.emit);
+        let mut islands = Vec::new();
+        let out = emit_with(
+            &allocator,
+            &mut program,
+            scoping,
+            path,
+            &self.emit,
+            &mut |allocator, program, scoping| {
+                if let Some(rewrite) = rewrite {
+                    islands = crate::islands::rewrite_calls(allocator, program, scoping, rewrite);
+                }
+            },
+        );
         diagnostics.extend(out.diagnostics);
         ModuleOutput {
             path: path.to_path_buf(),
             code: out.code,
             map: out.map.map(SourceMap::from_json),
-            islands: Vec::new(),
+            islands,
             diagnostics,
         }
     }

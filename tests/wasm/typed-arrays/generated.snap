@@ -1,0 +1,488 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm/typed-arrays
+input_file: tests/wasm/typed-arrays/input.ts
+---
+//- kernel/island.json
+{
+  "id": "kernel",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "fillI8",
+      "wasmName": "fillI8",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i8"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillU8",
+      "wasmName": "fillU8",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillC8",
+      "wasmName": "fillC8",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8Clamped"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillI16",
+      "wasmName": "fillI16",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i16"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillU16",
+      "wasmName": "fillU16",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u16"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillI32",
+      "wasmName": "fillI32",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillU32",
+      "wasmName": "fillU32",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillF32",
+      "wasmName": "fillF32",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "fillF64",
+      "wasmName": "fillF64",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          },
+          "mutated": true
+        },
+        {
+          "name": "v",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "total",
+      "wasmName": "total",
+      "params": [
+        {
+          "name": "a",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i8"
+          },
+          "mutated": false
+        },
+        {
+          "name": "b",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u16"
+          },
+          "mutated": false
+        },
+        {
+          "name": "c",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "makeClamped",
+      "wasmName": "makeClamped",
+      "params": [
+        {
+          "name": "n",
+          "ty": {
+            "kind": "i32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "typedArray",
+        "element": "u8Clamped"
+      }
+    },
+    {
+      "name": "makeFloat32",
+      "wasmName": "makeFloat32",
+      "params": [
+        {
+          "name": "n",
+          "ty": {
+            "kind": "i32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "typedArray",
+        "element": "f32"
+      }
+    }
+  ],
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/typed-arrays/kernel.ts"
+}
+
+//- kernel/src/lib.rs
+//! WASM island `kernel`, generated by trioxide from `kernel.ts`. Do not edit.
+
+#![no_std]
+#![allow(non_snake_case, clippy::all)]
+
+use trioxide_rt::prelude::*;
+
+fn fillI8(xs: &mut [i8], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillU8(xs: &mut [u8], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillC8(xs: &mut [U8Clamped], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillI16(xs: &mut [i16], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillU16(xs: &mut [u16], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillI32(xs: &mut [i32], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillU32(xs: &mut [u32], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillF32(xs: &mut [f32], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn fillF64(xs: &mut [f64], v: f64) {
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::set(xs, i, v * i);
+        i += 1.0;
+    }
+}
+
+fn total(a: &[i8], b: &[u16], c: &[f32]) -> f64 {
+    let mut sum = 0.0;
+    for index in 0..a.len() {
+        // SAFETY: the loop keeps the index below the length.
+        let x = unsafe { array::get_unchecked(a, index) };
+        sum += x;
+    }
+    for index_2 in 0..b.len() {
+        // SAFETY: the loop keeps the index below the length.
+        let x_2 = unsafe { array::get_unchecked(b, index_2) };
+        sum += x_2;
+    }
+    for index_3 in 0..c.len() {
+        // SAFETY: the loop keeps the index below the length.
+        let x_3 = unsafe { array::get_unchecked(c, index_3) };
+        sum += x_3;
+    }
+    sum
+}
+
+fn makeClamped(n: i32) -> &'static mut [U8Clamped] {
+    let out = abi::alloc_array::<U8Clamped>(n as usize);
+    let mut i = 0.0;
+    while i < array::len(out) {
+        array::set(out, i, i * 100.5);
+        i += 1.0;
+    }
+    out
+}
+
+fn makeFloat32(n: i32) -> &'static mut [f32] {
+    let out = abi::alloc_array::<f32>(n as usize);
+    let mut i = 0.0;
+    while i < array::len(out) {
+        array::set(out, i, 1.0 / core::hint::black_box(i + 3.0));
+        i += 1.0;
+    }
+    out
+}
+
+#[unsafe(export_name = "fillI8")]
+pub unsafe extern "C" fn __abi_fillI8(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i8>(xs_ptr, xs_len) };
+    fillI8(xs, v);
+}
+
+#[unsafe(export_name = "fillU8")]
+pub unsafe extern "C" fn __abi_fillU8(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<u8>(xs_ptr, xs_len) };
+    fillU8(xs, v);
+}
+
+#[unsafe(export_name = "fillC8")]
+pub unsafe extern "C" fn __abi_fillC8(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<U8Clamped>(xs_ptr, xs_len) };
+    fillC8(xs, v);
+}
+
+#[unsafe(export_name = "fillI16")]
+pub unsafe extern "C" fn __abi_fillI16(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i16>(xs_ptr, xs_len) };
+    fillI16(xs, v);
+}
+
+#[unsafe(export_name = "fillU16")]
+pub unsafe extern "C" fn __abi_fillU16(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<u16>(xs_ptr, xs_len) };
+    fillU16(xs, v);
+}
+
+#[unsafe(export_name = "fillI32")]
+pub unsafe extern "C" fn __abi_fillI32(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i32>(xs_ptr, xs_len) };
+    fillI32(xs, v);
+}
+
+#[unsafe(export_name = "fillU32")]
+pub unsafe extern "C" fn __abi_fillU32(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<u32>(xs_ptr, xs_len) };
+    fillU32(xs, v);
+}
+
+#[unsafe(export_name = "fillF32")]
+pub unsafe extern "C" fn __abi_fillF32(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<f32>(xs_ptr, xs_len) };
+    fillF32(xs, v);
+}
+
+#[unsafe(export_name = "fillF64")]
+pub unsafe extern "C" fn __abi_fillF64(xs_ptr: u32, xs_len: u32, v: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<f64>(xs_ptr, xs_len) };
+    fillF64(xs, v);
+}
+
+#[unsafe(export_name = "total")]
+pub unsafe extern "C" fn __abi_total(
+    a_ptr: u32,
+    a_len: u32,
+    b_ptr: u32,
+    b_len: u32,
+    c_ptr: u32,
+    c_len: u32,
+) -> f64 {
+    // SAFETY: the glue passes fresh copies.
+    let a = unsafe { abi::slice::<i8>(a_ptr, a_len) };
+    let b = unsafe { abi::slice::<u16>(b_ptr, b_len) };
+    let c = unsafe { abi::slice::<f32>(c_ptr, c_len) };
+    total(a, b, c)
+}
+
+#[unsafe(export_name = "makeClamped")]
+pub extern "C" fn __abi_makeClamped(n: i32) -> u32 {
+    abi::return_array(makeClamped(n))
+}
+
+#[unsafe(export_name = "makeFloat32")]
+pub extern "C" fn __abi_makeFloat32(n: i32) -> u32 {
+    abi::return_array(makeFloat32(n))
+}

@@ -1,0 +1,5 @@
+{
+  // Top-level-await glue delays these modules past the sibling's microtask: only ready()
+  // glue keeps the order.
+  "wasm": { "glue": "ready" }
+}

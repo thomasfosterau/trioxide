@@ -4,5 +4,3 @@ description: tests/fixtures/passes/dce/repro-setter
 input_file: tests/fixtures/passes/dce/repro-setter/input.ts
 ---
 //- input.ts
-6:32 dce applied
-4:1 dce applied

@@ -145,6 +145,13 @@ function nested() {
 	}
 	return grown.length;
 }
+function fractional() {
+	let count = 0;
+	for (let x = 0; x < 1; x += .25) {
+		count += 1;
+	}
+	return count;
+}
 // Units the engine calls: their sites must not read as complete.
 async function thenable() {
 	const t = { then(r) {
@@ -198,7 +205,7 @@ export function main() {
 	]));
 	void thenable();
 	void promised();
-	console.log(coerced(), converted(), log, locals(), getter(), callbacks(), nested());
+	console.log(coerced(), converted(), log, locals(), getter(), callbacks(), nested(), fractional());
 	console.log(captured([
 		1,
 		2,

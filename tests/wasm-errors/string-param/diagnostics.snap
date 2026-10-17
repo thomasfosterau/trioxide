@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/string-param
+input_file: tests/wasm-errors/string-param/input.ts
+---
+error[trioxide(wasm-ineligible)]: `size` is forced into WASM but can't be compiled: parameter `text` may be a string; only numbers, booleans, typed arrays, `number[]` and plain-data objects can cross the boundary
+  --> input.ts:2:15 `text: string`
+      parameter `text` may be a string; only numbers, booleans, typed arrays, `number[]` and plain-data objects can cross the boundary
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

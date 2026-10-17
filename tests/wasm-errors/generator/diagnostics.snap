@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/generator
+input_file: tests/wasm-errors/generator/input.ts
+---
+error[trioxide(wasm-ineligible)]: `count` is forced into WASM but can't be compiled (2 reasons)
+  --> input.ts:2:1 `function* count(n: number): Generator<number> {`
+      is async or a generator
+  --> input.ts:4:31 `yield i`
+      uses `yield`
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

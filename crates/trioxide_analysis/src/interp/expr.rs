@@ -538,6 +538,7 @@ impl<'a> Cx<'_, '_, 'a> {
         let site = self.alloc(object.node_id.get(), ObjKind::Object);
         let mut keys = Vec::new();
         let mut dynamic = false;
+        let mut accessors = false;
         for property in &object.properties {
             match property {
                 ObjectPropertyKind::ObjectProperty(property) => {
@@ -577,16 +578,17 @@ impl<'a> Cx<'_, '_, 'a> {
                             self.escape_value(&value, Escape::Unknown);
                             self.store_prop(site, &key, &Val::unknown(), true);
                             dynamic = true;
+                            accessors = true;
                         }
-                        _ => {
-                            // `__proto__: x` sets the prototype; computed keys are unknown.
-                            let level = if property.kind == PropertyKind::Init {
-                                Escape::Known
-                            } else {
-                                Escape::Unknown
-                            };
-                            self.escape_value(&value, level);
+                        (key, kind) => {
+                            // `__proto__: x` sets the prototype, whose accessors then run on
+                            // property accesses. A computed key may name an accessor, or a
+                            // protocol method the engine calls (`[Symbol.iterator]`,
+                            // `[Symbol.toPrimitive]`): its value is open either way.
+                            let prototype = key.is_some() && kind == PropertyKind::Init;
+                            self.escape_value(&value, Escape::Unknown);
                             dynamic = true;
+                            accessors |= prototype || kind != PropertyKind::Init;
                         }
                     }
                 }
@@ -618,6 +620,18 @@ impl<'a> Cx<'_, '_, 'a> {
                                 if !complete {
                                     dynamic = true;
                                 }
+                                // Spreading reads every own property: getters run.
+                                let runs_code = self.an.heap(source).is_none_or(|obj| {
+                                    obj.accessors
+                                        || obj.poisoned
+                                        || obj.escape == Escape::Unknown
+                                        || obj.kind == ObjKind::Opaque
+                                });
+                                if runs_code {
+                                    self.always(EffectKind::CallsUnknown);
+                                    self.note_call();
+                                    self.after_call(false);
+                                }
                                 for (key, value) in copied {
                                     self.store_prop(site, &key, &value, true);
                                 }
@@ -643,6 +657,7 @@ impl<'a> Cx<'_, '_, 'a> {
             .is_some_and(|obj| obj.present.is_empty() && !obj.dynamic && !obj.deleted);
         self.mark(site, |obj| {
             obj.dynamic |= dynamic;
+            obj.accessors |= accessors;
             if first {
                 obj.present.extend(keys);
             } else {
@@ -1154,6 +1169,18 @@ impl<'a> Cx<'_, '_, 'a> {
     fn assignment(&mut self, assign: &'a oxc_ast::ast::AssignmentExpression<'a>) -> Val {
         let operator = assign.operator;
         if operator == AssignmentOperator::Assign {
+            // A member target's object and key are evaluated before the right-hand side.
+            if let Some(member) = assign
+                .left
+                .as_simple_assignment_target()
+                .and_then(target_member)
+            {
+                let object = self.expr(member.object());
+                let key = self.member_key(member);
+                let value = self.expr(&assign.right);
+                self.write_prop(&object, &key, &value, assign.node_id.get(), false);
+                return value;
+            }
             let value = self.expr(&assign.right);
             self.assign_target(&assign.left, value.clone(), assign.node_id.get());
             return value;
@@ -2117,6 +2144,13 @@ impl<'a> Cx<'_, '_, 'a> {
                     self.always(EffectKind::Throws);
                 }
                 _ => {
+                    if obj.accessors && !defining {
+                        // A setter (its own, or its prototype's) may run.
+                        self.escape_value(value, Escape::Unknown);
+                        self.always(EffectKind::CallsUnknown);
+                        self.note_call();
+                        self.after_call(false);
+                    }
                     let Some(name) = key.name() else {
                         self.mark(site, |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Known);
@@ -2184,17 +2218,14 @@ impl<'a> Cx<'_, '_, 'a> {
         }
     }
 
-    /// The values an iteration over `value` (for-of, spread, array destructuring) produces.
-    pub fn iterate(&mut self, value: &Val, node: oxc_syntax::node::NodeId) -> Val {
-        let _ = node;
-        if is_never(value) {
-            return Val::never();
-        }
+    /// Whether iterating `value` is proven to use only the builtin iterators (a proven array,
+    /// typed array or string, with their prototypes intact): no program code runs.
+    pub fn iterates_natively(&self, value: &Val) -> bool {
         // Their iterators come from the prototypes.
         let intact = ["Array", "String", "Object", super::TYPED_ARRAY]
             .iter()
             .all(|name| !self.an.patched.contains(*name));
-        let array_like = intact
+        intact
             && value.trust == Trust::Proven
             && value.ty.members().iter().all(|member| {
                 matches!(
@@ -2202,7 +2233,19 @@ impl<'a> Cx<'_, '_, 'a> {
                     Type::Array(_) | Type::TypedArray(_) | Type::Tuple(_) | Type::String
                 )
             })
-            && !value.ty.may_be_nullish();
+            && !value.ty.may_be_nullish()
+    }
+
+    /// The values an iteration over `value` (for-of, spread, array destructuring) produces.
+    pub fn iterate(&mut self, value: &Val, node: oxc_syntax::node::NodeId) -> Val {
+        let _ = node;
+        if is_never(value) {
+            return Val::never();
+        }
+        let intact = ["Array", "String", "Object", super::TYPED_ARRAY]
+            .iter()
+            .all(|name| !self.an.patched.contains(*name));
+        let array_like = self.iterates_natively(value);
         let declared_array_like = intact
             && value.trust >= Trust::Declared
             && value.ty.members().iter().all(|member| {
@@ -2211,9 +2254,10 @@ impl<'a> Cx<'_, '_, 'a> {
                     Type::Array(_) | Type::TypedArray(_) | Type::Tuple(_) | Type::String
                 )
             });
-        // Array.prototype[Symbol.iterator] is assumed intact.
-        self.effect(EffectKind::CallsUnknown, array_like, declared_array_like);
-        self.effect(EffectKind::Throws, array_like, declared_array_like);
+        // Array.prototype[Symbol.iterator] is assumed intact. Whether user iterator code runs
+        // never rests on declared types alone (a user iterable passes for `Iterable<T>`).
+        self.effect(EffectKind::CallsUnknown, array_like, array_like);
+        self.effect(EffectKind::Throws, array_like, array_like);
         if value.trust >= Trust::Declared && value.ty == Type::String {
             return Val::proven(Type::String).at_most(value.trust);
         }
@@ -2393,4 +2437,19 @@ pub fn is_never(value: &Val) -> bool {
 pub fn is_array_index(name: &str) -> bool {
     name.parse::<u32>()
         .is_ok_and(|index| index != u32::MAX && index.to_string() == name)
+}
+
+/// The member expression a simple assignment target writes, through TypeScript casts and
+/// parentheses.
+fn target_member<'s, 'a>(
+    target: &'s SimpleAssignmentTarget<'a>,
+) -> Option<&'s MemberExpression<'a>> {
+    let inner = match target {
+        SimpleAssignmentTarget::TSAsExpression(cast) => &cast.expression,
+        SimpleAssignmentTarget::TSSatisfiesExpression(cast) => &cast.expression,
+        SimpleAssignmentTarget::TSNonNullExpression(cast) => &cast.expression,
+        SimpleAssignmentTarget::TSTypeAssertion(cast) => &cast.expression,
+        member => return member.as_member_expression(),
+    };
+    inner.without_parentheses().as_member_expression()
 }

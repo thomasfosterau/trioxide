@@ -1,0 +1,139 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/protocol-methods
+input_file: tests/fixtures/analysis/protocol-methods/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): reads writes allocates throws calls-unknown
+  <anonymous> (7:23) open: reads writes throws calls-unknown (declared: reads writes)
+  <anonymous> (14:20) open: allocates
+  next (17:11) open: reads writes allocates throws calls-unknown (declared: reads writes allocates)
+  Range.<fields> (26:13) open: pure
+  Range.constructor (27:14) open: reads writes throws calls-unknown
+  Range.[computed] (29:21) open: reads writes throws calls-unknown
+  Even.<fields> (37:12): pure
+  Even.[computed] (38:30) open: reads writes throws calls-unknown (declared: reads writes)
+  toJSON (46:9) open: reads writes throws calls-unknown (declared: reads writes)
+  sum (52:1): reads writes throws calls-unknown
+  main (60:8) open: reads writes allocates throws calls-unknown
+    calls 62:15 -> sum
+    calls 62:30 -> sum
+    calls 62:34 -> Range.<fields>
+    calls 62:34 -> Range.constructor
+classes:
+  Range (26:1): fields [end] shape unknown
+  Even (37:1): fields [] stable
+nodes:
+  4:5 bind `log`: string@proven
+  6:7 bind `primitive`: object@proven
+  6:19 object `{ [Symbol.toPrimitive](hint: string):...`: object@proven escape=unknown
+  7:4 member `Symbol.toPrimitive`: symbol@declared
+  7:4 ref `Symbol`: unknown
+  7:24 bind `hint`: string@declared
+  8:5 assign `log += hint`: string@declared
+  8:5 ref `log`: string@declared
+  8:12 ref `hint`: string@declared
+  9:12 cond `hint === "number" ? 1 : 2`: number[1, 2] int nonNaN nonNegZero@proven
+  9:12 binary `hint === "number"`: boolean@proven
+  9:12 ref `hint`: string@declared
+  13:7 bind `iterable`: object@proven
+  13:18 object `{ [Symbol.iterator](): Iterator<numbe...`: object@proven escape=unknown
+  14:4 member `Symbol.iterator`: symbol@declared
+  14:4 ref `Symbol`: unknown
+  14:24 ref `Iterator`: unknown
+  15:9 bind `n`: 0@proven
+  16:12 object `{ next(): IteratorResult<number> { n ...`: object@proven escape=unknown
+  17:15 ref `IteratorResult`: unknown
+  18:9 assign `n += 1`: number[1, inf] int nonNaN nonNegZero@proven
+  18:9 ref `n`: number[0, inf] int nonNaN nonNegZero@proven
+  19:9 assign `log += "n"`: string@declared
+  19:9 ref `log`: string@declared
+  20:16 cond `n > 2 ? { done: true, value: 0 } : { ...`: object@proven
+  20:16 binary `n > 2`: boolean@proven
+  20:16 ref `n`: number[0, inf] int nonNaN nonNegZero@proven
+  20:24 object `{ done: true, value: 0 }`: object@proven escape=unknown
+  20:51 object `{ done: false, value: n }`: object@proven escape=unknown
+  20:73 ref `n`: number[0, inf] int nonNaN nonNegZero@proven
+  26:7 bind `Range`: function@proven
+  27:24 bind `end`: number@declared
+  29:5 member `Symbol.iterator`: symbol@declared
+  29:5 ref `Symbol`: unknown
+  29:25 ref `Generator`: unknown
+  30:14 bind `i`: 0@proven
+  30:21 binary `i < this.end`: boolean@proven
+  30:21 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  30:25 member `this.end`: number@declared
+  30:25 this `this`: Range@declared
+  30:35 unary `i++`: number[0, inf] int nonNaN nonNegZero@declared
+  30:35 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  31:7 assign `log += "r"`: string@declared
+  31:7 ref `log`: string@declared
+  32:13 ref `i`: number[0, inf] int nonNaN nonNegZero@declared
+  37:7 bind `Even`: function@proven
+  38:11 member `Symbol.hasInstance`: symbol@declared
+  38:11 ref `Symbol`: unknown
+  38:31 bind `value`: unknown
+  39:5 assign `log += "h"`: string@declared
+  39:5 ref `log`: string@declared
+  40:12 binary `typeof value === "number" && value % ...`: boolean@proven
+  40:12 binary `typeof value === "number"`: boolean@proven
+  40:12 unary `typeof value`: string@proven
+  40:19 ref `value`: unknown
+  40:41 binary `value % 2 === 0`: boolean@proven
+  40:41 binary `value % 2`: number[-2, 2]@proven
+  40:41 ref `value`: number@proven
+  44:7 bind `serialised`: object@proven
+  44:20 object `{ value: 3, toJSON(key: string): stri...`: object@proven escape=unknown
+  46:10 bind `key`: string@declared
+  47:5 assign `log += "j" + key`: string@declared
+  47:5 ref `log`: string@declared
+  47:12 binary `"j" + key`: string@declared
+  47:18 ref `key`: string@declared
+  52:10 bind `sum`: function@proven
+  52:14 bind `values`: object | Range@proven
+  52:22 ref `Iterable`: unknown
+  53:7 bind `total`: 0@proven
+  54:14 bind `value`: number@declared
+  54:23 ref `values`: object | Range@proven
+  55:5 assign `total += value`: number nonNegZero@declared
+  55:5 ref `total`: number nonNegZero@declared
+  55:14 ref `value`: number@declared
+  57:10 ref `total`: number nonNegZero@declared
+  60:17 bind `main`: function@proven
+  61:3 call `console.log(+(primitive as any), `${p...`: unknown
+  61:3 member `console.log`: unknown
+  61:3 ref `console`: unknown
+  61:15 unary `+(primitive as any)`: number@proven
+  61:17 cast `primitive as any`: object@proven
+  61:17 ref `primitive`: object@proven
+  61:39 cast `primitive as any`: object@proven
+  61:39 ref `primitive`: object@proven
+  62:3 call `console.log(sum(iterable), sum(new Ra...`: unknown
+  62:3 member `console.log`: unknown
+  62:3 ref `console`: unknown
+  62:15 call `sum(iterable)`: number nonNegZero@declared
+  62:15 ref `sum`: function@proven
+  62:19 ref `iterable`: object@proven
+  62:30 call `sum(new Range(3))`: number nonNegZero@declared
+  62:30 ref `sum`: function@proven
+  62:34 new `new Range(3)`: Range@proven escape=unknown
+  62:38 ref `Range`: function@proven
+  62:49 member `[...iterable].length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  62:49 array `[...iterable]`: unknown[]@proven escape=none stable-shape
+  62:53 ref `iterable`: object@proven
+  63:3 call `console.log((4 as any) instanceof Eve...`: unknown
+  63:3 member `console.log`: unknown
+  63:3 ref `console`: unknown
+  63:15 binary `(4 as any) instanceof Even`: boolean@proven
+  63:16 cast `4 as any`: 4@proven
+  63:37 ref `Even`: function@proven
+  63:43 call `JSON.stringify({ s: serialised })`: string@declared
+  63:43 member `JSON.stringify`: unknown
+  63:43 ref `JSON`: unknown
+  63:58 object `{ s: serialised }`: object@proven escape=unknown
+  63:63 ref `serialised`: object@proven
+  64:3 call `console.log(log)`: unknown
+  64:3 member `console.log`: unknown
+  64:3 ref `console`: unknown
+  64:15 ref `log`: string@declared

@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/async
+input_file: tests/wasm-errors/async/input.ts
+---
+error[trioxide(wasm-ineligible)]: `later` is forced into WASM but can't be compiled: is async or a generator
+  --> input.ts:2:1 `async function later(n: number): Promise<number> {`
+      is async or a generator
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

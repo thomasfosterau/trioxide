@@ -166,6 +166,14 @@ function nested(): number {
   return grown.length;
 }
 
+function fractional(): number {
+  let count = 0;
+  for (let x = 0; x < 1; x += 0.25) {
+    count += 1;
+  }
+  return count;
+}
+
 // Units the engine calls: their sites must not read as complete.
 async function thenable(): Promise<number> {
   const t = {
@@ -217,6 +225,6 @@ export function main(): void {
   console.log(guarded([1, 2], { x: 3 }), guarded([1], null), clock([1, 2]), boxed([1, 2, 3]));
   void thenable();
   void promised();
-  console.log(coerced(), converted(), log, locals(), getter(), callbacks(), nested());
+  console.log(coerced(), converted(), log, locals(), getter(), callbacks(), nested(), fractional());
   console.log(captured([1, 2, 3]), method([1, 2], new Scale()), exits([1, 2, 3, 4, 5, 6], 2));
 }

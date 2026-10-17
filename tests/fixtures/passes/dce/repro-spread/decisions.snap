@@ -4,7 +4,4 @@ description: tests/fixtures/passes/dce/repro-spread
 input_file: tests/fixtures/passes/dce/repro-spread/input.ts
 ---
 //- input.ts
-10:9 dce applied
-14:3 dce applied
-4:9 dce applied
-3:1 dce applied
+10:9 dce skipped: unused, but its initialiser has effects

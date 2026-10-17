@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/tdz-class
+input_file: tests/wasm-errors/tdz-class/input.ts
+---
+error[trioxide(wasm-ineligible)]: `norm` is forced into WASM but can't be compiled: constructs `Vec2`, which may run before the class declaration (JS would throw): code runs before it in its module, or the module is in an import cycle
+  --> input.ts:4:13 `new Vec2(x, y)`
+      constructs `Vec2`, which may run before the class declaration (JS would throw): code runs before it in its module, or the module is in an import cycle
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

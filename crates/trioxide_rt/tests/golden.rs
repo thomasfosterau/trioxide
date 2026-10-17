@@ -4,7 +4,8 @@
 //! with Node and commit the result). Every helper must match bit for bit (any NaN matches any
 //! NaN, since JavaScript cannot tell NaNs apart), except the transcendental functions, which
 //! come from `libm` instead of V8's fdlibm port: those must stay within [`MAX_ULPS`], and the
-//! ones listed in [`EXACT_TRANSCENDENTALS`] must match exactly.
+//! ones listed in [`math::EXACT_TRANSCENDENTALS`] must match exactly, here and on the ~2M
+//! generated inputs per function behind the digests in `tests/golden/wide.txt`.
 
 use std::path::Path;
 
@@ -16,12 +17,7 @@ use trioxide_rt::{
 /// The largest difference allowed between `libm` and V8, in units in the last place.
 const MAX_ULPS: u64 = 2;
 
-/// Transcendental functions that matched V8 exactly on every input in the tables. The others
-/// (`sin`, `cos`, `cosh`, `tanh`, `asinh`, `acosh`, `exp`, `log`, `log10`, `cbrt`, `pow`)
-/// differ on some inputs; `docs/ABI.md` ("Numerics") documents this.
-const EXACT_TRANSCENDENTALS: &[&str] = &[
-    "tan", "asin", "acos", "atan", "atan2", "sinh", "atanh", "expm1", "log1p", "log2",
-];
+use math::EXACT_TRANSCENDENTALS;
 
 fn parse(token: &str) -> f64 {
     token
@@ -254,4 +250,130 @@ fn transcendental() {
         failures.len(),
         failures[..failures.len().min(60)].join("\n")
     );
+}
+
+/// The input stream `generate.mjs` uses for the wide comparison (`wideInputs`).
+struct WideInputs {
+    state: u32,
+}
+
+impl WideInputs {
+    fn new(name: &str) -> Self {
+        let mut h: u32 = 0x811c_9dc5;
+        for byte in name.bytes() {
+            h = (h ^ u32::from(byte)).wrapping_mul(0x0100_0193);
+        }
+        Self { state: h }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.state = self.state.wrapping_add(0x6d2b_79f5);
+        let mut t = self.state;
+        t = (t ^ (t >> 15)).wrapping_mul(t | 1);
+        t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 0x3d));
+        t ^ (t >> 14)
+    }
+
+    fn unit(&mut self) -> f64 {
+        f64::from(self.next_u32()) / 4_294_967_296.0
+    }
+
+    fn next(&mut self) -> f64 {
+        match self.next_u32() % 5 {
+            0 => {
+                let hi = u64::from(self.next_u32());
+                let lo = u64::from(self.next_u32());
+                let x = f64::from_bits(hi << 32 | lo);
+                if x.is_nan() { 1.25 } else { x }
+            }
+            1 => {
+                let e = i32::try_from(self.next_u32() % 121).unwrap() - 60;
+                let sign = if self.next_u32() & 1 == 1 { -1.0 } else { 1.0 };
+                sign * 2f64.powi(e) * (1.0 + self.unit())
+            }
+            2 => self.unit() * 2.0 - 1.0,
+            3 => (self.unit() - 0.5) * 20.0,
+            _ => (self.unit() - 0.5) * 1500.0,
+        }
+    }
+}
+
+/// `digest` in `generate.mjs`: a hash of the results' bits (NaNs canonicalised).
+fn wide_digest(name: &str, count: usize) -> String {
+    let unary: fn(f64) -> f64 = match name {
+        "sin" => math::sin,
+        "cos" => math::cos,
+        "tan" => math::tan,
+        "asin" => math::asin,
+        "acos" => math::acos,
+        "atan" => math::atan,
+        "sinh" => math::sinh,
+        "cosh" => math::cosh,
+        "tanh" => math::tanh,
+        "asinh" => math::asinh,
+        "acosh" => math::acosh,
+        "atanh" => math::atanh,
+        "exp" => math::exp,
+        "expm1" => math::expm1,
+        "log" => math::log,
+        "log1p" => math::log1p,
+        "log2" => math::log2,
+        "log10" => math::log10,
+        "cbrt" => math::cbrt,
+        _ => math::abs,
+    };
+    let mut input = WideInputs::new(name);
+    let (mut h1, mut h2): (u32, u32) = (0x811c_9dc5, 0x9747_b28c);
+    for _ in 0..count {
+        let x = if name == "atan2" {
+            let y = input.next();
+            math::atan2(y, input.next())
+        } else {
+            unary(input.next())
+        };
+        let bits = if x.is_nan() {
+            f64::NAN.to_bits()
+        } else {
+            x.to_bits()
+        };
+        #[expect(clippy::cast_possible_truncation, reason = "splitting into words")]
+        for word in [(bits >> 32) as u32, bits as u32] {
+            h1 = (h1 ^ word).wrapping_mul(0x0100_0193);
+            h2 = (h2 ^ word).wrapping_mul(0x5bd1_e995);
+            h2 ^= h2 >> 15;
+        }
+    }
+    format!("{h1:08x}{h2:08x}")
+}
+
+#[test]
+fn wide_transcendental() {
+    let text = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/wide.txt"),
+    )
+    .unwrap();
+    let mut failures = Vec::new();
+    let mut checked = Vec::new();
+    for line in text.lines().filter(|line| !line.starts_with('#')) {
+        let mut tokens = line.split(' ');
+        let (name, count, expected) = (
+            tokens.next().unwrap(),
+            tokens.next().unwrap().parse().unwrap(),
+            tokens.next().unwrap(),
+        );
+        let actual = wide_digest(name, count);
+        let exact = EXACT_TRANSCENDENTALS.contains(&name);
+        if exact && actual != expected {
+            failures.push(format!(
+                "{name} is listed as exact but differs from V8 on the wide inputs"
+            ));
+        }
+        checked.push(name);
+    }
+    for name in EXACT_TRANSCENDENTALS {
+        if !checked.contains(name) {
+            failures.push(format!("{name} has no wide digest; rerun generate.mjs"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

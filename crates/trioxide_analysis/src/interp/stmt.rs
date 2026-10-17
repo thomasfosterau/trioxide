@@ -210,6 +210,9 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             Statement::ForOfStatement(statement) => {
                 let iterable = self.expr(&statement.right);
+                // Each step calls the iterator's `next` (the program's, unless it is a proven
+                // array or string with intact builtins).
+                let steps_run_code = statement.r#await || !self.iterates_natively(&iterable);
                 let element = if statement.r#await {
                     self.escape_value(&iterable, Escape::Unknown);
                     self.always(EffectKind::CallsUnknown);
@@ -225,7 +228,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     &statement.body,
                     None,
                     false,
-                    Some((&statement.left, &element)),
+                    Some((&statement.left, &element, steps_run_code)),
                 );
             }
             Statement::ForInStatement(statement) => {
@@ -244,7 +247,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     &statement.body,
                     None,
                     false,
-                    Some((&statement.left, &Val::proven(Type::String))),
+                    Some((&statement.left, &Val::proven(Type::String), false)),
                 );
             }
             Statement::SwitchStatement(statement) => self.switch(statement, &labels),
@@ -581,7 +584,7 @@ impl<'a> Cx<'_, '_, 'a> {
         body: &'a Statement<'a>,
         update: Option<&'a Expression<'a>>,
         do_while: bool,
-        binding: Option<(&'a ForStatementLeft<'a>, &Val)>,
+        binding: Option<(&'a ForStatementLeft<'a>, &Val, bool)>,
     ) {
         self.frames.push(super::Frame::new(self.record.edges.len()));
         self.loop_writes.push(FxHashSet::default());
@@ -603,7 +606,13 @@ impl<'a> Cx<'_, '_, 'a> {
                 exit = exit.join(&no);
                 self.env = yes;
             }
-            if let Some((left, element)) = binding {
+            if let Some((left, element, steps_run_code)) = binding {
+                if steps_run_code {
+                    self.always(EffectKind::CallsUnknown);
+                    self.always(EffectKind::Throws);
+                    self.note_call();
+                    self.after_call(false);
+                }
                 self.bind_left(left, element.clone());
             }
             let continue_mark = self.continues.len();

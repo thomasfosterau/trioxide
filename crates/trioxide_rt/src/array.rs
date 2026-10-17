@@ -11,7 +11,12 @@
 //!   silently ignore invalid or out-of-bounds indices, as typed arrays do.
 //! - **`number[]` writes** must be proven in bounds (an out-of-bounds write would grow the
 //!   array, which v1 islands cannot express): use `xs[i] = v` or [`set_unchecked`].
-//!   `number[]` never changes length inside an island.
+//!   `number[]` never changes length inside an island. Values go through [`store_number`].
+//! - **Holes.** A `number[]` element that is `undefined` (a hole) arrives as the signalling
+//!   NaN [`HOLE`], which arithmetic turns into an ordinary NaN, as `undefined` does. The
+//!   lowering never stores a value that may be `undefined` in a `number[]`, so one with these
+//!   bits came through a conversion to number: [`store_number`] makes it NaN, and the glue
+//!   leaves elements that still hold [`HOLE`] alone.
 
 use crate::{conv, fpu};
 
@@ -199,6 +204,19 @@ pub fn set_usize<T: Element>(xs: &mut [T], index: usize, value: f64) {
 pub unsafe fn set_unchecked<T: Element>(xs: &mut [T], index: usize, value: f64) {
     // SAFETY: the caller guarantees `index` is in bounds.
     *unsafe { xs.get_unchecked_mut(index) } = T::from_f64(value);
+}
+
+/// The bits of a `number[]` element that is `undefined` (a hole) as the glue copies it in.
+pub const HOLE: u64 = 0x7ff4_7472_696f_7869;
+
+/// A value about to be stored in a `number[]`: [`HOLE`] becomes an ordinary NaN (what
+/// `+undefined` is), so the glue only sees [`HOLE`] where the island didn't write.
+pub fn store_number(value: f64) -> f64 {
+    if value.to_bits() == HOLE {
+        f64::NAN
+    } else {
+        value
+    }
 }
 
 /// `xs.length` as a number.

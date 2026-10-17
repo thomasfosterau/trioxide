@@ -31,14 +31,16 @@ async function $instantiate() {
   return instance.exports;
 }
 
-let $wasm;
-const $ready = $instantiate().then((exports) => {
+// `var`: a module this glue imports (its fallback) may call a wrapper before this body runs.
+var $wasm;
+var $ready = $instantiate().then((exports) => {
   $wasm = exports;
 });
 // Rejections surface through ready(); don't also report them as unhandled.
 $ready.catch(() => {});
 
-/** Resolves once the island is instantiated. Its functions throw until then. */
+/** Resolves once the island is instantiated. Until then its functions run their JS versions
+ * (the spec's fallback), or throw if there is none. */
 export function ready() {
   return $ready;
 }
@@ -57,19 +59,20 @@ function $trap(error, name) {
   if (!(error instanceof WebAssembly.RuntimeError)) return error;
   const code = $wasm.__trioxide_trap_code();
   if (code === 1) return new RangeError(`trioxide: island "multi" ran out of memory in ${name}()`);
-  if (code === 2) return new RangeError(`Invalid typed array length (in ${name}(), island "multi")`);
+  if (code === 2) return new RangeError(`Invalid typed array length: ${$wasm.__trioxide_trap_value()}`);
   return new Error(`trioxide: island "multi" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
-// Copies a typed array or number[] into the arena as View elements.
+// Copies a typed array into the arena as View elements. (A detached one has no elements,
+// and `set` would throw.)
 function $copyIn(array, View) {
   const ptr = $alloc(array.length * View.BYTES_PER_ELEMENT, View.BYTES_PER_ELEMENT);
-  new View($wasm.memory.buffer, ptr, array.length).set(array);
+  if (array.length !== 0) new View($wasm.memory.buffer, ptr, array.length).set(array);
   return ptr;
 }
 
 function $copyBack(array, View, ptr) {
-  array.set(new View($wasm.memory.buffer, ptr, array.length));
+  if (array.length !== 0) array.set(new View($wasm.memory.buffer, ptr, array.length));
 }
 
 function $takeArray(ret, View) {
@@ -84,7 +87,7 @@ function $overlaps(a, b) {
 }
 
 export function identity(n) {
-  $check();
+  if ($wasm === undefined) return $fallback.identity(n);
   try {
     const $ret = $wasm.identity(n);
     return $takeArray($ret, Float64Array);
@@ -96,7 +99,7 @@ export function identity(n) {
 }
 
 export function multiply(a, b, n) {
-  $check();
+  if ($wasm === undefined) return $fallback.multiply(a, b, n);
   try {
     const $0 = $copyIn(a, Float64Array);
     const $1 = $copyIn(b, Float64Array);
@@ -110,7 +113,7 @@ export function multiply(a, b, n) {
 }
 
 export function power(m, n, k) {
-  $check();
+  if ($wasm === undefined) return $fallback.power(m, n, k);
   try {
     const $0 = $copyIn(m, Float64Array);
     const $ret = $wasm.power($0, m.length, n, k);
@@ -123,7 +126,7 @@ export function power(m, n, k) {
 }
 
 export function trace(m, n) {
-  $check();
+  if ($wasm === undefined) return $fallback.trace(m, n);
   try {
     const $0 = $copyIn(m, Float64Array);
     return $wasm.trace($0, m.length, n);
@@ -135,7 +138,7 @@ export function trace(m, n) {
 }
 
 export function determinant(m, n) {
-  $check();
+  if ($wasm === undefined) return $fallback.determinant(m, n);
   try {
     const $0 = $copyIn(m, Float64Array);
     return $wasm.determinant($0, m.length, n);
@@ -147,18 +150,23 @@ export function determinant(m, n) {
 }
 
 export function axpy(y, x, alpha) {
-  $check();
+  if ($wasm === undefined) return $fallback.axpy(y, x, alpha);
   if ($overlaps(y, x)) {
     return $fallback.axpy(y, x, alpha);
   }
+  let $0;
+  let $called = false;
   try {
-    const $0 = $copyIn(y, Float64Array);
+    $0 = $copyIn(y, Float64Array);
     const $1 = $copyIn(x, Float64Array);
+    $called = true;
     $wasm.axpy($0, y.length, $1, x.length, alpha);
-    $copyBack(y, Float64Array, $0);
   } catch ($error) {
     throw $trap($error, "axpy");
   } finally {
+    if ($called) {
+      $copyBack(y, Float64Array, $0);
+    }
     $wasm.__trioxide_reset();
   }
 }
