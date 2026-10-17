@@ -203,7 +203,7 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     let mut i = 0.0;
     while i < array::len(a) {
         // SAFETY: the analysis proves the index is in bounds.
-        total += unsafe { array::get_unchecked(a, i as usize) } * array::get(b, i);
+        total += (unsafe { array::get_unchecked(a, i as usize) }) * array::get(b, i);
         i += 1.0;
     }
     total
@@ -237,7 +237,7 @@ fn weightedMean(values: &[f64], weights: &[f64]) -> f64 {
     while i < array::len(values) {
         // SAFETY: the analysis proves the index is in bounds.
         total
-            += unsafe { array::get_unchecked(values, i as usize) }
+            += (unsafe { array::get_unchecked(values, i as usize) })
                 * array::get(weights, i);
         weight += array::get(weights, i);
         i += 1.0;

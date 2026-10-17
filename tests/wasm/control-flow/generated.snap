@@ -136,6 +136,30 @@ input_file: tests/wasm/control-flow/input.ts
       "ret": {
         "kind": "f64"
       }
+    },
+    {
+      "name": "pick",
+      "wasmName": "pick",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "k",
+          "ty": {
+            "kind": "i32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
     }
   ],
   "structs": [],
@@ -154,7 +178,7 @@ fn firstAbove(xs: &[f64], limit: i32) -> i32 {
     let mut i = 0.0;
     while i < array::len(xs) {
         // SAFETY: the analysis proves the index is in bounds.
-        if unsafe { array::get_unchecked(xs, i as usize) } > f64::from(limit) {
+        if (unsafe { array::get_unchecked(xs, i as usize) }) > f64::from(limit) {
             return i as i32;
         }
         i += 1.0;
@@ -168,7 +192,7 @@ fn skipNegatives(xs: &[f64]) -> f64 {
     while i < array::len(xs) {
         'c0: {
             // SAFETY: the analysis proves the index is in bounds.
-            if unsafe { array::get_unchecked(xs, i as usize) } < 0.0 {
+            if (unsafe { array::get_unchecked(xs, i as usize) }) < 0.0 {
                 break 'c0;
             }
             // SAFETY: the analysis proves the index is in bounds.
@@ -187,15 +211,15 @@ fn findPair(xs: &[i32], target: i32) -> i32 {
             let mut j = i + 1.0;
             while j < array::len(xs) {
                 // SAFETY: the analysis proves the index is in bounds.
-                if f64::from(unsafe { array::get_unchecked(xs, i as usize) } as i32)
-                    + f64::from(unsafe { array::get_unchecked(xs, j as usize) } as i32)
+                if f64::from((unsafe { array::get_unchecked(xs, i as usize) }) as i32)
+                    + f64::from((unsafe { array::get_unchecked(xs, j as usize) }) as i32)
                     == f64::from(target)
                 {
                     found = i * 1000.0 + j;
                     break 'l0;
                 }
                 // SAFETY: the analysis proves the index is in bounds.
-                if unsafe { array::get_unchecked(xs, j as usize) } as i32 > target {
+                if (unsafe { array::get_unchecked(xs, j as usize) }) as i32 > target {
                     break 'c0;
                 }
                 j += 1.0;
@@ -290,6 +314,22 @@ fn jumps(limit: f64) -> f64 {
     total
 }
 
+fn pick(xs: &[f64], k: i32) -> f64 {
+    let mut total = 0.0;
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        // SAFETY: the analysis proves the index is in bounds.
+        total
+            += if f64::from(k) > i {
+                1.0
+            } else {
+                (unsafe { array::get_unchecked(xs, i as usize) }) + 0.5
+            };
+        i += 1.0;
+    }
+    total
+}
+
 #[unsafe(export_name = "firstAbove")]
 pub unsafe extern "C" fn __abi_firstAbove(xs_ptr: u32, xs_len: u32, limit: i32) -> i32 {
     // SAFETY: the glue passes fresh copies.
@@ -331,4 +371,11 @@ pub unsafe extern "C" fn __abi_sumOf(values_ptr: u32, values_len: u32) -> f64 {
 #[unsafe(export_name = "jumps")]
 pub extern "C" fn __abi_jumps(limit: f64) -> f64 {
     jumps(limit)
+}
+
+#[unsafe(export_name = "pick")]
+pub unsafe extern "C" fn __abi_pick(xs_ptr: u32, xs_len: u32, k: i32) -> f64 {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice::<f64>(xs_ptr, xs_len) };
+    pick(xs, k)
 }

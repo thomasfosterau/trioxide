@@ -85,3 +85,11 @@ export function jumps(limit: number): number {
   }
   return total;
 }
+
+// An unchecked read starting an operand (`unsafe { … } + 1`) must not parse as a statement.
+export function pick(xs: Float64Array, k: number): number {
+  "use wasm";
+  let total = 0;
+  for (let i = 0; i < xs.length; i++) total += k > i ? 1 : xs[i] + 0.5;
+  return total;
+}

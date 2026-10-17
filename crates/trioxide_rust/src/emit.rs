@@ -860,7 +860,8 @@ impl Printer<'_> {
                     cx.unsafe_used = true;
                     (
                         format!("unsafe {{ array::get_unchecked({array}, {index}) }}"),
-                        ATOM,
+                        // Block-like: an operand at the start of a statement needs parentheses.
+                        BLOCK,
                     )
                 } else {
                     let (helper, index) = self.checked_index(index, cx);

@@ -305,7 +305,7 @@ fn spread(xs: &[f64], ys: &[f64]) -> f64 {
         widest = math::max(
             widest,
             Vec2::new(
-                    unsafe { array::get_unchecked(xs, i as usize) } - c.x,
+                    (unsafe { array::get_unchecked(xs, i as usize) }) - c.x,
                     array::get(ys, i) - c.y,
                 )
                 .length(),
