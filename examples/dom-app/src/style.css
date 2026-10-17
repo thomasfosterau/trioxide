@@ -1,0 +1,16 @@
+body {
+  font: 16px/1.4 system-ui, sans-serif;
+  max-width: 32rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+li.done span {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+li[data-priority='high'] span {
+  font-weight: bold;
+}
+nav button[aria-pressed='true'] {
+  outline: 2px solid currentColor;
+}
