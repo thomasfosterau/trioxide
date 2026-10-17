@@ -105,7 +105,7 @@ jobs:
         run: >
           pnpm exec napi build --platform --release --target ${{ matrix.target }}
           --manifest-path ../../crates/trioxide_napi/Cargo.toml --output-dir binding
-          --no-js --no-dts ${{ matrix.zig && '--cross-compile' || '' }}
+          --no-js --dts index.d.cts ${{ matrix.zig && '--cross-compile' || '' }}
 
       - name: Package the CLI
         run: |
