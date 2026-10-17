@@ -637,7 +637,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             number.int
                                 && number.non_nan
                                 && number.range.min >= 0.0
-                                && number.range.max <= numeric::MAX_ARRAY_LENGTH,
+                                && number.range.max <= numeric::MAX_TYPED_ARRAY_LENGTH,
                             false,
                         );
                         number.as_constant()
@@ -954,7 +954,15 @@ impl<'a> Cx<'_, '_, 'a> {
             return Val::unknown();
         }
         let element = receiver.map_or_else(Val::unknown, |receiver| self.element(receiver, true));
-        let index = Val::number(numeric::int_range(0.0, numeric::MAX_ARRAY_LENGTH - 1.0));
+        let typed = receiver.is_some_and(|receiver| {
+            receiver.trust == Trust::Unknown
+                || receiver
+                    .ty
+                    .members()
+                    .iter()
+                    .any(|member| !matches!(member, Type::Array(_) | Type::Tuple(_)))
+        });
+        let index = Val::number(numeric::int_range(0.0, numeric::max_length(typed) - 1.0));
         let initial = args.values.get(1).cloned();
         let mut results = Val::never();
         let mut targets = Vec::new();
@@ -1038,7 +1046,17 @@ impl<'a> Cx<'_, '_, 'a> {
         callback_results: &Val,
     ) -> Val {
         match builtin.ret {
-            Ret::Number(model) => Val::number(self.number_model(model, args)),
+            Ret::Number(model) => {
+                // Only arrays are capped at 2^32 − 1 elements.
+                let typed = receiver.is_none_or(|receiver| {
+                    !receiver
+                        .ty
+                        .members()
+                        .iter()
+                        .all(|member| matches!(member, Type::Array(_) | Type::Tuple(_)))
+                });
+                Val::number(self.number_model(model, args, typed))
+            }
             Ret::Boolean => Val::proven(Type::Boolean),
             Ret::String => Val::proven(Type::String),
             Ret::Undefined => Val::proven(Type::Undefined),
@@ -1081,9 +1099,41 @@ impl<'a> Cx<'_, '_, 'a> {
                 if builtin.name == "subarray"
                     && let Some(receiver) = receiver
                 {
-                    // The view shares the receiver's buffer: whoever reaches it can detach
-                    // the receiver.
-                    self.an.escape(&receiver.pts, Escape::Unknown);
+                    // The view shares the receiver's buffer: whoever can detach one
+                    // detaches both.
+                    match receiver.pts.sites() {
+                        Some(sources) => {
+                            let sources = sources.to_vec();
+                            let mut detachable = false;
+                            for &source in &sources {
+                                self.mark(source, |obj| {
+                                    if !obj.shares_buffer.contains(&object) {
+                                        obj.shares_buffer.push(object);
+                                    }
+                                });
+                                detachable |= self
+                                    .an
+                                    .heap(source)
+                                    .is_none_or(|obj| obj.escape == Escape::Unknown);
+                            }
+                            self.mark(object, |obj| {
+                                for source in &sources {
+                                    if !obj.shares_buffer.contains(source) {
+                                        obj.shares_buffer.push(*source);
+                                    }
+                                }
+                            });
+                            detachable |= self
+                                .an
+                                .heap(object)
+                                .is_some_and(|obj| obj.escape == Escape::Unknown);
+                            if detachable {
+                                self.an.escape(&Pts::site(object), Escape::Unknown);
+                                self.an.escape(&receiver.pts, Escape::Unknown);
+                            }
+                        }
+                        None => self.an.escape(&Pts::site(object), Escape::Unknown),
+                    }
                 }
                 Val::object(Type::TypedArray(kind), object)
             }
@@ -1091,7 +1141,7 @@ impl<'a> Cx<'_, '_, 'a> {
     }
 
     #[expect(clippy::unused_self, reason = "a method like the other builtin models")]
-    fn number_model(&self, model: NumberModel, args: &[Val]) -> NumberType {
+    fn number_model(&self, model: NumberModel, args: &[Val], typed: bool) -> NumberType {
         let arg = |index: usize| -> NumberType {
             #[expect(
                 clippy::match_same_arms,
@@ -1117,9 +1167,9 @@ impl<'a> Cx<'_, '_, 'a> {
             #[expect(clippy::cast_precision_loss, reason = "bounds below 2^53")]
             NumberModel::Int(min, max) => numeric::int_range(min as f64, max as f64),
             NumberModel::IndexOrMinusOne => {
-                numeric::int_range(-1.0, numeric::MAX_ARRAY_LENGTH - 1.0)
+                numeric::int_range(-1.0, numeric::max_length(typed) - 1.0)
             }
-            NumberModel::Length => numeric::int_range(0.0, numeric::MAX_ARRAY_LENGTH),
+            NumberModel::Length => numeric::int_range(0.0, numeric::max_length(typed)),
             NumberModel::CodeUnitOrNaN => NumberType {
                 non_nan: false,
                 ..numeric::int_range(0.0, 65535.0)
@@ -1164,23 +1214,30 @@ impl<'a> Cx<'_, '_, 'a> {
     /// After a call: relations that callee code could break are forgotten. `pure`: the callee
     /// writes nothing.
     pub fn after_call(&mut self, pure: bool) {
-        if pure || self.env.bounds.is_empty() {
+        if pure || (self.env.bounds.is_empty() && self.env.lengths.is_empty()) {
             return;
         }
+        let stable = |cx: &Self, array: oxc_syntax::symbol::SymbolId| {
+            let value = cx
+                .env
+                .vars
+                .get(&array)
+                .cloned()
+                .or_else(|| cx.an.symbol_value(cx.module.symbol(array)).cloned());
+            value.is_some_and(|value| cx.length_is_stable(&value))
+        };
         let bounds = std::mem::take(&mut self.env.bounds);
-        let kept = bounds
+        let bounds = bounds
             .into_iter()
-            .filter(|&(_, array)| {
-                let value = self
-                    .env
-                    .vars
-                    .get(&array)
-                    .cloned()
-                    .or_else(|| self.an.symbol_value(self.module.symbol(array)).cloned());
-                value.is_some_and(|value| self.length_is_stable(&value))
-            })
+            .filter(|&(_, array)| stable(self, array))
             .collect();
-        self.env.bounds = kept;
+        let lengths = std::mem::take(&mut self.env.lengths);
+        let lengths = lengths
+            .into_iter()
+            .filter(|&(_, array)| stable(self, array))
+            .collect();
+        self.env.bounds = bounds;
+        self.env.lengths = lengths;
     }
 
     /// Whether only this unit can change the length of the arrays `value` may be.
@@ -1197,20 +1254,37 @@ impl<'a> Cx<'_, '_, 'a> {
         })
     }
 
-    fn forget_bounds_of(&mut self, receiver: &Val) {
+    /// Forgets the length relations of every array `receiver` may be (its length changed).
+    pub fn forget_bounds_of(&mut self, receiver: &Val) {
+        if receiver.pts.sites().is_none() {
+            // Any object: any array whose length others can change.
+            self.after_call(false);
+        }
         let sites = receiver.pts.sites().map(<[_]>::to_vec);
-        let symbols = self.module.semantic.scoping();
-        let _ = symbols;
-        let vars = self.env.vars.clone();
-        self.env
+        let vars = &self.env.vars;
+        let unaffected = |array: oxc_syntax::symbol::SymbolId| match (&sites, vars.get(&array)) {
+            (Some(sites), Some(value)) => value
+                .pts
+                .sites()
+                .is_some_and(|own| own.iter().all(|site| !sites.contains(site))),
+            _ => false,
+        };
+        let bounds = self
+            .env
             .bounds
-            .retain(|&(_, array)| match (&sites, vars.get(&array)) {
-                (Some(sites), Some(value)) => value
-                    .pts
-                    .sites()
-                    .is_some_and(|own| own.iter().all(|site| !sites.contains(site))),
-                _ => false,
-            });
+            .iter()
+            .copied()
+            .filter(|&(_, array)| unaffected(array))
+            .collect();
+        let lengths = self
+            .env
+            .lengths
+            .iter()
+            .copied()
+            .filter(|&(_, array)| unaffected(array))
+            .collect();
+        self.env.bounds = bounds;
+        self.env.lengths = lengths;
     }
 
     /// Whether `object[index]` is in bounds: a tracked local index below the array's length
@@ -1240,6 +1314,15 @@ impl<'a> Cx<'_, '_, 'a> {
             })
         };
         if !array_kind(object_value) || object_value.trust == Trust::Unknown {
+            return None;
+        }
+        // A hole below the length isn't an element.
+        let holey = object_value.pts.sites().is_some_and(|sites| {
+            sites
+                .iter()
+                .any(|site| self.an.heap(*site).is_none_or(|obj| obj.holey))
+        });
+        if holey {
             return None;
         }
         Some(object_value.trust.min(index_value.trust))

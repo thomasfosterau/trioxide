@@ -14,6 +14,14 @@ const UINT32_MAX: f64 = 4_294_967_295.0;
 
 /// The largest valid array length.
 pub const MAX_ARRAY_LENGTH: f64 = UINT32_MAX;
+
+/// The largest typed array length (2^53 − 1; engines may allow ones above 2^32 − 1).
+pub const MAX_TYPED_ARRAY_LENGTH: f64 = 9_007_199_254_740_991.0;
+
+/// The largest length of an array (`typed`: a typed array).
+pub fn max_length(typed: bool) -> f64 {
+    if typed { MAX_TYPED_ARRAY_LENGTH } else { MAX_ARRAY_LENGTH }
+}
 /// The largest valid string length (`2^53 - 1`).
 pub const MAX_STRING_LENGTH: f64 = 9_007_199_254_740_991.0;
 

@@ -1,12 +1,13 @@
-// App mode: every caller is visible, so parameters are what the calls pass.
+// App mode: every caller of a module-private function is visible, so its parameters are
+// what the calls pass. (The entry's own exports are open: the host may call them.)
 
-export function scale(value: number, factor: number): number {
+function scale(value: number, factor: number): number {
   return value /*@proven number int*/ * factor /*@proven number int*/;
 }
 
-export const shared = { count: 0 };
+const shared = { count: 0 };
 
-export function bump(): number {
+function bump(): number {
   shared.count++;
   return shared.count /*@proven number*/;
 }

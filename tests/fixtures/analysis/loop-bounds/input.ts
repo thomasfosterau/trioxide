@@ -1,6 +1,6 @@
 // Array reads bounded by `.length` in loop conditions are in bounds; shrinking breaks that.
 
-export function sum(values: number[]): number {
+function sum(values: number[]): number {
   let total = 0;
   for (let i = 0; i < values.length; i++) {
     total += (values[i] /*@proven number in-bounds*/);
@@ -8,7 +8,7 @@ export function sum(values: number[]): number {
   return total;
 }
 
-export function cached(values: number[]): number {
+function cached(values: number[]): number {
   let total = 0;
   const n = values.length;
   for (let i = 0; i < n; i++) {
@@ -17,7 +17,7 @@ export function cached(values: number[]): number {
   return total;
 }
 
-export function shrinking(values: number[]): number {
+function shrinking(values: number[]): number {
   let total = 0;
   for (let i = 0; i < values.length; i++) {
     values.pop();
@@ -28,7 +28,7 @@ export function shrinking(values: number[]): number {
   return total;
 }
 
-export function backwards(values: Int32Array): number {
+function backwards(values: Int32Array): number {
   let total = 0;
   for (let i = values.length - 1; i >= 0; i--) {
     // Counting down from length - 1 is in range too, but only `i < length` conditions are

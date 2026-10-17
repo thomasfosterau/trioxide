@@ -2,7 +2,7 @@
 
 declare function lookup(key: string): string | undefined;
 
-export function width(value: unknown): number {
+function width(value: unknown): number {
   // Every caller is known (app mode) and passes 5, so the cast is irrelevant here.
   return (value as number) /*@proven number int*/ * 2;
 }

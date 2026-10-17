@@ -1537,8 +1537,12 @@ impl<'a> Cx<'_, '_, 'a> {
     )]
     fn declared_container_read(&mut self, object: &Val, key: &Key) -> Val {
         match (&object.ty, key.name()) {
-            (Type::Array(_) | Type::Tuple(_) | Type::TypedArray(_), Some("length")) => {
+            (Type::Array(_) | Type::Tuple(_), Some("length")) => {
                 Val::number(numeric::int_range(0.0, numeric::MAX_ARRAY_LENGTH))
+                    .at_most(object.trust)
+            }
+            (Type::TypedArray(_), Some("length")) => {
+                Val::number(numeric::int_range(0.0, numeric::MAX_TYPED_ARRAY_LENGTH))
                     .at_most(object.trust)
             }
             (Type::TypedArray(kind), _) if key.is_index() => match kind.element() {
@@ -1681,7 +1685,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     }
                     Key::Name(name) if name == "length" => match obj.length {
                         Some(length) => Val::number(NumberType::constant(length)),
-                        None => Val::number(numeric::int_range(0.0, numeric::MAX_ARRAY_LENGTH)),
+                        None => Val::number(numeric::int_range(0.0, numeric::MAX_TYPED_ARRAY_LENGTH)),
                     },
                     key if key.is_index() => {
                         let element = kind.element().map_or(Type::BigInt, Type::Number);
@@ -1959,6 +1963,9 @@ impl<'a> Cx<'_, '_, 'a> {
         defining: bool,
     ) {
         self.require_object(object);
+        if matches!(key, Key::Unknown) || key.name() == Some("length") {
+            self.forget_bounds_of(object);
+        }
         let Some(sites) = object
             .pts
             .sites()

@@ -26,7 +26,7 @@ mod stmt;
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::symbol::SymbolId;
 use rustc_hash::{FxHashMap, FxHashSet};
-use trioxide_common::{NodeId, NodeRef, SymbolRef};
+use trioxide_common::{ModuleId, NodeId, NodeRef, SymbolRef};
 use trioxide_types::{Type, TypeOracle, TypedArrayKind};
 
 use crate::{
@@ -122,7 +122,7 @@ pub enum ObjKind {
     /// A class's prototype object (keyed by the class body).
     Prototype(NodeRef),
     /// A module namespace object (keyed by the module's program node).
-    Namespace(trioxide_common::ModuleId),
+    Namespace(ModuleId),
     /// Some other object (`new Map`, a regexp, …).
     Opaque,
 }
@@ -158,6 +158,9 @@ pub struct Obj {
     pub added: FxHashSet<String>,
     /// Escape state.
     pub escape: Escape,
+    /// Typed arrays sharing this one's buffer (`subarray` views and what they view): whoever
+    /// can detach one detaches them all.
+    pub shares_buffer: Vec<AllocId>,
 }
 
 impl Obj {
@@ -176,6 +179,7 @@ impl Obj {
             poisoned: false,
             added: FxHashSet::default(),
             escape: Escape::None,
+            shares_buffer: Vec::new(),
         }
     }
 }
@@ -298,6 +302,7 @@ pub fn run(
     oracle: &mut dyn TypeOracle,
     options: AnalysisOptions,
 ) -> Results {
+    let open_modules = open_modules(world, &options);
     let mut analyzer = Analyzer {
         world,
         links,
@@ -310,6 +315,7 @@ pub fn run(
         outputs: FxHashMap::default(),
         ts_cache: FxHashMap::default(),
         patched: patched_builtins(world),
+        open_modules,
         stats: Stats::default(),
     };
     let started = std::time::Instant::now();
@@ -403,7 +409,12 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
             patched.insert(TYPED_ARRAY.to_string());
         }
         for reference in scoping.root_unresolved_references_ids().flatten() {
-            let node = scoping.get_reference(reference).node_id();
+            let reference = scoping.get_reference(reference);
+            if !reference.is_value() {
+                // A type annotation (`a: Uint8Array`) hands nothing out.
+                continue;
+            }
+            let node = reference.node_id();
             let AstKind::IdentifierReference(ident) = nodes.kind(node) else {
                 continue;
             };
@@ -461,6 +472,62 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
         }
     }
     patched
+}
+
+/// The modules whose exports the host can use: the entries (or, without any, the modules no
+/// other module imports) and every module they re-export from, transitively.
+fn open_modules(world: &World<'_>, options: &AnalysisOptions) -> FxHashSet<ModuleId> {
+    let mut roots: Vec<ModuleId> = options.entries.clone();
+    if roots.is_empty() {
+        let imported: FxHashSet<ModuleId> = world
+            .modules
+            .iter()
+            .flat_map(|module| module.imports.values().copied().flatten())
+            .filter(|target| target.index() < world.modules.len())
+            .collect();
+        roots = world
+            .modules
+            .iter()
+            .map(|module| module.id)
+            .filter(|id| !imported.contains(id))
+            .collect();
+        if roots.is_empty()
+            && let Some(first) = world.modules.first()
+        {
+            roots.push(first.id);
+        }
+    }
+    let mut open = FxHashSet::default();
+    while let Some(module) = roots.pop() {
+        if module.index() >= world.modules.len() || !open.insert(module) {
+            continue;
+        }
+        let info = world.module(module);
+        let record = &info.record;
+        let requests = record
+            .star_export_entries
+            .iter()
+            .chain(&record.indirect_export_entries)
+            .filter_map(|entry| entry.module_request.as_ref())
+            .map(|request| request.name.as_str());
+        // `import { a } from "x"; export { a }` re-exports too.
+        let reexported_imports = record
+            .import_entries
+            .iter()
+            .filter(|entry| {
+                info.semantic
+                    .scoping()
+                    .get_root_binding(entry.local_name.name.as_str().into())
+                    .is_some_and(|symbol| info.info(symbol).exported)
+            })
+            .map(|entry| entry.module_request.name.as_str());
+        for request in requests.chain(reexported_imports) {
+            if let Some(target) = info.imports.get(request).copied().flatten() {
+                roots.push(target);
+            }
+        }
+    }
+    open
 }
 
 /// The name [`patched_builtins`] uses for the typed array constructors and prototypes.
@@ -556,6 +623,8 @@ pub(crate) struct Analyzer<'w, 'a> {
     outputs: FxHashMap<NodeRef, Output>,
     ts_cache: FxHashMap<NodeRef, Option<Type>>,
     pub patched: FxHashSet<String>,
+    /// Modules whose exports code outside the program may use (see [`open_modules`]).
+    pub open_modules: FxHashSet<ModuleId>,
     stats: Stats,
 }
 
@@ -990,6 +1059,9 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                     pending.extend_from_slice(inner);
                 }
             }
+            if level == Escape::Unknown {
+                pending.extend_from_slice(&obj.shares_buffer);
+            }
             self.touch(Dep::Heap(site));
             if level == Escape::Unknown
                 && let ObjKind::Instance(class) = kind
@@ -1021,9 +1093,9 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     /// The allocation sites every export of `module` (and of what it re-exports) may hold.
     fn exported_values(
         &self,
-        module: trioxide_common::ModuleId,
+        module: ModuleId,
         out: &mut Vec<AllocId>,
-        seen: &mut FxHashSet<trioxide_common::ModuleId>,
+        seen: &mut FxHashSet<ModuleId>,
     ) {
         if !seen.insert(module) {
             return;
@@ -1072,7 +1144,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     }
 
     /// The namespace object of `module`.
-    pub fn namespace(&mut self, module: trioxide_common::ModuleId, unit: NodeRef) -> Val {
+    pub fn namespace(&mut self, module: ModuleId, unit: NodeRef) -> Val {
         let program = self.world.module(module).program.node_id.get();
         let site = NodeRef {
             module,
@@ -1306,13 +1378,19 @@ impl Cx<'_, '_, '_> {
             // Other units can see it.
             self.escape_value(&value, Escape::Known);
         }
-        if info.exported
-            && (!self.an.options.closed_world || self.module.called_from_generated_code())
-        {
+        if info.exported && self.exports_open() {
             // Importers outside the program can read it.
             self.escape_value(&value, Escape::Unknown);
         }
         self.an.join_symbol(self.module.symbol(symbol), &value);
+    }
+
+    /// Whether code outside the program may use this module's exports: in an open world, for
+    /// an entry (or a module an entry re-exports from), and for runtimes generated code calls.
+    pub fn exports_open(&self) -> bool {
+        !self.an.options.closed_world
+            || self.an.open_modules.contains(&self.module.id)
+            || self.module.called_from_generated_code()
     }
 
     /// Allocates (or revisits) the object made at `site`.
@@ -1378,6 +1456,7 @@ impl Cx<'_, '_, '_> {
                 obj.holey,
                 obj.length,
                 obj.present.len(),
+                obj.shares_buffer.len(),
             );
             update(obj);
             if before
@@ -1387,6 +1466,7 @@ impl Cx<'_, '_, '_> {
                     obj.holey,
                     obj.length,
                     obj.present.len(),
+                    obj.shares_buffer.len(),
                 )
             {
                 self.an.touch(Dep::Heap(site));

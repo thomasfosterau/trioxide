@@ -338,6 +338,7 @@ impl Project {
                         .clone()
                         .unwrap_or_else(|| "React.Fragment".into())
                 }),
+                entries: self.graph.entries().to_vec(),
             },
         );
         diagnostics.append(&mut self.analysis.diagnostics);

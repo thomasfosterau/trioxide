@@ -1,6 +1,6 @@
 // Typed arrays: element types follow the kind, whatever is stored.
 
-export function fill(target: Uint8Array, value: number): void {
+function fill(target: Uint8Array, value: number): void {
   for (let i = 0; i < target.length; i++) {
     target[i] = value;
   }
@@ -16,7 +16,9 @@ export function main(): void {
   // Out of bounds: undefined.
   console.log(out /*@proven union*/);
   const view = bytes.subarray(1);
-  console.log(view /*@proven typed-array*/);
+  // The view shares `bytes`'s buffer: handing it to unknown code would let that code detach
+  // `bytes` too, so only its length is logged.
+  console.log((view /*@proven typed-array*/).length);
   const big = new BigInt64Array(1);
   console.log(big[0] /*@proven bigint*/);
 }

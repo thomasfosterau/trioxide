@@ -64,6 +64,9 @@ pub struct AnalysisOptions {
     pub jsx_factory: Option<String>,
     /// The classic JSX fragment factory (`jsxFragmentFactory`).
     pub jsx_fragment_factory: Option<String>,
+    /// The entry modules. Their exports (and what they re-export) are open even in a closed
+    /// world: the host calls them. Empty: every module no other module imports.
+    pub entries: Vec<ModuleId>,
 }
 
 /// The result of analysing a project.

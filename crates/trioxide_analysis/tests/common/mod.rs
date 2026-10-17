@@ -144,6 +144,7 @@ pub fn load(entry: &Path) -> Loaded {
             trust_types: false,
             jsx_factory: jsx.as_ref().map(|(factory, _)| factory.clone()),
             jsx_fragment_factory: jsx.map(|(_, fragment)| fragment),
+            entries: graph.entries().to_vec(),
         },
     );
     let sources = graph

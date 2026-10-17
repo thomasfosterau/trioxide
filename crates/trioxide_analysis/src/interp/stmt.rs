@@ -68,7 +68,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 self.record_node(function.node_id.get(), &value);
                 let node = self.node(function.node_id.get());
                 self.an.join_default(node, &value);
-                if !self.an.options.closed_world {
+                if self.exports_open() {
                     self.escape_value(&value, Escape::Unknown);
                 }
             }
@@ -243,7 +243,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     self.record_node(class.node_id.get(), &value);
                     let node = self.node(class.node_id.get());
                     self.an.join_default(node, &value);
-                    if !self.an.options.closed_world {
+                    if self.exports_open() {
                         self.escape_value(&value, Escape::Unknown);
                     }
                 }
@@ -253,10 +253,10 @@ impl<'a> Cx<'_, '_, 'a> {
                         let value = self.expr(expression);
                         let node = self.node(expression.node_id());
                         self.an.join_default(node, &value);
-                        let level = if self.an.options.closed_world {
-                            Escape::Known
-                        } else {
+                        let level = if self.exports_open() {
                             Escape::Unknown
+                        } else {
+                            Escape::Known
                         };
                         self.escape_value(&value, level);
                     }
