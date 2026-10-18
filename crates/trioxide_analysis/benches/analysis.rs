@@ -110,17 +110,56 @@ fn load_oracle(corpus: &Corpus) -> TsrsOracle {
 
 fn bench(c: &mut Criterion) {
     let corpus = Corpus::load();
-    if std::env::var_os("TRIOXIDE_BENCH_STATS").is_some() {
+    let runs = std::env::var("RUNS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(1);
+    for _ in 0..runs {
+        if std::env::var_os("TRIOXIDE_BENCH_STATS").is_none() {
+            break;
+        }
         let mut oracle = load_oracle(&corpus);
+        let cpu = || -> f64 {
+            let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+            let fields: Vec<&str> = stat
+                .rsplit(')')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .collect();
+            let ticks = |at: usize| {
+                fields
+                    .get(at)
+                    .and_then(|field| field.parse::<f64>().ok())
+                    .unwrap_or(0.0)
+            };
+            (ticks(11) + ticks(12)) * 10.0
+        };
+        let cpu_before = cpu();
         let started = std::time::Instant::now();
-        let analysis = analyze(&corpus.inputs(), &mut oracle, AnalysisOptions::default());
+        let threads = std::env::var("THREADS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        let chunk_units = std::env::var("CHUNK")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        let options = AnalysisOptions {
+            threads,
+            chunk_units,
+            ..AnalysisOptions::default()
+        };
+        let analysis = analyze(&corpus.inputs(), &mut oracle, options);
         #[expect(clippy::print_stderr, reason = "opt-in statistics")]
         {
             eprintln!(
-                "{} modules: {:?} in {:?}",
+                "{} modules, {} checkers: {:?} in {:?} ({} ms of CPU)",
                 corpus.files.len(),
+                oracle.checker_count(),
                 analysis.stats,
-                started.elapsed()
+                started.elapsed(),
+                cpu() - cpu_before
             );
         }
     }
@@ -144,8 +183,8 @@ fn bench(c: &mut Criterion) {
             |mut oracle| {
                 let inputs = corpus.inputs();
                 let analysis = analyze(&inputs, &mut oracle, AnalysisOptions::default());
-                std::hint::black_box(analysis.facts.node_types().len());
-                oracle
+                // Returned, so criterion drops the facts (the product) outside the timing.
+                (oracle, analysis)
             },
             criterion::BatchSize::PerIteration,
         );

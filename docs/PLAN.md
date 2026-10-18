@@ -209,12 +209,15 @@ back to TS where it knows nothing:
   import cycle: from another unit, any read of a module-level binding of a module in an
   import cycle may throw, since another module of the cycle may call in before the module's
   top level has declared it (`tdz-cycle`).
-- *Convergence.* Whole-program entries that still change after 20 rounds are given up (set
-  to "any value", their objects escaping, their flags to "anything may happen" for good), so
-  the run always reaches a fixed point and only facts depending on those entries are lost,
-  with a warning. The 40-round "no facts at all" backstop is a last resort no program in the
-  test corpus reaches (a test checks). Array lengths only go from unset to known to
-  unknown, never back.
+- *Convergence.* Counted per entry, not per round: an entry's numbers are widened once
+  three merges have changed it (each property of a heap entry, and its elements, counted on
+  their own), and an entry that more than 20 merges changed is given up (set to "any
+  value", its objects escaping, its flags to "anything may happen" for good), so the run
+  always reaches a fixed point and only facts depending on those entries are lost, with a
+  warning. Counting per entry keeps both independent of how many sweeps the chunking takes.
+  The 40-round "no facts at all" backstop is a last resort no program in the test corpus
+  reaches (a test checks). Array lengths only go from unset to known to unknown, never
+  back.
 - *Effects* are computed twice, once counting only `Proven` facts and once counting
   `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
@@ -278,34 +281,86 @@ class shapes, and proven-unreachable code. Escape levels, points-to sets and the
 facts are not checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time. It
-is not met: `benches/analysis.rs` (1820 modules, 4 cores, a noisy machine) measures about
-7.5× (770–800 ms against about 104 ms; before the changes below, 860–890 ms, about 8.2×).
-tsrs parses on all cores, but the analysis parses, interprets and summarises on one: the
-sweeps take about 470 ms (6 rounds, 18,820 runs of 11,200 units, ~140 ms of it tsrs queries)
-and parsing, indexing and the summary most of the rest. Two things keep sweeps short:
+is not met: `benches/analysis.rs` measures about 3.0–3.1× on 4 cores (359–380 ms against
+116–124 ms for the 2040-module corpus on a noisy machine), against 7.2–7.4× for the
+sequential analysis on `main` before #6 (861–905 ms) on the same corpus;
+`TRIOXIDE_BENCH_STATS=1` prints a breakdown. Making the facts independent of the chunking
+(below) took the ratio from 2.8–3.0× in #6's first version (on 1820 modules) to this,
+mostly through more sweeps: 9 instead of 6. The corpus includes the review fixtures, on which the analysis before the review fixes
+didn't converge at all, and the review fixes made each interpretation dearer (per-expression
+effect frames, implicit calls, dead zones, more escapes). Interpretation runs in parallel:
 
-- *Uncalled functions wait.* In the first round, a function no caller has reached yet (and
-  unknown code can't call) waits for the next: it would only run on `never` arguments, and
-  again once a caller reaches it.
-- *Warm-started loops.* A loop that runs again, inside another loop or in its unit's next
-  run, starts from where it last settled joined with its new entry; it stops at a
-  post-fixpoint above the entry either way, and usually after one pass instead of four.
+- *Chunks.* Units are split, in `unit_order`, into fixed chunks of `chunk_units` (default
+  128). Each round, every chunk with dirty units interprets them against a read-only
+  snapshot of the whole-program tables, writing into a copy-on-write overlay and logging each
+  write as an operation. Chunks run on the oracle's workers, one tsrs checker each, each
+  worker sweeping one contiguous run of chunks (so files keep their checker), cut from the
+  chunks' dirty units alone: no work stealing, so which checker answers a chunk, and after
+  which questions, never depends on thread timing (a checker's answers can depend on what
+  it was asked before).
+- *Merge.* The logs are replayed onto the tables in chunk order. A chunk whose entries (and
+  those its writes read) neither an earlier chunk's writes nor an earlier replay touched
+  installs its overlay directly; whether it may is decided in the merge loop, after the
+  replays before it, since a replay can change entries outside its chunk's own (escaping a
+  parent class, following new properties). A dependency changed by the merge dirties its
+  readers, except in the chunk whose overlay already held that value. Facts never depend on
+  the number of threads (a test checks this), and with one chunk on one thread a round is
+  the sequential analysis's round. Rounds are monotone joins with widening as above;
+  nothing reads a value it did not register as a dependency.
+- *Independent of chunking.* A unit in one chunk only sees other chunks' writes at the next
+  merge, so without care small chunks run units on stale inputs and the joins keep what
+  they saw (a function body run on `never` arguments, a method run before its instance's
+  fields are written). Three rules keep that from mattering: a function (or class
+  initialiser) no caller has reached yet waits while any unit its callers have reached may
+  still run, and runs as it is only when nothing else can; a field an instance's class
+  declares that nothing wrote yet reads as `never` until the sweeps settle, and a builtin
+  call with a `never` argument is skipped until then; once they settle, the units that did
+  either run again, reading the field as missing and calling the builtin (dead code keeps
+  the builtin's result type, which the Rust backend lowers by). A test checks that one unit per chunk gives the default's
+  facts on every program the tests compile; only TypeScript's own answers differ, since
+  chunking changes the order of the questions and a checker's answers can depend on it.
+- *Rest.* Parsing and indexing run per module on all threads, the oracle's checkers are set
+  up meanwhile, and the summary (node facts per module, the call graph and effects, heap
+  facts) runs on all threads too. Locals no other unit reads stay in their unit's output
+  and never reach the shared tables; their facts are what they held in the unit's last run
+  (which saw the final tables), so they are tighter than a table entry joined over every
+  run would be.
 
-Parallel analysis (chunked Jacobi-style sweeps over a read-only snapshot with per-chunk write
-logs, one tsrs checker per worker, and parallel parsing and summary) is parked in #6: it
-measured about 2.6–2.8× on the same bench. It will be revisited together with incremental
-analysis, when analysis time hurts (Vite dev on large projects).
+- *Giving up.* The entries a merge changed that had changed in `SATURATE_AFTER` merges
+  before are given up on the merged tables, in a fixed order, so this doesn't depend on
+  threads either. Sites a replayed join drops into "any object" escape after the merge, as
+  those a unit's own joins drop do at the end of the unit.
+
+- *Fewer and shorter runs.* A function no caller has reached yet (and unknown code can't
+  call) waits, as above: it would only run on `never` arguments, and again once a caller
+  reaches it. A loop that runs again, inside another loop or in its
+  unit's next run, starts from where it last settled joined with its new entry; it stops at
+  a post-fixpoint above the entry either way, and usually after one pass instead of four.
+
+Of about 360 ms, 29–45 ms is parsing and indexing (alongside the checkers' set-up),
+250–325 ms the sweeps (9 rounds, 20,570 runs of 12,040 units, 16,880 tsrs queries; about
+20 ms of it merging) and 45–60 ms the summary. Earlier measurements, on one thread: of the
+instructions inside `analyze`, tsrs queries are 22%, interpretation 46%, parsing and
+indexing 12% and the summary 11%; allocation is about 14% of everything, spread over many
+small sites. Measured but not taken: widening loops one pass earlier saves 8% but loses the
+bounds of counted loops; mimalloc as the global allocator (a choice for the binaries, not
+this crate) takes about 11% off the analysis and nothing off the parse. Reaching 2× needs a
+different shape rather than tuning: fewer sweeps (incremental analysis, or a schedule that
+follows the call graph so callers' writes land before their callees run), and fewer tsrs
+queries.
 
 **Embedding constraints.** tsrs checkers take `&mut self` (one per thread, behind a mutex),
-and its arenas are `'static`. The oracle runs every type query on the program's first
-checker and converts each answer before releasing it, so types from different checkers never
-meet and no tsrs handle outlives a query. Programs are built with tsrs's checker and
+and its arenas are `'static`. Serial queries run on the program's first checker;
+parallel ones (`TypeOracle::shared`) on the checker of the worker asking, or the file's own
+checker, held exclusively. Every answer is converted before the checker is released, so
+types from different checkers never meet and no tsrs handle outlives a query. Programs are built with tsrs's checker and
 file-loader regions, so the oracle can free a replaced program (`free_program`, then the
 shared file data and regions, in the order tsrs's own watcher uses). Updates are applied
 lazily with `update_program`; files it reparses still leak, so the adapter rebuilds from
 scratch after a configurable number of updates (default 100) or above a resident-memory
 threshold (default 4 GiB, Linux). If that proves insufficient, the checker moves to a worker
-process. A tsrs panic during a query is caught, answered as "unknown", and forces a rebuild.
+process. A tsrs panic during a query is caught, answered as "unknown", and forces a rebuild;
+after one on a worker, every parallel query answers "unknown" until that rebuild.
 
 `plain-ptrs` (plain 64-bit handles instead of compressed 32-bit ones, avoiding the 32 GiB
 address reservation) is **not** enabled by default. Measured with

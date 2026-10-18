@@ -260,8 +260,8 @@ impl<'a> Cx<'_, '_, 'a> {
         for value in args {
             self.escape_value(value, level);
         }
-        if spread && self.an.state.spread_called.insert(unit) {
-            self.an.touch(super::Dep::Params(unit));
+        if spread {
+            self.an.called_with_spread(unit);
         }
         self.an.join_this(unit, this);
         self.escape_value(this, level);
@@ -467,11 +467,8 @@ impl<'a> Cx<'_, '_, 'a> {
             return;
         };
         let this = self.this.clone();
-        let parent = self
-            .an
-            .super_of(class)
-            .cloned()
-            .unwrap_or_else(Val::unknown);
+        // Nothing recorded yet: the class's `extends` hasn't been evaluated this round.
+        let parent = self.an.super_of(class).cloned().unwrap_or_else(Val::never);
         let mut replaced = Val::never();
         match parent.pts.sites() {
             Some(sites) if parent.trust == Trust::Proven => {
@@ -520,7 +517,7 @@ impl<'a> Cx<'_, '_, 'a> {
             let _ = self.call_unit(site, constructor, this, &args.values, args.spread);
             // `call_unit` treats a direct constructor call as a throw; this one is fine.
             if !heritage {
-                self.an.join_this(init, this);
+                self.run_init(init, this);
                 self.record.edges.push(Edge {
                     site: self.node(site),
                     callee: init,
@@ -532,11 +529,7 @@ impl<'a> Cx<'_, '_, 'a> {
         let mut replaced = Val::never();
         if heritage {
             // The default derived constructor passes its arguments to `super`.
-            let parent = self
-                .an
-                .super_of(class)
-                .cloned()
-                .unwrap_or_else(Val::unknown);
+            let parent = self.an.super_of(class).cloned().unwrap_or_else(Val::never);
             match parent.pts.sites() {
                 Some(sites) if parent.trust == Trust::Proven => {
                     for &site_ref in sites {
@@ -558,13 +551,22 @@ impl<'a> Cx<'_, '_, 'a> {
                 }
             }
         }
-        self.an.join_this(init, this);
+        self.run_init(init, this);
         self.record.edges.push(Edge {
             site: self.node(site),
             callee: init,
             trust: Trust::Proven,
         });
         replaced
+    }
+
+    /// Passes `this` to the class's field initialisers. When unknown code may run them too,
+    /// it escapes to unknown code, as with a call to any open unit.
+    fn run_init(&mut self, init: NodeRef, this: &Val) {
+        if self.an.is_open(self.an.world.unit(init)) {
+            self.escape_value(this, Escape::Unknown);
+        }
+        self.an.join_this(init, this);
     }
 
     /// What `constructor` may return instead of `this`: anything it returns but `undefined`
@@ -603,11 +605,13 @@ impl<'a> Cx<'_, '_, 'a> {
             match self.an.heap(target).map(|obj| obj.kind) {
                 Some(ObjKind::Class(class)) => {
                     let instance = self.alloc(site, ObjKind::Instance(class));
-                    if self.an.heap(instance).is_some_and(|obj| {
+                    if self.an.peek(instance).is_some_and(|obj| {
                         obj.present.is_empty() && obj.props.is_empty() && !obj.deleted
                     }) {
                         let present = crate::shapes::definite_fields(self.an.world, class);
-                        self.mark(instance, |obj| obj.present.extend(present));
+                        self.mark(instance, move |obj| {
+                            obj.present.extend(present.iter().cloned());
+                        });
                     }
                     let this = Val::object(Type::Instance(class), instance);
                     let replaced = self.construct_class(site, class, &this, &args);
@@ -616,7 +620,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 Some(ObjKind::Function(unit)) => {
                     // `new f()` of a plain function: a fresh object as `this`.
                     let object = self.alloc(site, ObjKind::Object);
-                    self.mark(object, |obj| obj.dynamic = true);
+                    self.mark(object, move |obj| obj.dynamic = true);
                     let this = Val::object(Type::empty_object(), object);
                     let _ = self.call_unit(site, unit, &this, &args.values, args.spread);
                     let replaced = self.replacement(unit);
@@ -741,9 +745,9 @@ impl<'a> Cx<'_, '_, 'a> {
             };
             let fresh = self
                 .an
-                .heap(object)
+                .peek(object)
                 .is_some_and(|obj| obj.length.is_none() && obj.props.is_empty() && !obj.holey);
-            self.mark(object, |obj| {
+            self.mark(object, move |obj| {
                 if fresh && !obj.sized && !obj.dynamic {
                     obj.length = length;
                 } else if obj.length != length {
@@ -773,7 +777,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     let exact = number.as_constant();
                     // `new Array(n).fill(v)`: filled before anything else can see a hole.
                     let filled = self.filled_at_once(site);
-                    self.mark(object, |obj| {
+                    self.mark(object, move |obj| {
                         obj.holey |= !filled;
                         obj.length = if !obj.sized || obj.length == exact {
                             exact
@@ -796,8 +800,9 @@ impl<'a> Cx<'_, '_, 'a> {
                     #[expect(clippy::cast_precision_loss, reason = "a handful of arguments")]
                     let exact = (!args.spread && count != 1).then_some(count as f64);
                     let filled = self.filled_at_once(site);
-                    self.mark(object, |obj| {
-                        if count == 1 || args.spread {
+                    let spread = args.spread;
+                    self.mark(object, move |obj| {
+                        if count == 1 || spread {
                             obj.holey |= !filled;
                             obj.length = None;
                         } else if obj.length != exact {
@@ -894,6 +899,19 @@ impl<'a> Cx<'_, '_, 'a> {
         site: NodeId,
         trust: Trust,
     ) -> Val {
+        // An argument with no value yet: until the sweeps settle, the call doesn't happen
+        // (the unit runs again then, as for an unwritten field). Afterwards it is dead code,
+        // whose facts are the builtin's as ever.
+        if self.an.optimistic
+            && args
+                .values
+                .iter()
+                .chain(receiver)
+                .any(super::expr::is_never)
+        {
+            self.an.output.optimistic = true;
+            return Val::never();
+        }
         let effects = builtin.effects;
         let declared_only = trust != Trust::Proven;
         if effects.writes_receiver || effects.writes_other {
@@ -1043,7 +1061,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 }
             }
             if shrinks || grows {
-                self.mark(site, |obj| obj.length = None);
+                self.mark(site, move |obj| obj.length = None);
             }
         }
         if shrinks || grows {
@@ -1230,7 +1248,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 };
                 let object = self.alloc(site, ObjKind::Array);
                 self.store_elem(object, &element);
-                self.mark(object, |obj| obj.length = None);
+                self.mark(object, move |obj| obj.length = None);
                 Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), object)
             }
             Ret::ReceiverTypedArray => {
@@ -1249,7 +1267,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             let sources = sources.to_vec();
                             let mut detachable = false;
                             for &source in &sources {
-                                self.mark(source, |obj| {
+                                self.mark(source, move |obj| {
                                     if !obj.shares_buffer.contains(&object) {
                                         obj.shares_buffer.push(object);
                                     }
@@ -1259,8 +1277,9 @@ impl<'a> Cx<'_, '_, 'a> {
                                     .heap(source)
                                     .is_none_or(|obj| obj.escape == Escape::Unknown);
                             }
-                            self.mark(object, |obj| {
-                                for source in &sources {
+                            let shared = sources.clone();
+                            self.mark(object, move |obj| {
+                                for source in &shared {
                                     if !obj.shares_buffer.contains(source) {
                                         obj.shares_buffer.push(*source);
                                     }
@@ -1364,9 +1383,9 @@ impl<'a> Cx<'_, '_, 'a> {
             let value = cx
                 .env
                 .vars
-                .get(&array)
+                .get(array)
                 .cloned()
-                .or_else(|| cx.an.symbol_value(cx.module.symbol(array)).cloned());
+                .or_else(|| cx.every_value(array));
             value.is_some_and(|value| cx.length_is_stable(&value))
         };
         let bounds = std::mem::take(&mut self.env.bounds);
@@ -1409,7 +1428,7 @@ impl<'a> Cx<'_, '_, 'a> {
         }
         let sites = receiver.pts.sites().map(<[_]>::to_vec);
         let vars = &self.env.vars;
-        let unaffected = |array: oxc_syntax::symbol::SymbolId| match (&sites, vars.get(&array)) {
+        let unaffected = |array: oxc_syntax::symbol::SymbolId| match (&sites, vars.get(array)) {
             (Some(sites), Some(value)) => value
                 .pts
                 .sites()
@@ -1451,7 +1470,7 @@ impl<'a> Cx<'_, '_, 'a> {
         if !self.env.bounds.contains(&(index_symbol, array)) {
             return None;
         }
-        let index_value = self.env.vars.get(&index_symbol)?;
+        let index_value = self.env.vars.get(index_symbol)?;
         let number = index_value.ty.as_number()?;
         if !(number.int && number.non_nan && number.range.min >= 0.0) {
             return None;

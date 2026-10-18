@@ -60,7 +60,7 @@ nodes:
   29:3 ref `writer`: function@proven
   29:10 call `pure(1, 2)`: number[4, 8] int nonNaN nonNegZero@proven
   29:10 ref `pure`: function@proven
-  30:10 call `reader()`: number[0, inf] int nonNaN nonNegZero@proven
+  30:10 call `reader()`: number[0, 8] int nonNaN nonNegZero@proven
   30:10 ref `reader`: function@proven
   33:10 bind `catches`: function@proven
   35:12 call `thrower(-1)`: number[0, 2] nonNaN nonNegZero@proven
@@ -72,7 +72,7 @@ nodes:
   42:3 ref `console`: unknown
   42:15 call `pure(3, 4)`: number[4, 8] int nonNaN nonNegZero@proven
   42:15 ref `pure`: function@proven
-  42:27 call `caller()`: number[0, inf] int nonNaN nonNegZero@proven
+  42:27 call `caller()`: number[0, 8] int nonNaN nonNegZero@proven
   42:27 ref `caller`: function@proven
   42:37 call `catches()`: number[0, 2] nonNaN nonNegZero@proven
   42:37 ref `catches`: function@proven

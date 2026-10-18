@@ -287,7 +287,7 @@ impl<'a> Cx<'_, '_, 'a> {
 }
 
 fn update(env: &mut Env, symbol: SymbolId, narrow: impl FnOnce(&Val) -> Val) {
-    if let Some(value) = env.vars.get(&symbol) {
+    if let Some(value) = env.vars.get(symbol) {
         let narrowed = narrow(value);
         // A proven contradiction: this branch can't run.
         if narrowed.ty == Type::Never && narrowed.trust == Trust::Proven && value.ty != Type::Never
