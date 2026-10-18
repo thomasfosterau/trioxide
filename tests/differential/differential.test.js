@@ -5,6 +5,9 @@
 //   b. trioxide's optimised JS (`trioxide build --emit=js`)
 //   c. trioxide JS + WASM islands, once with top-level-await glue and once with `ready()` glue
 //      (or only the one a fixture's config sets in `wasm.glue`)
+//   d. trioxide JS + WASM with `mode: "auto"`: every fixture, with whatever islands the
+//      partitioner picks on its own (plus directives), so each automatic island is checked
+//      against JS
 //
 // Fixtures come from tests/fixtures, tests/islands and tests/wasm. Leg b builds with
 // `--no-wasm`. Leg c runs on two kinds of fixture:
@@ -102,9 +105,14 @@ before(() => {
   }
 });
 
-const entries = fixtureRoots
-  .flatMap((root) => discover(root))
-  .filter((entry) => !process.env.FIXTURE || entry.includes(process.env.FIXTURE));
+// Examples whose entry exports `main()` run too (legs a, b and d): they must behave the same
+// JS-only and with the islands the partitioner picks.
+const exampleEntries = ['examples/mixed/src/main.ts', 'examples/image-filters/src/main.ts'].map((entry) =>
+  path.join(repo, entry),
+);
+const entries = [...fixtureRoots.flatMap((root) => discover(root)), ...exampleEntries].filter(
+  (entry) => !process.env.FIXTURE || entry.includes(process.env.FIXTURE),
+);
 
 const DIRECTIVE = /["']use wasm["']|@trioxide\s+wasm/;
 
@@ -141,6 +149,28 @@ function buildGenerated(fixture, entry, dir, glue) {
   return glues.map((name) => path.join(islands, name));
 }
 
+/**
+ * Builds a fixture in `auto` mode (its own config otherwise applies) and returns the glue
+ * modules of the islands the partitioner chose, if any.
+ */
+function buildAuto(fixture, entry, dir) {
+  prepare(dir);
+  const own = fixtureConfig(fixture);
+  const config = path.join(dir, '..', 'trioxide-auto.json');
+  // TRIOXIDE_EVERY_CLUSTER=1 makes every eligible cluster an island, to stress the machinery.
+  const every = process.env.TRIOXIDE_EVERY_CLUSTER
+    ? { mode: 'wasm-preferred', costModel: { ...own.costModel, wasmPreferredThreshold: -1e300 } }
+    : { mode: 'auto' };
+  writeFileSync(config, JSON.stringify({ ...own, cacheDir, ...every }));
+  const stderr = runWithStderr([
+    'build', '--emit=js', '--require-wasm', '--config', config, '--root', fixture, '--out-dir', dir, entry,
+  ]);
+  assert.doesNotMatch(stderr, /warning|error/, stderr);
+  const islands = path.join(dir, '_islands');
+  const glues = existsSync(islands) ? readdirSync(islands).filter((name) => name.endsWith('.js')) : [];
+  return glues.map((name) => path.join(islands, name));
+}
+
 /** Builds the fixture with its island and swaps the JS kernel for the island's glue. */
 function buildWithIsland(fixture, entry, dir, glue) {
   prepare(dir);
@@ -162,7 +192,7 @@ function buildWithIsland(fixture, entry, dir, glue) {
 
 for (const entry of entries) {
   const fixture = path.dirname(entry);
-  const root = fixtureRoots.find((dir) => fixture.startsWith(dir + path.sep));
+  const root = fixtureRoots.find((dir) => fixture.startsWith(dir + path.sep)) ?? path.join(repo, 'examples');
   const name = path.join(path.basename(root), path.relative(root, fixture));
   const work = path.join(outDir, name);
   const hasIsland = existsSync(path.join(fixture, 'island/island.json'));
@@ -206,5 +236,16 @@ for (const entry of entries) {
         assert.equal(withWasm.stdout, stripped.stdout);
       });
     }
+
+    test('d: trioxide auto partition', (t) => {
+      if (stripped?.status !== 0) return t.skip('baseline failed');
+      const dir = path.join(work, 'd');
+      const gluePaths = buildAuto(fixture, entry, dir);
+      if (gluePaths.length > 0) t.diagnostic(`islands: ${gluePaths.map((p) => path.basename(p, '.js')).join(', ')}`);
+      const tla = fixtureConfig(fixture).wasm?.glue === 'tla';
+      const auto = execute(path.join(dir, jsName(path.basename(entry))), tla ? [] : gluePaths);
+      assert.equal(auto.status, 0, `auto variant failed:\n${auto.stderr}`);
+      assert.equal(auto.stdout, stripped.stdout);
+    });
   });
 }

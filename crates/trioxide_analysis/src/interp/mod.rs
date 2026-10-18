@@ -489,7 +489,6 @@ pub fn run(
     let open_modules = open_modules(world, &options);
     let lexicals = lexicals(world);
     let import_cycles = import_cycles(world);
-    let entered_early = entered_early(world, &options, &import_cycles);
     let mut analyzer = Analyzer {
         world,
         links,
@@ -505,8 +504,8 @@ pub fn run(
         open_modules,
         lexicals,
         import_cycles,
-        entered_early,
         saturated: 0,
+        loop_heads: FxHashMap::default(),
         stats: Stats::default(),
     };
     let started = std::time::Instant::now();
@@ -521,6 +520,7 @@ pub fn run(
         if analyzer.round == SATURATE_AFTER {
             analyzer.deps.get_mut().saturating = Some(Vec::new());
         }
+        let mut deferred = Vec::new();
         for &unit in &world.unit_order {
             if !analyzer.deps.get_mut().dirty.remove(&unit) {
                 continue;
@@ -529,10 +529,17 @@ pub fn run(
             if world.module(unit.id.module).broken {
                 continue;
             }
+            // In the first round, a function no caller has reached yet would only run on
+            // `never` arguments, and again once one does: it waits a round for its callers.
+            if analyzer.round == 0 && analyzer.uncalled(unit) {
+                deferred.push(unit.id);
+                continue;
+            }
             analyzer.stats.interpretations += 1;
             analyzer.interpret(unit);
             analyzer.saturate();
         }
+        analyzer.deps.get_mut().dirty.extend(deferred);
         analyzer.round += 1;
         if analyzer.deps.get_mut().dirty.is_empty() {
             converged = true;
@@ -759,141 +766,6 @@ fn import_cycles(world: &World<'_>) -> Vec<usize> {
     component
 }
 
-/// Modules another module of their import cycle may run before (and so call into before they
-/// have declared anything): one that, once its evaluation has started, has another module of
-/// its cycle evaluated while it waits for its imports. Evaluation is simulated depth-first in
-/// request order from each module the host may load first, with and without TypeScript's
-/// elision of imports only types use (either may be what runs).
-fn entered_early(
-    world: &World<'_>,
-    options: &AnalysisOptions,
-    import_cycles: &[usize],
-) -> FxHashSet<ModuleId> {
-    use oxc_ast::ast::{ImportOrExportKind, Statement};
-    let count = world.modules.len();
-    let dynamic = world.modules.iter().any(|module| {
-        module
-            .semantic
-            .nodes()
-            .iter()
-            .any(|node| matches!(node.kind(), oxc_ast::AstKind::ImportExpression(_)))
-    });
-    let mut roots: Vec<usize> = if !dynamic && !options.entries.is_empty() {
-        options.entries.iter().map(|entry| entry.index()).collect()
-    } else if dynamic {
-        (0..count).collect()
-    } else {
-        let imported: FxHashSet<ModuleId> = world
-            .modules
-            .iter()
-            .flat_map(|module| module.imports.values().copied().flatten())
-            .collect();
-        (0..count)
-            .filter(|&index| !imported.contains(&world.modules[index].id))
-            .collect()
-    };
-    // Modules no root reaches may still be loaded first.
-    let mut reached = vec![false; count];
-    let edges = |elide: bool| -> Vec<Vec<usize>> {
-        world
-            .modules
-            .iter()
-            .map(|module| {
-                let scoping = module.semantic.scoping();
-                let used_as_value = |symbol: Option<SymbolId>| {
-                    symbol.is_some_and(|symbol| {
-                        scoping
-                            .get_resolved_references(symbol)
-                            .any(oxc_syntax::reference::Reference::is_value)
-                    })
-                };
-                let mut targets = Vec::new();
-                for statement in &module.program.body {
-                    let source = match statement {
-                        Statement::ImportDeclaration(import) => {
-                            let kept = import.import_kind != ImportOrExportKind::Type
-                                && (!elide
-                                    || import.specifiers.as_ref().is_none_or(|specifiers| {
-                                        specifiers.is_empty()
-                                            || specifiers.iter().any(|specifier| {
-                                                let typed = matches!(
-                                                    specifier,
-                                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(
-                                                        specifier
-                                                    ) if specifier.import_kind == ImportOrExportKind::Type
-                                                );
-                                                !typed
-                                                    && used_as_value(
-                                                        specifier.local().symbol_id.get(),
-                                                    )
-                                            })
-                                    }));
-                            kept.then_some(&import.source)
-                        }
-                        Statement::ExportFromDeclaration(export) => {
-                            (export.export_kind != ImportOrExportKind::Type)
-                                .then_some(&export.source)
-                        }
-                        Statement::ExportAllDeclaration(export) => {
-                            (export.export_kind != ImportOrExportKind::Type)
-                                .then_some(&export.source)
-                        }
-                        _ => None,
-                    };
-                    if let Some(target) = source
-                        .and_then(|source| module.imports.get(source.value.as_str()).copied())
-                        .flatten()
-                        .map(ModuleId::index)
-                        .filter(|&target| target < count && !targets.contains(&target))
-                    {
-                        targets.push(target);
-                    }
-                }
-                targets
-            })
-            .collect()
-    };
-    let mut early = FxHashSet::default();
-    for elide in [false, true] {
-        let edges = edges(elide);
-        let mut start = 0;
-        loop {
-            for &root in &roots[start..] {
-                let mut entered = vec![false; count];
-                let mut stack: Vec<(usize, usize)> = Vec::new();
-                let mut enter =
-                    |module: usize, stack: &mut Vec<(usize, usize)>, entered: &mut Vec<bool>| {
-                        entered[module] = true;
-                        reached[module] = true;
-                        for &(waiting, _) in stack.iter() {
-                            if import_cycles.get(waiting) == import_cycles.get(module) {
-                                early.insert(world.modules[waiting].id);
-                            }
-                        }
-                        stack.push((module, 0));
-                    };
-                enter(root, &mut stack, &mut entered);
-                while let Some(&mut (module, ref mut at)) = stack.last_mut() {
-                    let Some(&target) = edges[module].get(*at) else {
-                        stack.pop();
-                        continue;
-                    };
-                    *at += 1;
-                    if !entered[target] {
-                        enter(target, &mut stack, &mut entered);
-                    }
-                }
-            }
-            start = roots.len();
-            match reached.iter().position(|&reached| !reached) {
-                Some(unreached) => roots.push(unreached),
-                None => break,
-            }
-        }
-    }
-    early
-}
-
 /// The modules whose exports the host can use: the entries (or, without any, the modules no
 /// other module imports) and every module they re-export from, transitively.
 pub(crate) fn open_modules(world: &World<'_>, options: &AnalysisOptions) -> FxHashSet<ModuleId> {
@@ -1049,10 +921,11 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub lexicals: FxHashMap<NodeRef, Vec<SymbolId>>,
     /// Each module's strongly connected component of the import graph (by module index).
     pub import_cycles: Vec<usize>,
-    /// See [`entered_early`].
-    pub entered_early: FxHashSet<ModuleId>,
     /// How many entries were given up (see [`SATURATE_AFTER`]).
     saturated: usize,
+    /// Where each unit's loops settled in its last run, by loop node: its next run starts
+    /// them there.
+    loop_heads: FxHashMap<NodeRef, FxHashMap<NodeId, Env>>,
     stats: Stats,
 }
 
@@ -1171,9 +1044,22 @@ pub(crate) struct Cx<'c, 'w, 'a> {
     pub loop_resized: Vec<(FxHashSet<AllocId>, bool)>,
     /// Arrays whose length relations were dropped, in order.
     pub dropped: Vec<SymbolId>,
+    /// Where each loop settled when it last ran, in this run or the unit's last: a loop that
+    /// runs again starts from there.
+    pub loop_heads: FxHashMap<NodeId, Env>,
 }
 
 impl<'w, 'a> Analyzer<'w, 'a> {
+    /// Whether `unit` is a function that no known caller has called yet and that unknown
+    /// code can't call.
+    fn uncalled(&self, unit: &Unit<'a>) -> bool {
+        matches!(unit.body, Body::Function(_) | Body::Arrow(_))
+            && !self.state.this.contains_key(&unit.id)
+            && !self.state.params.contains_key(&unit.id)
+            && !self.state.spread_called.contains(&unit.id)
+            && !unit_open(self.world, &self.state, unit)
+    }
+
     fn interpret(&mut self, unit: &'w Unit<'a>) {
         let deps = self.deps.get_mut();
         deps.current = Some(unit.id);
@@ -1188,6 +1074,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         self.output.nodes.reserve(capacity);
         let module = self.world.module(unit.id.module);
         let this = self.this_for(unit);
+        let loop_heads = self.loop_heads.remove(&unit.id).unwrap_or_default();
         let mut cx = Cx {
             an: self,
             unit,
@@ -1207,19 +1094,27 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             loop_writes: Vec::new(),
             loop_resized: Vec::new(),
             dropped: Vec::new(),
+            loop_heads,
         };
         cx.enter();
         match unit.body {
             Body::Module(program) => {
-                // Its import cycle may run first and call back in before it has declared
-                // anything.
-                if cx.an.entered_early.contains(&module.id) {
-                    cx.note_call();
-                }
                 cx.hoist(&program.body);
                 cx.statements(&program.body);
             }
             Body::Function(function) => {
+                // A function expression's own name, in its body, is the function itself.
+                if function.is_expression()
+                    && let Some(id) = &function.id
+                    && let Some(symbol) = id.symbol_id.get()
+                {
+                    let site = unit.id;
+                    // Made by the code that evaluates the expression.
+                    cx.an
+                        .obj(site, ObjKind::Function(site), unit.parent.unwrap_or(site));
+                    let value = Val::object(Type::opaque_function(Some(site)), site);
+                    cx.write_symbol(symbol, value, Some(id.node_id.get()));
+                }
                 cx.params(&function.params);
                 if let Some(body) = &function.body {
                     cx.hoist(&body.statements);
@@ -1254,6 +1149,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
         let returned = std::mem::replace(&mut cx.returned, Val::never());
         let record = std::mem::take(&mut cx.record);
+        let loop_heads = std::mem::take(&mut cx.loop_heads);
+        if !loop_heads.is_empty() {
+            self.loop_heads.insert(unit.id, loop_heads);
+        }
         self.join_return(unit.id, &returned);
         // A site joined with an unknown object is no longer followed: anything may happen to
         // it from here, so it escapes.
@@ -1531,6 +1430,18 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let slot = self.state.supers.entry(class).or_insert_with(Val::never);
         if Self::join_into(self.round, slot, value) {
             self.touch(Dep::Super(class));
+            // A class (or instance) other code already reaches exposes its new parent too.
+            let level = if self.state.open_instances.contains(&class) {
+                Escape::Unknown
+            } else {
+                self.state
+                    .heap
+                    .get(&class)
+                    .map_or(Escape::None, |obj| obj.escape)
+            };
+            if level > Escape::None {
+                self.escape(&value.pts, level);
+            }
         }
     }
 
@@ -1614,6 +1525,16 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 pending.push(info.init);
                 pending.extend(info.members.iter().filter_map(|member| member.unit));
                 pending.extend(info.constructor);
+                // Inherited members are reachable through it too (a parent joined later
+                // escapes in `join_super`).
+                if let Some(sites) = self
+                    .state
+                    .supers
+                    .get(&class)
+                    .and_then(|parent| parent.pts.sites())
+                {
+                    pending.extend_from_slice(sites);
+                }
             }
         }
     }
@@ -1705,12 +1626,18 @@ impl Cx<'_, '_, '_> {
     /// Records the value of `node` for this round, joining with earlier visits.
     pub fn record_node(&mut self, node: NodeId, value: &Val) {
         let key = self.node(node);
-        self.an
-            .output
-            .nodes
-            .entry(key)
-            .and_modify(|existing| *existing = existing.join(value))
-            .or_insert_with(|| value.clone());
+        match self.an.output.nodes.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                // Loops revisit nodes, mostly with the value they had.
+                if entry.get() != value {
+                    let joined = entry.get().join(value);
+                    entry.insert(joined);
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(value.clone());
+            }
+        }
     }
 
     /// The value with TypeScript's declared type filled in if the analysis knows nothing.

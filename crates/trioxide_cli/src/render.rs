@@ -43,10 +43,6 @@ impl Renderer {
         eprintln!("{}: {message}", self.paint(RED, "error"));
     }
 
-    pub fn warning(&self, message: &str) {
-        eprintln!("{}: {message}", self.paint(YELLOW, "warning"));
-    }
-
     pub fn info(&self, message: &str) {
         eprintln!("{}", self.paint(CYAN, message));
     }

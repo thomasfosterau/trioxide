@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repo = path.resolve(here, '..');
+const repo = path.resolve(here, '../..');
 const out = path.join(here, '.out');
 const time = process.env.BENCH_TIME ?? '1000';
 const engines = [

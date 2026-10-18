@@ -1,0 +1,34 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/escaped-subclass-late
+input_file: tests/fixtures/analysis/escaped-subclass-late/input.ts
+---
+//- input.ts
+// A class whose parent is only known once another function has run: by then its instance has
+// escaped to code trioxide can't follow, which may call the new parent's methods on it.
+class Base {
+	describe() {
+		return "base";
+	}
+}
+class Other {
+	tag = "other";
+	describe() {
+		return `${this.tag}!`;
+	}
+}
+let Parent = Base;
+function make() {
+	class Derived extends Parent {}
+	return new Derived();
+}
+export function main() {
+	const first = make();
+	Parent = Other;
+	const second = make();
+	// A key trioxide can't know: the call goes to whatever the objects have under it.
+	const key = process.argv.length > 1e3 ? "toString" : "describe";
+	for (const object of [first, second]) {
+		console.log(object[key]());
+	}
+}

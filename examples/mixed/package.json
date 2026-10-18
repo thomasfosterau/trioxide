@@ -1,0 +1,15 @@
+{
+  "name": "trioxide-example-mixed",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "explain": "trioxide explain",
+    "compare": "node ../../benchmarks/partition/compare.mjs src/main.ts"
+  },
+  "devDependencies": {
+    "trioxide": "workspace:*",
+    "vite": "8.3.4"
+  }
+}

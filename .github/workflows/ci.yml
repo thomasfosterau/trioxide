@@ -66,3 +66,8 @@ jobs:
         env:
           TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
         run: pnpm --filter trioxide-differential test
+      - name: Differential suite, every eligible cluster an island (stresses automatic islands)
+        env:
+          TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
+          TRIOXIDE_EVERY_CLUSTER: '1'
+        run: pnpm --filter trioxide-differential exec node --test differential.test.js

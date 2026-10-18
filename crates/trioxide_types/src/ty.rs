@@ -104,7 +104,11 @@ impl Type {
 }
 
 impl PartialEq for Type {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
+        if std::mem::discriminant(self) != std::mem::discriminant(other) {
+            return false;
+        }
         match (self, other) {
             (Self::Number(a), Self::Number(b)) => a == b,
             (Self::Array(a), Self::Array(b)) => Arc::ptr_eq(a, b) || a == b,
@@ -125,7 +129,7 @@ impl PartialEq for Type {
                 | Self::Null
                 | Self::Undefined,
                 _,
-            ) => std::mem::discriminant(self) == std::mem::discriminant(other),
+            ) => true,
             _ => false,
         }
     }

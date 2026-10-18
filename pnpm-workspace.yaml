@@ -1,5 +1,5 @@
 packages:
   - packages/*
   - tests/differential
-  - benchmarks
+  - benchmarks/passes
   - examples/*

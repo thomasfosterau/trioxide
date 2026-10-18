@@ -1,0 +1,23 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/tagged-template-method
+input_file: tests/fixtures/analysis/tagged-template-method/input.ts
+---
+//- input.ts
+// A tagged template whose tag is a member expression is a method call: `p.f`x`` runs `f` with
+// `this` = `p`, like `p.f(strings)`.
+const p = {
+	name: "p",
+	f(strings, ...values) {
+		const kind = typeof this;
+		return `${kind}:${this.name}:${strings.join("|")}:${values.join(",")}`;
+	}
+};
+function free(strings) {
+	return `${"undef"}:${strings[0]}`;
+}
+export function main() {
+	console.log(p.f`x`);
+	console.log(p.f`a${1}b${2}c`);
+	console.log(free`y`);
+}
