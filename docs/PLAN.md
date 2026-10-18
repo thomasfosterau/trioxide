@@ -277,8 +277,8 @@ class shapes, and proven-unreachable code. Escape levels, points-to sets and the
 facts are not checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time. It
-is not met at the moment: `benches/analysis.rs` measures about 2.7–2.8× on 4 cores (275–290
-ms against 100–105 ms for the 1780-module corpus on a noisy machine;
+is not met at the moment: `benches/analysis.rs` measures about 2.6–2.8× on 4 cores (270–290
+ms against 100–106 ms for the 1780-module corpus on a noisy machine;
 `TRIOXIDE_BENCH_STATS=1` prints a breakdown). The corpus now includes the review fixtures, on
 which the analysis before the review fixes didn't converge at all, and the review fixes made
 each interpretation dearer (per-expression effect frames, implicit calls, dead zones, more
