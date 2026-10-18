@@ -1,0 +1,19 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/scalar/basics
+input_file: tests/fixtures/passes/scalar/basics/input.ts
+---
+//- input.ts
+// Points that never leave the loop become locals.
+export function main() {
+	let total = 0;
+	for (let i = 0; i < 10; i++) {
+		let p_x = i, p_y = i * 2;
+		p_x += 1;
+		p_y++;
+		total += p_x * p_y;
+		const pair_0 = i, pair_1 = i + 1;
+		total += pair_0 - pair_1;
+	}
+	console.log(total);
+}

@@ -8,14 +8,11 @@ function patch() {
 	const proto = Object.getPrototypeOf([]);
 	proto.indexOf = () => "patched";
 }
-function use(a) {
-	return a.indexOf(3);
-}
 export function main() {
 	patch();
-	console.log(use([
+	console.log([
 		1,
 		2,
 		3
-	]));
+	].indexOf(3));
 }

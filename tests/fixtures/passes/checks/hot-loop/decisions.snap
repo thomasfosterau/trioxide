@@ -4,6 +4,9 @@ description: tests/fixtures/passes/checks/hot-loop
 input_file: tests/fixtures/passes/checks/hot-loop/input.ts
 ---
 //- input.ts
+22:15 inline-fn applied
+41:15 inline-fn skipped: `simulate` is too big to copy (99 nodes; the budget is 40, or 400 for an only call site)
+13:1 inline-fn applied
 15:23 inline applied
 33:28 inline applied
 27:11 checks applied

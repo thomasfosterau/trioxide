@@ -7,10 +7,6 @@ input_file: tests/fixtures/analysis/usage-facts/input.ts
 // Call-site completeness, expression and loop effects, points-to and reachability.
 const external = JSON.parse("{}");
 let log = 0;
-function bump(n) {
-	log += n;
-	return n;
-}
 function early(flag) {
 	if (flag) {
 		return 1;
@@ -56,11 +52,11 @@ function clock(values) {
 	return total;
 }
 function boxed(values) {
-	const box = { v: 1 };
+	let box_v = 1;
 	let total = 0;
 	for (let i = 0; i < values.length; i++) {
-		total += box.v * 2;
-		box.v++;
+		total += box_v * 2;
+		box_v++;
 	}
 	return total;
 }
@@ -85,7 +81,7 @@ class Scale {
 function method(values, scale) {
 	let total = 0;
 	for (let i = 0; i < values.length; i++) {
-		total += scale.apply(i);
+		total += i * scale.factor;
 	}
 	return total;
 }
@@ -133,14 +129,11 @@ function callbacks() {
 	const mapped = [1, 2].map(triple);
 	return mapped[0] + quadruple.call(undefined, 2);
 }
-function grow(a) {
-	a.push(1);
-}
 function nested() {
 	const grown = [11];
 	for (let i = 10; i > 0; i -= 2) {
 		for (let j = 0; j < i; j++) {
-			grow(grown);
+			grown.push(1);
 		}
 	}
 	return grown.length;
@@ -186,7 +179,7 @@ function promised() {
 	});
 }
 export function main() {
-	const effect = bump(2);
+	log += 2;
 	const outside = external.unknown?.(1);
 	console.log(1, 9, 2, outside, early(true), early(false));
 	console.log(loop([

@@ -4,6 +4,14 @@ description: tests/fixtures/passes/dce/adversarial
 input_file: tests/fixtures/passes/dce/adversarial/input.ts
 ---
 //- input.ts
+5:7 scalar skipped: the literal has accessors or methods
+12:7 scalar skipped: the literal has accessors or methods
+31:10 inline-fn skipped: the call's value is a constant, which fold puts in its place
+31:10 inline-fn skipped: the call's value is a constant, which fold puts in its place
+59:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+59:22 inline-fn skipped: `hoisted` contains a closure (its identity and what it captures would change)
+59:33 inline-fn skipped: `deadVar` declares a `var`
+59:44 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
 22:20 inline skipped: the read may throw (e.g. in its temporal dead zone)
 39:25 inline applied
 31:10 fold applied

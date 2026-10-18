@@ -7,14 +7,11 @@ input_file: tests/fixtures/analysis/review-taproto/input.ts
 function patch() {
 	Uint8Array.prototype.indexOf = () => "patched";
 }
-function use(a) {
-	return a.indexOf(3);
-}
 export function main() {
 	patch();
-	console.log(use(new Uint8Array([
+	console.log(new Uint8Array([
 		1,
 		2,
 		3
-	])));
+	]).indexOf(3));
 }

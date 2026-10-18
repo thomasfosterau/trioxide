@@ -7,7 +7,8 @@ input_file: tests/fixtures/analysis/review-expr-a/input.ts
 // A parent constructor calls an overridden method before the subclass's fields exist.
 class Parent {
 	constructor() {
-		this.show();
+		const v = this.y;
+		console.log(v);
 	}
 	show() {}
 }
@@ -22,7 +23,8 @@ class Child extends Parent {
 class Early {
 	x;
 	constructor() {
-		this.peek();
+		const v_1 = this.x;
+		console.log(v_1);
 		this.x = 1;
 	}
 	peek() {

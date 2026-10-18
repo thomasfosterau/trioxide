@@ -6,13 +6,11 @@ input_file: tests/fixtures/analysis/review-switch-hoist/input.ts
 //- input.ts
 export function pick(k) {
 	switch (k) {
-		case 1: return g();
+		case 1: return "from g";
 		case 2: {
 			break;
 		}
-		default: function g() {
-			return "from g";
-		}
+		default:
 	}
 	return 0;
 }

@@ -19,14 +19,14 @@ class Point {
 class Grows {
 	a = 1;
 	constructor() {
-		this.setup();
-	}
-	setup() {
-		// Runs while the instance is being built.
 		console.log(
 			this.a
 			/*@proven number int*/
 		);
+	}
+	setup() {
+		// Runs while the instance is being built.
+		console.log(this.a);
 	}
 	extend() {
 		this.b = 2;
@@ -52,14 +52,14 @@ class WithParams {
 export function main() {
 	const p = new Point(3, 4);
 	console.log(
-		p.norm(),
+		5,
 		3
 		/*@proven number int*/
 	);
 	const g = new Grows();
-	g.extend();
+	g.b = 2;
 	const s = new Shrinks();
-	s.clear();
+	delete s.value;
 	console.log(
 		s.value
 		/*@proven union*/

@@ -7,10 +7,7 @@ input_file: tests/fixtures/analysis/review-strproto/input.ts
 function patch() {
 	String.prototype.charCodeAt = () => "patched";
 }
-function use(s) {
-	return s.charCodeAt(0);
-}
 export function main() {
 	patch();
-	console.log(use("abc"));
+	console.log("abc".charCodeAt(0));
 }

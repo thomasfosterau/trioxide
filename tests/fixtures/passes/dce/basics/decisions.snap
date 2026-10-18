@@ -4,6 +4,10 @@ description: tests/fixtures/passes/dce/basics
 input_file: tests/fixtures/passes/dce/basics/input.ts
 ---
 //- input.ts
+29:9 scalar applied
+34:21 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+34:34 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+34:48 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
 32:3 inline applied
 34:15 inline applied
 28:24 fold applied
@@ -12,6 +16,7 @@ input_file: tests/fixtures/passes/dce/basics/input.ts
 14:3 dce applied
 22:5 dce applied
 28:9 dce applied
+29:9 dce applied
 29:9 dce applied
 30:9 dce applied
 31:9 dce applied

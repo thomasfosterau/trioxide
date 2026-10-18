@@ -4,9 +4,6 @@ description: tests/fixtures/analysis/review-num
 input_file: tests/fixtures/analysis/review-num/input.ts
 ---
 //- input.ts
-function fr(x) {
-	return Math.fround(x);
-}
 function ops(a, b, s) {
 	const out = [];
 	out.push(.10000000149011612);
@@ -48,7 +45,7 @@ function inc(x) {
 	return y - x;
 }
 export function main() {
-	console.log(fr(.1), fr(34028235e31), fr(34028236e31));
+	console.log(.10000000149011612, 34028234663852886e22, Infinity);
 	const xs = [
 		0,
 		-0,

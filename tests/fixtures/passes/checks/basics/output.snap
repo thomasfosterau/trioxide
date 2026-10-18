@@ -4,11 +4,8 @@ description: tests/fixtures/passes/checks/basics
 input_file: tests/fixtures/passes/checks/basics/input.ts
 ---
 //- input.ts
-function make(x) {
-	return { x };
-}
 function chains() {
-	const p = make(1);
+	const p = { x: 1 };
 	const f = (n) => n + 1;
 	const maybe = Math.random() > 2 ? null : p;
 	// p and f are never nullish; maybe may be null.

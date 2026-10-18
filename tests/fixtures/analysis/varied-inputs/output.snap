@@ -29,9 +29,6 @@ function classify(value) {
 	}
 	return value < 0 ? "negative" : value === 0 ? Object.is(value, -0) ? "-0" : "0" : "positive";
 }
-function clamp(value, low, high) {
-	return Math.min(Math.max(value, low), high);
-}
 function sum(values) {
 	let total = 0;
 	for (let i = 0; i < values.length; i++) {
@@ -48,10 +45,7 @@ function bytes(n) {
 }
 function shape(flag) {
 	const v = new Vec2(1, flag ? 2 : -2);
-	return v.length() + 1;
-}
-function divide(a, b) {
-	return a / b | 0;
+	return Math.sqrt(v.x * v.x + v.y * v.y) + 1;
 }
 export function main() {
 	const inputs = [
@@ -89,7 +83,7 @@ export function main() {
 	let acc = 0;
 	for (const a of numbers) {
 		for (const b of numbers) {
-			acc += clamp(a, -1, 1) + divide(a, b);
+			acc += Math.min(Math.max(a, -1), 1) + (a / b | 0);
 		}
 	}
 	console.log(seen.join(","), acc);

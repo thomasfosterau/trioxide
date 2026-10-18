@@ -16,16 +16,13 @@ var Level = /* @__PURE__ */ function(Level) {
 	Level[Level["High"] = 10] = "High";
 	return Level;
 }(Level || {});
-function describe(level) {
-	return level === 10 ? "high" : "low";
-}
 export function main() {
 	console.log(16, "trioxide", true, null, 12345678901234567890n, -3);
 	// Not a literal, so not inlined (but folded where the type is a single value).
 	console.log(HUGE);
 	// Too long to copy.
 	console.log(BANNER.length);
-	console.log(3, 1, "fast", "slow", describe(10));
+	console.log(3, 1, "fast", "slow", "high");
 	console.log(Object.is(-0, -0), 1 / -0, undefined);
 }
 

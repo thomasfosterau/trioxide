@@ -63,13 +63,10 @@ let shared = [
 	2,
 	3
 ];
-function shrinkShared() {
-	shared.pop();
-}
 function viaCall() {
 	let t = 0;
 	for (let i = 0; i < shared.length; i++) {
-		shrinkShared();
+		shared.pop();
 		t += shared[i] ?? 0;
 	}
 	return t;
@@ -121,9 +118,9 @@ function whileLoop(a) {
 }
 function setLen(a) {
 	let t = 0;
-	const o = { a };
+	const o_a = a;
 	for (let i = 0; i < a.length; i++) {
-		o.a.length = 0;
+		o_a.length = 0;
 		t += a[i] ?? 0;
 	}
 	return t;

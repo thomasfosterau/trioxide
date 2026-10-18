@@ -14,29 +14,6 @@ class Derived extends Base {
 		return "getter";
 	}
 }
-// A typed array detached through its buffer.
-function detach() {
-	const ta = new Float64Array(4);
-	const buffer = ta.buffer;
-	buffer.transfer();
-	const e = ta[0];
-	const n = ta.length;
-	console.log(e, n);
-}
-// Array.prototype pollution and iteration.
-function arrays() {
-	Array.prototype[1] = "hole";
-	const holey = [
-		1,
-		,
-		3
-	];
-	const h = holey[1];
-	console.log(h);
-	for (const v of holey) {
-		console.log(v);
-	}
-}
 // thisArg of an iterating builtin.
 function thisArg() {
 	[1].forEach(function() {
@@ -56,8 +33,23 @@ export function main() {
 	const d = new Derived();
 	const dx = d.x;
 	console.log(dx);
-	detach();
-	arrays();
+	const ta = new Float64Array(4);
+	const buffer = ta.buffer;
+	buffer.transfer();
+	const e = ta[0];
+	const n = ta.length;
+	console.log(e, n);
+	Array.prototype[1] = "hole";
+	const holey = [
+		1,
+		,
+		3
+	];
+	const h = holey[1];
+	console.log(h);
+	for (const v of holey) {
+		console.log(v);
+	}
 	thisArg();
 	const o = Object.create(Made.prototype);
 	o.get();

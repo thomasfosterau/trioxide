@@ -12,5 +12,5 @@ export function pick(flag) {
 	return flag ? "yes" : "no";
 }
 export function main() {
-	console.log(twice(5), pick(true));
+	console.log(10, "yes");
 }

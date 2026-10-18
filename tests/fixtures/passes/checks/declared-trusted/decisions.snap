@@ -4,6 +4,11 @@ description: tests/fixtures/passes/checks/declared-trusted
 input_file: tests/fixtures/passes/checks/declared-trusted/input.ts
 ---
 //- input.ts
+8:15 inline-fn applied
+4:11 checks applied
+4:21 checks applied
+4:33 checks applied
+4:60 checks skipped: evaluating the operand may have effects
 4:11 checks applied
 4:21 checks applied
 4:33 checks applied

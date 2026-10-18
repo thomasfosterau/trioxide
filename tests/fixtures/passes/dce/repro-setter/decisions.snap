@@ -4,3 +4,6 @@ description: tests/fixtures/passes/dce/repro-setter
 input_file: tests/fixtures/passes/dce/repro-setter/input.ts
 ---
 //- input.ts
+4:38 scalar skipped: the literal has accessors or methods
+5:7 scalar skipped: the literal has accessors or methods
+6:32 inline-fn skipped: `viaSetter` contains a closure (its identity and what it captures would change)

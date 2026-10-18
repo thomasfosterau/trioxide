@@ -5,9 +5,6 @@ input_file: tests/fixtures/analysis/any-laundering/input.ts
 ---
 //- input.ts
 // `any` launders values past the type checker: the facts must follow values, not annotations.
-function fromAny() {
-	return "not a number";
-}
 export function main() {
 	const n = "text";
 	// The value is the string literal, whatever the annotation says.
@@ -15,9 +12,8 @@ export function main() {
 		n
 		/*@proven string*/
 	);
-	const b = fromAny();
 	// An unknown call's `any` result is unknown, and the annotation can't make it proven.
-	console.log(b, typeof b);
+	console.log("not a number", "string");
 	const json = JSON.parse("[1, 2]");
 	const first = json[0];
 	// Only the annotation says it is a number.

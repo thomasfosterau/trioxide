@@ -4,4 +4,8 @@ description: tests/fixtures/passes/dce/declared
 input_file: tests/fixtures/passes/dce/declared/input.ts
 ---
 //- input.ts
-10:9 dce skipped: unused, but its initialiser has effects
+10:18 inline-fn applied
+11:3 inline-fn applied
+6:10 fold applied
+10:9 dce applied
+11:3 dce applied

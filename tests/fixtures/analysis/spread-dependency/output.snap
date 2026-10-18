@@ -15,7 +15,4 @@ export function main() {
 		/*@proven union*/
 	);
 }
-function fill() {
-	source.b = 2;
-}
-fill();
+source.b = 2;

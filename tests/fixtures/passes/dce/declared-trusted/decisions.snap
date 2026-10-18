@@ -4,5 +4,8 @@ description: tests/fixtures/passes/dce/declared-trusted
 input_file: tests/fixtures/passes/dce/declared-trusted/input.ts
 ---
 //- input.ts
+9:18 inline-fn applied
+10:3 inline-fn applied
+5:10 fold applied
 9:9 dce applied
 10:3 dce applied

@@ -4,18 +4,15 @@ description: tests/fixtures/passes/checks/hot-loop
 input_file: tests/fixtures/passes/checks/hot-loop/input.ts
 ---
 //- input.ts
-function particles() {
-	const all = [];
-	for (let i = 0; i < 64; i++) {
-		all.push({
-			x: i,
-			v: i % 7 - 3
+export function simulate(steps) {
+	const all_1 = [];
+	for (let i_1 = 0; i_1 < 64; i_1++) {
+		all_1.push({
+			x: i_1,
+			v: i_1 % 7 - 3
 		});
 	}
-	return all;
-}
-export function simulate(steps) {
-	const all = particles();
+	const all = all_1;
 	let total = 0;
 	for (let step = 0; step < steps; step++) {
 		for (let i = 0; i < all.length; i++) {

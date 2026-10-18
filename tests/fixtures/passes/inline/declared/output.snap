@@ -19,5 +19,5 @@ export function member() {
 	return Unsealed.B;
 }
 export function main() {
-	console.log(scaled(3), member());
+	console.log(6, Unsealed.B);
 }

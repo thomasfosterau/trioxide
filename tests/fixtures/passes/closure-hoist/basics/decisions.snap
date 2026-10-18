@@ -1,0 +1,17 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/closure-hoist/basics
+input_file: tests/fixtures/passes/closure-hoist/basics/input.ts
+---
+//- input.ts
+8:11 closure-hoist applied
+15:21 closure-hoist applied
+9:14 inline-fn applied
+19:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+19:27 inline-fn applied
+8:20 inline-fn applied
+14:1 inline-fn applied
+6:23 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+8:47 inline applied
+6:23 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+2:7 dce applied

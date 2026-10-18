@@ -4,7 +4,12 @@ description: tests/fixtures/passes/checks/declared
 input_file: tests/fixtures/passes/checks/declared/input.ts
 ---
 //- input.ts
+9:15 inline-fn applied
 5:11 checks skipped: the receiver's type is only Declared (trustTypes is off)
 5:21 checks skipped: the left operand's type is only Declared (trustTypes is off)
 5:33 checks skipped: the operand's type is only Declared (trustTypes is off)
 5:60 checks skipped: the operand's type is only Declared (trustTypes is off)
+5:11 checks applied
+5:21 checks applied
+5:33 checks applied
+5:60 checks skipped: evaluating the operand may have effects

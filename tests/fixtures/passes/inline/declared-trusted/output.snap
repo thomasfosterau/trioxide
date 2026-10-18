@@ -18,5 +18,5 @@ export function member() {
 	return 2;
 }
 export function main() {
-	console.log(scaled(3), member());
+	console.log(6, 2);
 }

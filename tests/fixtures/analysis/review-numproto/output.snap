@@ -7,10 +7,7 @@ input_file: tests/fixtures/analysis/review-numproto/input.ts
 function patch() {
 	Number.prototype.toFixed = () => 42;
 }
-function use(n) {
-	return n.toFixed(2);
-}
 export function main() {
 	patch();
-	console.log(use(1.5));
+	console.log(1.5.toFixed(2));
 }

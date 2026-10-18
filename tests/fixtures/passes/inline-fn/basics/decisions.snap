@@ -1,0 +1,21 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/basics
+input_file: tests/fixtures/passes/inline-fn/basics/input.ts
+---
+//- input.ts
+28:14 inline-fn applied
+29:15 inline-fn applied
+33:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+33:29 inline-fn applied
+33:40 inline-fn applied
+32:3 inline-fn applied
+1:1 inline-fn applied
+5:1 inline-fn applied
+17:1 inline-fn applied
+21:1 inline-fn applied
+33:29 fold skipped: the expression has effects, so it stays
+33:29 fold skipped: the expression has effects, so it stays
+17:32 fold applied
+18:10 fold applied
+18:10 fold applied

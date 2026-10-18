@@ -17,7 +17,7 @@ export function main() {
 	const p = new P();
 	p.z = 3;
 	const q = new Q();
-	q.grow();
+	q.y = 2;
 	const o = { a: 1 };
 	o.b = 2;
 	console.log(Object.keys(p).length, Object.keys(q).length, Object.keys(o).length);

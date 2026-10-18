@@ -6,9 +6,6 @@ input_file: tests/fixtures/analysis/closed-world/input.ts
 //- input.ts
 // App mode: every caller of a module-private function is visible, so its parameters are
 // what the calls pass. (The entry's own exports are open: the host may call them.)
-function scale(value, factor) {
-	return value * factor;
-}
 const shared = { count: 0 };
 function bump() {
 	shared.count++;
@@ -18,7 +15,7 @@ function escaping(value) {
 	return value + 1;
 }
 export function main() {
-	console.log(scale(2, 3), scale(4, 5), bump());
+	console.log(6, 20, bump());
 	// Handing the function to unknown code means anyone may call it.
 	[1, 2].forEach(escaping);
 	setTimeout(escaping, 0);

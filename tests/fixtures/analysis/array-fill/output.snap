@@ -21,13 +21,10 @@ function partial(n) {
 	}
 	return total;
 }
-function refill(values) {
-	return values.fill(7, 0, 2);
-}
 export function main() {
-	console.log(full(0), full(3), partial(0), partial(3), refill([
+	console.log(full(0), full(3), partial(0), partial(3), [
 		1,
 		2,
 		3
-	]).join(","));
+	].fill(7, 0, 2).join(","));
 }

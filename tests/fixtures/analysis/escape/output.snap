@@ -6,14 +6,11 @@ input_file: tests/fixtures/analysis/escape/input.ts
 //- input.ts
 // Escape facts: where allocated objects may end up.
 let global;
-function keep(o) {
-	global = o;
-}
 export function main() {
 	const stored = { v: 3 };
 	const leaked = { v: 4 };
 	console.log(3);
-	keep(stored);
+	global = stored;
 	console.log(leaked);
 	const pair = [1, 2];
 	const [a, b] = pair;

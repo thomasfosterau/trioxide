@@ -9,5 +9,5 @@ export function helper(n) {
 }
 export function main(flag) {
 	const v = flag;
-	console.log(v, helper(3));
+	console.log(v, 6);
 }

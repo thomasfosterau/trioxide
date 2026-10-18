@@ -44,11 +44,16 @@
 //! an island (`"use wasm"`, `@trioxide wasm`) are never removed either.
 
 mod checks;
+mod closure_hoist;
 mod dce;
 mod fold;
 mod imports;
 mod inline;
+mod inline_fn;
+mod partial_eval;
+mod scalar;
 mod simplify;
+mod speed;
 mod util;
 
 use std::{cell::RefCell, rc::Rc};
@@ -58,10 +63,14 @@ use oxc_span::Span;
 use trioxide_common::log::ModuleLog;
 
 pub use checks::Checks;
+pub use closure_hoist::ClosureHoist;
 pub use dce::Dce;
 pub use fold::Fold;
 pub use imports::{KeepImports, RecordImports};
 pub use inline::Inline;
+pub use inline_fn::InlineFn;
+pub use partial_eval::PartialEval;
+pub use scalar::Scalar;
 pub use simplify::Simplify;
 
 /// Whether a function is a forced WASM island: a `"use wasm"` directive in its body, or a
@@ -100,6 +109,19 @@ use util::Query;
 pub fn default_groups() -> Vec<PassGroup> {
     let imports = Rc::new(RefCell::new(imports::Guard::default()));
     vec![
+        // S5a's speed passes (PLAN §4 passes 11, 8, 12, 5): first, so they read the facts the
+        // build computed, and a module they change is refreshed once, before the foundation.
+        PassGroup {
+            name: "speed",
+            passes: vec![
+                Box::new(RecordImports::new(Rc::clone(&imports))),
+                Box::new(PartialEval),
+                Box::new(Scalar),
+                Box::new(ClosureHoist),
+                Box::new(InlineFn),
+            ],
+            fixpoint: false,
+        },
         PassGroup {
             name: "foundation",
             passes: vec![

@@ -5,26 +5,27 @@ input_file: tests/fixtures/passes/inline/shadowing/input.ts
 ---
 //- input.ts
 // Values whose names are shadowed where they land: `Infinity`, `NaN` and `undefined` are
-function shadowed(Infinity, NaN, undefined) {
-	// An inlined constant, and syntactic folds (in the cleanup group).
-	return [
-		void 0,
-		1 / 0,
-		-(1 / 0),
-		0 / 0,
+export function main() {
+	console.log([
+		undefined,
 		Infinity,
+		-Infinity,
 		NaN,
-		undefined
-	];
-}
-function unshadowed() {
-	return [
+		1,
+		2,
+		3
+	], [
+		undefined,
+		Infinity,
+		-Infinity,
+		NaN,
+		4,
+		5,
+		6
+	], [
 		undefined,
 		Infinity,
 		-Infinity,
 		NaN
-	];
-}
-export function main() {
-	console.log(shadowed(1, 2, 3), shadowed(4, 5, 6), unshadowed());
+	]);
 }

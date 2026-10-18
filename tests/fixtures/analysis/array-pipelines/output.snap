@@ -4,6 +4,21 @@ description: tests/fixtures/analysis/array-pipelines
 input_file: tests/fixtures/analysis/array-pipelines/input.ts
 ---
 //- input.ts
+function forEach_callback(v, i, all) {
+	console.log(v + i, all.length);
+}
+function find_callback(v) {
+	return v > 2;
+}
+function reduce_callback(acc, v) {
+	return acc + v;
+}
+function filter_callback(v, i) {
+	return i % 2 === 0;
+}
+function map_callback(v) {
+	return v * 2;
+}
 // map/filter/reduce over proven arrays: callbacks get proven elements and indices.
 export function main() {
 	const values = [
@@ -12,9 +27,9 @@ export function main() {
 		3,
 		4
 	];
-	const doubled = values.map((v) => v * 2);
-	const even = doubled.filter((v, i) => i % 2 === 0);
-	const total = even.reduce((acc, v) => acc + v, 0);
+	const doubled = values.map(map_callback);
+	const even = doubled.filter(filter_callback);
+	const total = even.reduce(reduce_callback, 0);
 	console.log(
 		total
 		/*@proven number*/
@@ -23,12 +38,10 @@ export function main() {
 	console.log(doubled.length, even.length);
 	const words = "a b c".split(" ");
 	console.log(words.join("-"), words.length);
-	const found = values.find((v) => v > 2);
+	const found = values.find(find_callback);
 	console.log(
 		found
 		/*@proven union*/
 	);
-	values.forEach((v, i, all) => {
-		console.log(v + i, all.length);
-	});
+	values.forEach(forEach_callback);
 }

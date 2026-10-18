@@ -11,7 +11,5 @@ export function scale(x) {
 	return x * 2;
 }
 export function main() {
-	const unused = scale(3);
-	scale(4);
 	console.log("done");
 }

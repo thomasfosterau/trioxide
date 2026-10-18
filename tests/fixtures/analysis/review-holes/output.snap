@@ -4,14 +4,8 @@ description: tests/fixtures/analysis/review-holes
 input_file: tests/fixtures/analysis/review-holes/input.ts
 ---
 //- input.ts
-function mapped() {
-	const a = [
-		1,
-		2,
-		3
-	];
-	a.length = 5;
-	return a.map((x) => x * 2);
+function map_callback(x) {
+	return x * 2;
 }
 function sliced() {
 	const a = new Array(3);
@@ -42,6 +36,12 @@ function idx() {
 	return a[2];
 }
 export function main() {
-	const m = mapped();
+	const a = [
+		1,
+		2,
+		3
+	];
+	a.length = 5;
+	const m = a.map(map_callback);
 	console.log(m[4], sliced()[1], found(), idx());
 }

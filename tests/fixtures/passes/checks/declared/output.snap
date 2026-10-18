@@ -15,5 +15,11 @@ export function read(point, value) {
 	];
 }
 export function main() {
-	console.log(read({ x: 1 }, 2));
+	let point;
+	console.log((point = { x: 1 }, [
+		point.x,
+		2,
+		true,
+		point == null
+	]));
 }

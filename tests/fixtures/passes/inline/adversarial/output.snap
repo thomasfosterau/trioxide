@@ -21,15 +21,21 @@ var Escaping = /* @__PURE__ */ function(Escaping) {
 Mutated.A = 7;
 // Using one as a value: only TypeScript says its members are read-only.
 const keys = Object.keys(Escaping);
-function early() {
+let before;
+early: {
 	// A read in the temporal dead zone throws; inlining it would hide the error.
 	try {
-		return String(LATE);
-	} catch (error) {
-		return error.name;
+		{
+			before = String(LATE);
+			break early;
+		}
+	} catch (error_1) {
+		{
+			before = error_1.name;
+			break early;
+		}
 	}
 }
-const before = early();
 const LATE = 1;
 const holder = { get value() {
 	console.log("getter ran");
