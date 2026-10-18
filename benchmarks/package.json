@@ -1,0 +1,12 @@
+{
+  "name": "trioxide-benchmarks",
+  "private": true,
+  "type": "module",
+  "description": "Runtime benchmarks: each case's types-stripped JS against trioxide's optimised JS, with tinybench.",
+  "scripts": {
+    "bench": "node run.js"
+  },
+  "devDependencies": {
+    "tinybench": "6.2.0"
+  }
+}
