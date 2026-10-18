@@ -1,0 +1,60 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/tagged-template-method
+input_file: tests/fixtures/analysis/tagged-template-method/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  f (5:4): reads writes allocates throws calls-unknown
+  free (11:1): reads
+  main (15:8) open: reads writes allocates throws calls-unknown
+    calls 16:15 -> f
+    calls 17:15 -> f
+    calls 18:15 -> free
+nodes:
+  3:7 bind `p`: {| name: string, f: function |}@proven
+  3:11 object `{ name: "p", f(this: { name: string }...`: {| name: string, f: function |}@proven escape=known stable-shape
+  5:41 bind `strings`: string[]@proven
+  5:50 ref `TemplateStringsArray`: unknown
+  5:75 bind `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  6:11 bind `kind`: string@proven
+  6:18 cond `this === undefined ? "undef" : typeof...`: string@proven
+  6:18 binary `this === undefined`: boolean@proven
+  6:18 this `this`: {| name: string, f: function |}@proven
+  6:27 ref `undefined`: undefined@proven
+  6:49 unary `typeof this`: string@proven
+  6:56 this `this`: {| name: string, f: function |}@proven
+  7:15 ref `kind`: string@proven
+  7:23 member `this?.name`: string@proven
+  7:23 this `this`: {| name: string, f: function |}@proven
+  7:37 call `strings.join("|")`: string@proven
+  7:37 member `strings.join`: unknown
+  7:37 ref `strings`: string[]@proven
+  7:58 call `values.join(",")`: string@proven
+  7:58 member `values.join`: unknown
+  7:58 ref `values`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  11:10 bind `free`: function@proven
+  11:30 bind `strings`: string[]@proven
+  11:39 ref `TemplateStringsArray`: unknown
+  12:13 cond `this === undefined ? "undef" : "bound"`: string@proven
+  12:13 binary `this === undefined`: boolean@proven
+  12:13 this `this`: undefined@proven
+  12:22 ref `undefined`: undefined@proven
+  12:55 member `strings[0]`: string@proven
+  12:55 ref `strings`: string[]@proven
+  15:17 bind `main`: function@proven
+  16:3 call `console.log(p.f`x`)`: unknown
+  16:3 member `console.log`: unknown
+  16:3 ref `console`: unknown
+  16:15 member `p.f`: function@proven
+  16:15 ref `p`: {| name: string, f: function |}@proven
+  17:3 call `console.log(p.f`a${1}b${2}c`)`: unknown
+  17:3 member `console.log`: unknown
+  17:3 ref `console`: unknown
+  17:15 member `p.f`: function@proven
+  17:15 ref `p`: {| name: string, f: function |}@proven
+  18:3 call `console.log(free`y`)`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 ref `free`: function@proven
