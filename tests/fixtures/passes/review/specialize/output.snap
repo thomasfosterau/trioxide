@@ -29,7 +29,9 @@ function guard(n) {
 	}
 	return "small";
 }
+function scale(x) {
+	return x * 10;
+}
 export function main() {
-	const scale = (x) => x * 10;
 	console.log(3, bounded([1, 2]), new Point(3, 4).length(), scale(2.5), guard(4));
 }

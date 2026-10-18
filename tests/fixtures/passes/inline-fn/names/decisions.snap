@@ -1,0 +1,26 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/names
+input_file: tests/fixtures/passes/inline-fn/names/input.ts
+---
+//- input.ts
+25:13 inline-fn applied
+27:7 inline-fn applied
+28:13 inline-fn applied
+29:17 inline-fn applied
+36:17 inline-fn applied
+36:25 inline-fn applied
+36:13 inline-fn applied
+37:19 inline-fn applied
+37:27 inline-fn applied
+37:15 inline-fn applied
+38:14 inline-fn applied
+38:22 inline-fn applied
+38:10 inline-fn applied
+42:15 inline-fn skipped: `names` contains a closure (its identity and what it captures would change)
+43:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+3:1 inline-fn applied
+7:1 inline-fn applied
+12:1 inline-fn applied
+16:1 inline-fn applied
+20:1 inline-fn applied

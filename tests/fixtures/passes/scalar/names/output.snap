@@ -1,0 +1,54 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/scalar/names
+input_file: tests/fixtures/passes/scalar/names/input.ts
+---
+//- input.ts
+// Function names scalar replacement must keep. A local `p_f = () => 1` would name the
+// function `p_f`, where the original's is empty (a member write doesn't name it) or its key.
+const log = [];
+export function main() {
+	for (let i = 0; i < 2; i++) {
+		// Not replaced: a later write gives a key an anonymous function.
+		const p = {
+			f: 0,
+			x: 2
+		};
+		p.f = () => 1;
+		log.push(`[${p.f.name}] ${2}`);
+		// Not replaced: a logical assignment may give a key one.
+		const o = {
+			f: null,
+			x: 3
+		};
+		o.f ??= () => 2;
+		log.push(`[${o.f.name}] ${3}`);
+		// Not replaced: a key's initial value is one, behind a type assertion.
+		const q = {
+			f: (() => 0),
+			x: 3
+		};
+		log.push(`[${q.f.name}] ${3}`);
+		const r = {
+			c: class {},
+			x: 4
+		};
+		log.push(`[${r.c.name}] ${4}`);
+		const s = {
+			f: (() => 0),
+			x: 5
+		};
+		log.push(`[${s.f.name}] ${5}`);
+		// Not replaced: an element is one (`[() => 0][0].name` is empty).
+		const t = [() => 0, 6];
+		log.push(`[${t[0].name}] ${t[1]}`);
+		// Replaced: functions written to a key that are already named keep their names.
+		function named() {
+			return 7;
+		}
+		let u_f = named, u_x = i;
+		u_f = named;
+		log.push(`[${u_f.name}] ${u_x}`);
+	}
+	console.log(log.join("\n"));
+}

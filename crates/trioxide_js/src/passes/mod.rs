@@ -13,6 +13,25 @@
 //! - [`Dce`] (`"dce"`, pass 3): unreachable statements, unused pure bindings and functions,
 //!   unused exports (app world) and pure expression statements.
 //!
+//! The speed passes follow in the same group, so they read the same facts and cost no refresh
+//! (a group of their own would re-analyse the whole program for every module the foundation
+//! passes changed). Each rebuilds the scoping when it rewrites (`speed::rescope` keeps node
+//! ids, so the next one still gets facts about the nodes it kept):
+//!
+//! - [`PartialEval`] (`"partial-eval"`, pass 11): top-level calls with constant arguments
+//!   evaluated by a fuel-bounded interpreter and replaced with the literal they return.
+//! - [`Scalar`] (`"scalar"`, pass 8, off by default): object and array literals that never
+//!   leave their function become one local per key.
+//! - [`ClosureHoist`] (`"closure-hoist"`, pass 12): closures that capture nothing and whose
+//!   identity can't be seen are created once.
+//! - [`Params`] (`"params"`): with `passes.specialize`, parameters every caller passes the
+//!   same literal leave the signature and the calls.
+//! - [`InlineFn`] (`"inline-fn"`, pass 5, off by default): calls of small or single-call-site
+//!   functions and methods become their bodies.
+//!
+//! `inline-fn` and `scalar` are off unless `passes` turns them on: V8's optimising tier does
+//! both itself in hot code, so they only measured faster in code that isn't hot yet.
+//!
 //! Then a syntactic cleanup group, run to a fixed point without reading facts:
 //! [`Simplify`] (`"simplify"`) folds what the first group left constant with
 //! `oxc_ecmascript`, takes branches with literal tests and drops empty and inert code.
@@ -44,11 +63,16 @@
 //! an island (`"use wasm"`, `@trioxide wasm`) are never removed either.
 
 mod checks;
+mod closure_hoist;
 mod dce;
 mod fold;
 mod imports;
 mod inline;
+mod inline_fn;
+mod partial_eval;
+mod scalar;
 mod simplify;
+mod speed;
 mod util;
 
 use std::{cell::RefCell, rc::Rc};
@@ -58,10 +82,14 @@ use oxc_span::Span;
 use trioxide_common::log::ModuleLog;
 
 pub use checks::Checks;
+pub use closure_hoist::ClosureHoist;
 pub use dce::Dce;
 pub use fold::Fold;
 pub use imports::{KeepImports, RecordImports};
 pub use inline::Inline;
+pub use inline_fn::{InlineFn, Params};
+pub use partial_eval::PartialEval;
+pub use scalar::Scalar;
 pub use simplify::Simplify;
 
 /// Whether a function is a forced WASM island: a `"use wasm"` directive in its body, or a
@@ -108,6 +136,14 @@ pub fn default_groups() -> Vec<PassGroup> {
                 Box::new(Checks),
                 Box::new(Fold),
                 Box::new(Dce),
+                // Speed passes (S5a; PLAN §4 passes 11, 8, 12, 5) read the same facts, so they
+                // cost no refresh: a group of their own would re-analyse the whole program for
+                // every module the foundation passes changed.
+                Box::new(PartialEval),
+                Box::new(Scalar),
+                Box::new(ClosureHoist),
+                Box::new(Params),
+                Box::new(InlineFn),
             ],
             fixpoint: false,
         },
@@ -361,25 +397,39 @@ fn declares_block_scoped(statement: &Statement<'_>) -> bool {
 
 /// Implements the [`Position`] bookkeeping hooks of an `oxc_traverse` visitor that has
 /// `position: Position` and `query: Query` fields. With `after_statement`, `exit_statement`
-/// also calls the visitor's `after_statement(statement, ctx)`.
+/// also calls the visitor's `after_statement(statement, ctx)`; with `before_statement`,
+/// `enter_statement` also calls its `before_statement(statement, ctx)` (and `exit_statement`
+/// its `after_statement`).
 macro_rules! track_position {
     (after_statement) => {
         $crate::passes::track_position!(@hooks self, statement, ctx, {
+            let _ = (statement, ctx);
+        }, {
+            self.after_statement(statement, ctx);
+        });
+    };
+    (before_statement) => {
+        $crate::passes::track_position!(@hooks self, statement, ctx, {
+            self.before_statement(statement, ctx);
+        }, {
             self.after_statement(statement, ctx);
         });
     };
     () => {
         $crate::passes::track_position!(@hooks self, statement, ctx, {
             let _ = (statement, ctx);
+        }, {
+            let _ = (statement, ctx);
         });
     };
-    (@hooks $self:ident, $statement:ident, $ctx:ident, $after:block) => {
+    (@hooks $self:ident, $statement:ident, $ctx:ident, $before:block, $after:block) => {
         fn enter_statement(
-            &mut self,
-            statement: &mut oxc_ast::ast::Statement<'a>,
-            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+            &mut $self,
+            $statement: &mut oxc_ast::ast::Statement<'a>,
+            $ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
         ) {
-            self.position.enter_statement(statement, self.query);
+            $self.position.enter_statement($statement, $self.query);
+            $before
         }
 
         fn exit_statement(

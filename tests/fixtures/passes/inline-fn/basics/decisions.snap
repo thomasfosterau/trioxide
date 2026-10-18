@@ -1,0 +1,26 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/basics
+input_file: tests/fixtures/passes/inline-fn/basics/input.ts
+---
+//- input.ts
+6:11 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+6:22 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+7:11 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+7:22 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+6:11 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+6:22 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+7:11 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+7:22 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+28:14 inline-fn applied
+29:15 inline-fn applied
+33:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+33:29 inline-fn applied
+33:40 inline-fn applied
+32:3 inline-fn applied
+1:1 inline-fn applied
+5:1 inline-fn applied
+17:1 inline-fn applied
+21:1 inline-fn applied
+17:32 simplify applied
+18:10 simplify applied

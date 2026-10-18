@@ -29,6 +29,7 @@ input_file: tests/fixtures/passes/checks/basics/input.ts
 37:10 fold applied
 21:9 dce applied
 22:9 dce applied
+14:9 closure-hoist applied
 17:25 simplify applied
 24:11 simplify applied
 24:22 simplify applied

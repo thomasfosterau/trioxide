@@ -1,0 +1,15 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/partial-eval/patched
+input_file: tests/fixtures/passes/partial-eval/patched/input.ts
+---
+//- input.ts
+// Earlier top-level code patches `Math.floor`: the interpreter's model of it doesn't apply.
+function floored() {
+	return Math.floor(2.5);
+}
+Math.floor = () => 7;
+const R = floored();
+export function main() {
+	console.log(R);
+}
