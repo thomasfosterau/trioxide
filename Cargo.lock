@@ -2083,6 +2083,15 @@ dependencies = [
 name = "trioxide_partition"
 version = "0.0.0"
 dependencies = [
+ "fast-glob",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_syntax",
+ "rustc-hash",
+ "schemars",
  "serde",
  "trioxide_analysis",
  "trioxide_common",

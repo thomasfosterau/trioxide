@@ -27,7 +27,7 @@ use rustc_hash::FxHashSet;
 use trioxide_analysis::{Fact, Facts};
 use trioxide_common::{
     Diagnostic, ModuleId, Span, SymbolRef,
-    log::{FunctionDecision, Target},
+    log::{FunctionDecision, RuleFailure, Target},
 };
 use trioxide_types::{FunctionId, Type};
 use trioxide_wasm::IslandSource;
@@ -101,6 +101,18 @@ pub struct ForcedIslands {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// What [`islands`] compiles besides the functions source directives force.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IslandRequest<'r> {
+    /// Config overrides: whole modules placed as if they had a file directive (`"use wasm"`
+    /// or `"use js"`). Source directives win over them.
+    pub overrides: &'r [(ModuleId, Placement)],
+    /// Functions the partitioner chose (top-level function declarations, see
+    /// [`candidates`]). Each becomes an export of its module's island; one that turns out
+    /// not to compile stays JS, without an error.
+    pub automatic: &'r [FunctionId],
+}
+
 /// Whether `source` may contain a directive, so programs without any skip parsing.
 fn mentions_directive(source: &str) -> bool {
     source.contains("use wasm") || source.contains("use js") || source.contains("@trioxide")
@@ -116,12 +128,28 @@ pub fn forced_islands(
     facts: &Facts,
     extra: &dyn ExtraFacts,
 ) -> ForcedIslands {
+    islands(modules, facts, extra, &IslandRequest::default())
+}
+
+/// [`forced_islands`], plus config overrides and the functions the partitioner chose: one
+/// island per module, exporting its forced and chosen functions.
+pub fn islands(
+    modules: &[SourceModule<'_>],
+    facts: &Facts,
+    extra: &dyn ExtraFacts,
+    request: &IslandRequest<'_>,
+) -> ForcedIslands {
     let mut out = ForcedIslands::default();
-    if !modules.iter().any(|m| mentions_directive(m.source)) {
+    if request.overrides.is_empty()
+        && request.automatic.is_empty()
+        && !modules.iter().any(|m| mentions_directive(m.source))
+    {
         return out;
     }
     let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
-    let world = World::build(&allocators, modules);
+    let mut world = World::build(&allocators, modules);
+    world.set_overrides(request.overrides);
+    let world = world;
 
     for (module, directive) in &world.misplaced {
         if directive.placement == Placement::Wasm
@@ -142,6 +170,9 @@ pub fn forced_islands(
         let mut roots = Vec::new();
         for info in functions.iter().filter(|f| f.id.module == module.id) {
             let Some(directive) = world.directive(info.id) else {
+                if request.automatic.contains(&info.id) && automatic_root(info) {
+                    roots.push(info.id);
+                }
                 continue;
             };
             let name = info.name.clone();
@@ -152,7 +183,11 @@ pub fn forced_islands(
                         name,
                         info.func.span,
                         Target::Js,
-                        "marked \"use js\"",
+                        if info.directive.is_none() && module.directive.is_none() {
+                            "a config override keeps it in JS"
+                        } else {
+                            "marked \"use js\""
+                        },
                         None,
                         None,
                     ),
@@ -211,6 +246,28 @@ pub fn forced_islands(
         let lowered = lower::lower_island(&world, facts, extra, &id, &label, &roots);
         for (root, reasons) in &lowered.failed {
             let info = &world.functions[root];
+            let first = reasons.first();
+            if world.directive(*root).is_none() {
+                // Chosen automatically: it just stays JS.
+                out.decisions.push((
+                    module.id,
+                    decision(
+                        info.name.clone(),
+                        info.func.span,
+                        Target::Js,
+                        &format!(
+                            "ineligible: {}",
+                            first.map_or("unknown reason", |r| r.message.as_str())
+                        ),
+                        first
+                            .filter(|r| r.function.module == module.id)
+                            .map(|r| r.span),
+                        None,
+                    )
+                    .with_failures(rule_failures(&world, *root, reasons)),
+                ));
+                continue;
+            }
             let name = info.name.clone().unwrap_or_default();
             out.diagnostics.push(ineligible_diagnostic(
                 &world,
@@ -219,7 +276,6 @@ pub fn forced_islands(
                 info.func.span,
                 reasons,
             ));
-            let first = reasons.first();
             out.decisions.push((
                 module.id,
                 decision(
@@ -234,7 +290,8 @@ pub fn forced_islands(
                         .filter(|r| r.function.module == module.id)
                         .map(|r| r.span),
                     None,
-                ),
+                )
+                .with_failures(rule_failures(&world, *root, reasons)),
             ));
         }
         let Some(island) = lowered.island else {
@@ -300,7 +357,9 @@ pub fn forced_islands(
                 continue;
             };
             let exported = exports.iter().any(|(f, _)| *f == member);
-            let reason = if exported {
+            let reason = if exported && world.directive(member).is_none() {
+                "chosen by the cost model; exported by the island".to_string()
+            } else if exported {
                 "forced into WASM; exported by the island".to_string()
             } else {
                 "compiled into the island as a callee (its JS version is kept too)".to_string()
@@ -327,7 +386,45 @@ pub fn forced_islands(
             rir: island,
         });
     }
+    for (module, decision) in &mut out.decisions {
+        decision.directive = world
+            .functions
+            .values()
+            .find(|info| info.id.module == *module && info.func.span == decision.span)
+            .and_then(|info| world.directive(info.id))
+            .map(|directive| match directive.placement {
+                Placement::Wasm => Target::Wasm,
+                Placement::Js => Target::Js,
+            });
+    }
     out
+}
+
+trait WithFailures {
+    fn with_failures(self, failures: Vec<RuleFailure>) -> Self;
+}
+
+impl WithFailures for FunctionDecision {
+    fn with_failures(mut self, failures: Vec<RuleFailure>) -> Self {
+        self.failures = failures;
+        self
+    }
+}
+
+/// `reasons` (why `function` can't be compiled) for the decision log.
+fn rule_failures(world: &World<'_>, function: FunctionId, reasons: &[Reason]) -> Vec<RuleFailure> {
+    reasons
+        .iter()
+        .map(|reason| RuleFailure {
+            message: reason.message.clone(),
+            span: reason.span,
+            function: (reason.function != function).then(|| function_name(world, reason.function)),
+            path: (reason.function.module != function.module)
+                .then(|| world.module(reason.function.module))
+                .flatten()
+                .map(|module| module.path.to_path_buf()),
+        })
+        .collect()
 }
 
 fn decision(
@@ -346,12 +443,25 @@ fn decision(
         culprit,
         island,
         cost: None,
+        directive: None,
+        failures: Vec::new(),
     }
+}
+
+/// Whether `info` can be an island export the partitioner chose: a top-level function
+/// declaration with a name the ABI accepts.
+pub(crate) fn automatic_root(info: &world::FnInfo<'_>) -> bool {
+    info.top_level
+        && info.role == Role::Free
+        && info
+            .name
+            .as_deref()
+            .is_some_and(|n| names::is_abi_name(n) && n != "ready")
 }
 
 /// Whether the analysis proves nothing calls `func`: it is unreachable, or a parameter never
 /// received a value.
-fn never_called(
+pub(crate) fn never_called(
     module: &world::Module<'_>,
     facts: &Facts,
     func: &oxc_ast::ast::Function<'_>,

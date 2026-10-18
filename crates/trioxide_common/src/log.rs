@@ -43,18 +43,72 @@ pub struct FunctionDecision {
     /// Cost-model numbers for the function's island, if it was scored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<CostEstimate>,
+    /// The target a directive (`"use wasm"`, `"use js"`) or config override asked for, if
+    /// one did: `Wasm` is "forced", `Js` "forbidden".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directive: Option<Target>,
+    /// Every eligibility rule the function failed, for an ineligible function (the first one
+    /// is in `reason`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<RuleFailure>,
+}
+
+/// One failed eligibility rule (PLAN §5 "Eligibility").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleFailure {
+    /// What is wrong, as a sentence fragment ("calls `console.log`, a host API").
+    pub message: String,
+    /// The offending construct.
+    #[serde(with = "crate::serde_span")]
+    pub span: Span,
+    /// The function it is in, when that is not the function the decision is about (a
+    /// callee).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    /// The module it is in, when that is not the decision's module.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<std::path::PathBuf>,
 }
 
 /// The cost model's numbers for one island (PLAN §5 "Cost model").
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+///
+/// Units are estimated nanoseconds per run of the program, with every loop assumed to run
+/// its estimated trip count. `cost` is the sum of the three cost terms.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct CostEstimate {
-    /// Estimated compute weight.
+    /// Estimated time WASM saves on the island's compute.
     pub benefit: f64,
     /// Boundary crossings, marshalling and instantiation.
     pub cost: f64,
     /// The threshold `benefit - cost` had to exceed.
     pub threshold: f64,
+    /// The cost of the boundary crossings: calls into the island, weighted by the loops
+    /// around their call sites.
+    pub crossings: f64,
+    /// The cost of copying arguments and results through linear memory.
+    pub marshalling: f64,
+    /// The fixed cost of instantiating the island's module.
+    pub instantiation: f64,
+    /// Estimated calls into the island per run.
+    pub calls: f64,
+    /// Estimated compute weight per run, in weighted operations.
+    pub work: f64,
+    /// Estimated bytes copied in and out per run.
+    pub bytes: f64,
+}
+
+impl CostEstimate {
+    /// `benefit - cost`, the margin compared with the threshold.
+    pub fn net(&self) -> f64 {
+        self.benefit - self.cost
+    }
+
+    /// Whether the island is worth it.
+    pub fn profitable(&self) -> bool {
+        self.net() > self.threshold
+    }
 }
 
 /// What happened when a pass considered a site.

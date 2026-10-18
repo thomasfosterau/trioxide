@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use trioxide_analysis::{Analysis, AnalysisOptions};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
-use trioxide_partition::{Partition, PartitionMode, PartitionOptions, Partitioner, SourceModule};
+use trioxide_partition::{
+    FileOverride, Partition, PartitionMode, PartitionOptions, Partitioner, Placement, SourceModule,
+};
 use trioxide_project::{
     CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, ModuleGraph,
     find_tsconfig,
@@ -13,8 +15,8 @@ use trioxide_types::{SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
-    BuildOutput, Error, ExplainQuery, GlueMode, Invalidation, Mode, ModuleOutput, Options, Report,
-    Result, World,
+    BuildOutput, Error, ExplainQuery, GlueMode, Invalidation, Mode, ModuleOutput, Options,
+    OverrideTarget, Report, Result, World,
     analysis::{self, FactRefresher, analysis_inputs},
     islands,
     pipeline::{ModuleCompiler, ModuleSource},
@@ -191,6 +193,21 @@ impl Project {
             islands,
             report: self.report(),
         })
+    }
+
+    /// Everything [`build`](Self::build) decides about the program reachable from `entries`,
+    /// without building islands: analysis, partitioning and the JS passes, whose decision log
+    /// [`explain`](Self::explain) then reports (`trioxide explain`). Fails only if an entry
+    /// can't be read.
+    pub fn plan(&mut self, entries: &[PathBuf]) -> Result<Report> {
+        self.graph.add_entries(entries)?;
+        self.built_from_entries = true;
+        self.analyse();
+        for index in 0..self.graph.modules().len() {
+            let id = ModuleId::new(u32::try_from(index).expect("module count fits u32"));
+            self.compile(id);
+        }
+        Ok(self.report())
     }
 
     /// Adds an island to every following [`build`](Self::build), as if the partitioner had
@@ -399,6 +416,20 @@ impl Project {
                 Mode::WasmPreferred => PartitionMode::WasmPreferred,
             },
             wasm: self.options.wasm.enabled,
+            cost: self.options.cost_model,
+            overrides: self
+                .options
+                .overrides
+                .iter()
+                .map(|o| FileOverride {
+                    files: o.files.clone(),
+                    placement: match o.target {
+                        OverrideTarget::Js => Placement::Js,
+                        OverrideTarget::Wasm => Placement::Wasm,
+                    },
+                })
+                .collect(),
+            root: self.root.clone(),
         });
         let imports: Vec<Vec<ModuleId>> = self
             .graph

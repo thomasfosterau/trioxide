@@ -258,6 +258,8 @@ pub(crate) struct World<'a> {
     pub classes: FxHashMap<ClassId, ClassInfo<'a>>,
     /// Modules in an import cycle: one of their importers may run before their body does.
     pub cyclic: FxHashSet<ModuleId>,
+    /// Placements config overrides give whole modules, below source directives.
+    pub overrides: FxHashMap<ModuleId, Directive>,
 }
 
 impl<'a> World<'a> {
@@ -269,6 +271,7 @@ impl<'a> World<'a> {
             functions: FxHashMap::default(),
             classes: FxHashMap::default(),
             cyclic: cyclic_modules(modules),
+            overrides: FxHashMap::default(),
         };
         for (allocator, input) in allocators.iter().zip(modules) {
             let parsed = Parser::new(allocator, input.source, input.source_type).parse();
@@ -440,13 +443,31 @@ impl<'a> World<'a> {
     }
 
     /// The directive in force for `function`: its own, else its module's (for top-level
-    /// function declarations).
+    /// function declarations), else a config override of its module (likewise).
     pub fn directive(&self, function: FunctionId) -> Option<Directive> {
         let info = self.functions.get(&function)?;
         info.directive.or_else(|| {
             let module = self.module(function.module)?;
-            module.directive.filter(|_| info.top_level)
+            module
+                .directive
+                .or_else(|| self.overrides.get(&function.module).copied())
+                .filter(|_| info.top_level)
         })
+    }
+
+    /// Applies config overrides: each module's placement, as if it had a file directive
+    /// (source directives win).
+    pub fn set_overrides(&mut self, overrides: &[(ModuleId, Placement)]) {
+        for &(module, placement) in overrides {
+            self.overrides.insert(
+                module,
+                Directive {
+                    placement,
+                    span: Span::default(),
+                    file: true,
+                },
+            );
+        }
     }
 }
 

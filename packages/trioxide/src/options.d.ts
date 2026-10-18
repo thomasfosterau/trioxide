@@ -82,6 +82,13 @@ export interface TrioxideOptions {
    * Per-file overrides, applied in order (later wins).
    */
   overrides?: Array<Override>;
+  /**
+   * The partitioner's cost model: when moving a cluster of functions to WebAssembly pays
+   * (`trioxide explain` shows its numbers). Fields not given keep their defaults.
+   *
+   * @default {"threshold":0,"wasmPreferredThreshold":-50000,"saving":0.35,"arithmetic":1,"integer":1.5,"math":4,"index":1,"typedArray":1.5,"iteration":1,"trips":256,"crossing":120,"byte":0.15,"numberArray":4,"instantiation":20000}
+   */
+  costModel?: CostModel;
 }
 
 /**
@@ -97,7 +104,8 @@ export type Mode =
    */
   | "auto"
   /**
-   * Prefer WASM for every eligible function unless the cost model strongly objects.
+   * Like `auto`, with the cost model's lower `wasmPreferredThreshold`: WASM for every
+   * eligible function unless the cost model strongly objects.
    */
   | "wasm-preferred";
 
@@ -173,7 +181,9 @@ export interface DevOptions {
 }
 
 /**
- * Forces files matching `files` to stay JS or to become WASM.
+ * Forces files matching `files` to stay JS or to become WASM: like a `"use js"` or
+ * `"use wasm"` file directive (directives in the file win). Overrides apply even in
+ * `js-only` mode, but not with WASM off.
  */
 export interface Override {
   /**
@@ -198,3 +208,97 @@ export type OverrideTarget =
    * Like `"use wasm"` on every function; ineligible functions are errors.
    */
   | "wasm";
+
+/**
+ * The cost model's weights and thresholds (`costModel` in `trioxide.json`).
+ *
+ * Operation weights are relative to one floating-point operation; `saving` converts them to
+ * nanoseconds. The defaults come from `benchmarks/partition/` on V8 (Node 22).
+ */
+export interface CostModel {
+  /**
+   * In `auto` mode an island is kept when `benefit − cost` exceeds this (nanoseconds).
+   *
+   * @default 0
+   */
+  threshold?: number;
+  /**
+   * The threshold in `wasm-preferred` mode.
+   *
+   * @default -50000
+   */
+  wasmPreferredThreshold?: number;
+  /**
+   * Nanoseconds WASM saves per weighted operation.
+   *
+   * @default 0.35
+   */
+  saving?: number;
+  /**
+   * Weight of a floating-point arithmetic operation or comparison.
+   *
+   * @default 1
+   */
+  arithmetic?: number;
+  /**
+   * Multiplier for operations on proven integers and bitwise operators.
+   *
+   * @default 1.5
+   */
+  integer?: number;
+  /**
+   * Weight of a `Math.*` call or `**`.
+   *
+   * @default 4
+   */
+  math?: number;
+  /**
+   * Weight of an array element read or write.
+   *
+   * @default 1
+   */
+  index?: number;
+  /**
+   * Multiplier for typed array element accesses.
+   *
+   * @default 1.5
+   */
+  typedArray?: number;
+  /**
+   * Weight of one loop iteration's own control flow.
+   *
+   * @default 1
+   */
+  iteration?: number;
+  /**
+   * Trip count assumed for loops without a constant bound, and the element count assumed
+   * for arrays crossing the boundary.
+   *
+   * @default 256
+   */
+  trips?: number;
+  /**
+   * Nanoseconds per call into an island (the glue's checks and the arena reset).
+   *
+   * @default 120
+   */
+  crossing?: number;
+  /**
+   * Nanoseconds per byte copied into or out of linear memory.
+   *
+   * @default 0.15
+   */
+  byte?: number;
+  /**
+   * Multiplier for the bytes of a `number[]`, which is converted element by element.
+   *
+   * @default 4
+   */
+  numberArray?: number;
+  /**
+   * Nanoseconds to instantiate one island.
+   *
+   * @default 20000
+   */
+  instantiation?: number;
+}
