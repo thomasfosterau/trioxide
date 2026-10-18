@@ -101,8 +101,8 @@ const STRIDE: f64 = 7.0;
 
 fn advance(bodies: &mut [f64], dt: f64, steps: i32) {
     let n = array::len(bodies) / core::hint::black_box(STRIDE);
-    let mut step = 0.0;
-    while step < f64::from(steps) {
+    let mut step: i32 = 0;
+    while step < steps {
         let mut i = 0.0;
         while i < n {
             let bi = i * STRIDE;
@@ -145,7 +145,7 @@ fn advance(bodies: &mut [f64], dt: f64, steps: i32) {
             );
             i_2 += 1.0;
         }
-        step += 1.0;
+        step += 1;
     }
 }
 

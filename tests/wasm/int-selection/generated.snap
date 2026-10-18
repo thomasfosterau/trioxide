@@ -149,11 +149,11 @@ fn countBits(x: f64) -> f64 {
 
 fn sumBytes(bytes: &[u8]) -> f64 {
     let mut total = 0.0;
-    let mut i = 0.0;
-    while i < array::len(bytes) {
+    let mut i: i32 = 0;
+    while i < bytes.len() as i32 {
         // SAFETY: the analysis proves the index is in bounds.
         total += f64::from((unsafe { array::get_unchecked(bytes, i as usize) }) as i32);
-        i += 1.0;
+        i += 1;
     }
     total
 }
