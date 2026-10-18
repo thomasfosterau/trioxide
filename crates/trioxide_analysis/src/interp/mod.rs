@@ -468,9 +468,10 @@ pub struct Output {
     /// shared tables). That run saw the final tables, so it is all they can hold; earlier runs
     /// on less complete tables don't count.
     pub symbols: FxHashMap<SymbolRef, Val>,
-    /// The last run read a declared instance field before anything wrote it, as `never`:
-    /// another chunk's initialiser may write it in the same sweep, but if nothing ever does,
-    /// the unit runs again once the sweeps settle and reads it as missing.
+    /// The last run read a declared instance field before anything wrote it, as `never`, or
+    /// skipped a builtin call with a `never` argument: another chunk may write the field, or
+    /// reach the argument, in the same sweep. If nothing does, the unit runs again once the
+    /// sweeps settle, reading the field as missing and calling the builtin.
     pub optimistic: bool,
     /// Where each of the unit's loops settled in its last run, by loop node: the next run
     /// starts them there.
@@ -939,7 +940,8 @@ pub(crate) struct Analyzer<'w, 'a> {
     /// The instance fields each class declares or its constructor assigns.
     pub instance_fields: &'w FxHashMap<NodeRef, FxHashSet<String>>,
     /// Whether a declared instance field nobody has written yet reads as `never`, not as
-    /// missing: true until the sweeps first settle (see [`Output::optimistic`]).
+    /// missing, and builtin calls with a `never` argument are skipped: true until the sweeps
+    /// first settle (see [`Output::optimistic`]).
     pub optimistic: bool,
     stats: Stats,
 }

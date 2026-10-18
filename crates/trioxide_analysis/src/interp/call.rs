@@ -899,13 +899,17 @@ impl<'a> Cx<'_, '_, 'a> {
         site: NodeId,
         trust: Trust,
     ) -> Val {
-        // No value reaches the call (an argument has none yet): it doesn't happen.
-        if args
-            .values
-            .iter()
-            .chain(receiver)
-            .any(super::expr::is_never)
+        // An argument with no value yet: until the sweeps settle, the call doesn't happen
+        // (the unit runs again then, as for an unwritten field). Afterwards it is dead code,
+        // whose facts are the builtin's as ever.
+        if self.an.optimistic
+            && args
+                .values
+                .iter()
+                .chain(receiver)
+                .any(super::expr::is_never)
         {
+            self.an.output.optimistic = true;
             return Val::never();
         }
         let effects = builtin.effects;
