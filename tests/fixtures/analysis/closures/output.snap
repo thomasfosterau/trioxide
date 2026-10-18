@@ -21,8 +21,10 @@ export function sharedWrite() {
 	// Any call could have run `set`: the value is either.
 	return value;
 }
+function add(x) {
+	return x + 10;
+	/*@proven number int*/}
 export function readOnlyCapture() {
-	const add = (x) => x + 10;
 	return add(5);
 }
 export function main() {

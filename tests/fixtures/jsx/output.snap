@@ -27,6 +27,7 @@ export function main() {
 }
 
 //- runtime.ts
+const map_callback = ([key, value]) => ` ${key}="${String(value)}"`;
 export const Fragment = Symbol("Fragment");
 export function h(tag, props, ...children) {
 	return {
@@ -44,6 +45,6 @@ export function render(node) {
 		...node.props,
 		children: node.children
 	}));
-	const attrs = Object.entries(node.props).map(([key, value]) => ` ${key}="${String(value)}"`).join("");
+	const attrs = Object.entries(node.props).map(map_callback).join("");
 	return `<${String(node.tag)}${attrs}>${render(node.children)}</${String(node.tag)}>`;
 }

@@ -4,6 +4,7 @@ description: tests/fixtures/passes/fold/adversarial
 input_file: tests/fixtures/passes/fold/adversarial/input.ts
 ---
 //- input.ts
+const map_callback = (x) => Object.is(x, -0);
 // Adversarial cases for folding.
 const counter = {
 	reads: 0,
@@ -62,5 +63,5 @@ function sideEffects() {
 export function main() {
 	console.log(getters(), counter.reads, primitive(), hoisting());
 	console.log(shadowedNames(1, 2, { floor: (x) => x * 10 }));
-	console.log(negativeZero().map((x) => Object.is(x, -0)), sideEffects());
+	console.log(negativeZero().map(map_callback), sideEffects());
 }

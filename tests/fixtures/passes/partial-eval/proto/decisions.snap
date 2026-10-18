@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/partial-eval/proto
+input_file: tests/fixtures/passes/partial-eval/proto/input.ts
+---
+//- input.ts
+8:11 partial-eval skipped: the interpreter doesn't model `__proto__`

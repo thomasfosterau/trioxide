@@ -1,0 +1,58 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/closure-hoist/adversarial
+input_file: tests/fixtures/passes/closure-hoist/adversarial/input.ts
+---
+//- input.ts
+// Closures whose identity can be seen, or that capture something, stay where they are.
+const cache = new WeakMap();
+const keep = [];
+// Private names only parse inside their class.
+class Box {
+	#x;
+	constructor(x) {
+		this.#x = x;
+	}
+	twice(other) {
+		const read = (p) => p.#x;
+		return read(this) + read(other);
+	}
+	sum(items) {
+		let t = 0;
+		for (let i = 0; i < 2; i++) t += items.map((p) => p.#x).length;
+		return t;
+	}
+}
+export function main() {
+	console.log(new Box(1).twice(new Box(2)), new Box(1).sum([new Box(1), new Box(2)]));
+	const results = [];
+	let sum = 0;
+	for (let i = 0; i < 3; i++) {
+		sum += 1;
+		const compared = () => 2;
+		const fresh = compared === keep[0];
+		const keyed = () => 3;
+		cache.set(keyed, i);
+		const tagged = () => 4;
+		tagged.calls = (tagged.calls ?? 0) + 1;
+		const pushed = () => 5;
+		keep.push(pushed);
+		const captures = () => i;
+		const self = function() {
+			return this;
+		};
+		const early = function() {
+			return late();
+		};
+		const late = () => 6;
+		results.push([
+			fresh,
+			cache.has(keyed),
+			tagged.calls,
+			captures(),
+			early(),
+			typeof self
+		].join(" "));
+	}
+	console.log(sum, keep.length, keep[0] === keep[1], results.join("|"));
+}

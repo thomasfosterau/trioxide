@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/partial-eval/declared
+input_file: tests/fixtures/passes/partial-eval/declared/input.ts
+---
+//- input.ts
+7:23 partial-eval skipped: the call may run code trioxide doesn't see
