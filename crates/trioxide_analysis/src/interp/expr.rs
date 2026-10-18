@@ -862,7 +862,13 @@ impl<'a> Cx<'_, '_, 'a> {
 
     fn unary(&mut self, unary: &'a UnaryExpression<'a>) -> Val {
         if unary.operator == UnaryOperator::Delete {
-            if let Some(member) = unary.argument.as_member_expression() {
+            // `delete (o.p)`, `delete (o.p as T)` and `delete o?.p` delete `o.p` too (the last
+            // only when `o` isn't nullish, which deleting from every site `o` may be covers).
+            let target = match unary.argument.get_inner_expression() {
+                Expression::ChainExpression(chain) => chain.expression.as_member_expression(),
+                inner => inner.as_member_expression(),
+            };
+            if let Some(member) = target {
                 let object = self.expr(member.object());
                 let key = self.member_key(member);
                 self.delete(&object, &key);

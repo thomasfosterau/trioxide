@@ -423,7 +423,7 @@ Rules every pass follows: one helper (`Slot`) decides where a pass may rewrite, 
 parentheses and TypeScript-only wrappers: never a `delete` operand or a whole expression
 statement, never a value fold in a callee, never an identifier under `typeof`, and a member or
 `eval` replacing a callee becomes `(0, x)`; facts inside proven-unreachable code are not used;
-nodes a pass creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await` or `yield`
+nodes a pass creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await`, `yield` or `delete` (optional chain or not; `checks` drops a `delete p?.x`'s `?.` only when `p` is proven non-nullish)
 are never dropped, whatever their purity says (binding `this` and suspending are not effects
 in the facts); `var` and function declarations are never removed with the branch or dead code
 that contains them while referenced; literals are printed as unary minus over a literal, and as

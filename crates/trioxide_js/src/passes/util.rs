@@ -616,9 +616,10 @@ pub fn live_references(program: &Program<'_>, scoping: &Scoping) -> FxHashMap<Sy
     collect.found
 }
 
-/// Whether `expression` calls `super(…)` (which binds `this`), or `await`s or `yield`s (which
-/// suspend, so other code runs first): effects purity facts don't record, so such an
-/// expression must not be dropped or replaced however pure it reads.
+/// Whether `expression` calls `super(…)` (which binds `this`), `await`s or `yield`s (which
+/// suspend, so other code runs first), or `delete`s (which always acts on its object, optional
+/// chain or not): effects purity facts don't record, or must not be trusted to record, so such
+/// an expression must not be dropped or replaced however pure it reads.
 pub fn binds_or_suspends(expression: &Expression<'_>) -> bool {
     struct Find {
         found: bool,
@@ -633,6 +634,13 @@ pub fn binds_or_suspends(expression: &Expression<'_>) -> bool {
 
         fn visit_await_expression(&mut self, _: &oxc_ast::ast::AwaitExpression<'a>) {
             self.found = true;
+        }
+
+        fn visit_unary_expression(&mut self, unary: &oxc_ast::ast::UnaryExpression<'a>) {
+            if unary.operator == UnaryOperator::Delete {
+                self.found = true;
+            }
+            walk::walk_unary_expression(self, unary);
         }
 
         fn visit_yield_expression(&mut self, _: &oxc_ast::ast::YieldExpression<'a>) {
