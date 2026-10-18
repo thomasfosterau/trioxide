@@ -151,6 +151,9 @@ pub struct Obj {
     pub elem: Val,
     /// The array's length, while it is fixed and known.
     pub length: Option<f64>,
+    /// Whether the creating code has set `length` yet: from then on it only goes from known
+    /// to unknown, never back.
+    pub sized: bool,
     /// Whether an array may have holes (reads of them give `undefined`).
     pub holey: bool,
     /// Whether properties are written with computed keys, deleted, or redefined, so `props`
@@ -171,9 +174,32 @@ pub struct Obj {
     /// An object literal with a getter or setter, or a `__proto__` (whose prototype may have
     /// them): reading, writing or spreading its properties may run user code.
     pub accessors: bool,
+    /// Given up on (see [`SATURATE_AFTER`]): its flags stay at the top whatever runs later.
+    pub given_up: bool,
 }
 
 impl Obj {
+    /// Sets the flags to "anything may happen" for good; whether that changed them.
+    fn give_up(&mut self) -> bool {
+        let changed = !self.given_up
+            || !self.dynamic
+            || !self.deleted
+            || self.length.is_some()
+            || !self.sized
+            || !self.holey
+            || !self.present.is_empty()
+            || !self.accessors;
+        self.given_up = true;
+        self.dynamic = true;
+        self.deleted = true;
+        self.length = None;
+        self.sized = true;
+        self.holey = true;
+        self.present.clear();
+        self.accessors = true;
+        changed
+    }
+
     fn new(kind: ObjKind, unit: NodeRef) -> Self {
         Self {
             kind,
@@ -183,6 +209,7 @@ impl Obj {
             present: FxHashSet::default(),
             elem: Val::never(),
             length: None,
+            sized: false,
             holey: false,
             dynamic: false,
             deleted: false,
@@ -191,6 +218,7 @@ impl Obj {
             escape: Escape::None,
             shares_buffer: Vec::new(),
             accessors: false,
+            given_up: false,
         }
     }
 }
@@ -461,6 +489,7 @@ pub fn run(
     let open_modules = open_modules(world, &options);
     let lexicals = lexicals(world);
     let import_cycles = import_cycles(world);
+    let entered_early = entered_early(world, &options, &import_cycles);
     let mut analyzer = Analyzer {
         world,
         links,
@@ -476,6 +505,7 @@ pub fn run(
         open_modules,
         lexicals,
         import_cycles,
+        entered_early,
         saturated: 0,
         stats: Stats::default(),
     };
@@ -729,6 +759,141 @@ fn import_cycles(world: &World<'_>) -> Vec<usize> {
     component
 }
 
+/// Modules another module of their import cycle may run before (and so call into before they
+/// have declared anything): one that, once its evaluation has started, has another module of
+/// its cycle evaluated while it waits for its imports. Evaluation is simulated depth-first in
+/// request order from each module the host may load first, with and without TypeScript's
+/// elision of imports only types use (either may be what runs).
+fn entered_early(
+    world: &World<'_>,
+    options: &AnalysisOptions,
+    import_cycles: &[usize],
+) -> FxHashSet<ModuleId> {
+    use oxc_ast::ast::{ImportOrExportKind, Statement};
+    let count = world.modules.len();
+    let dynamic = world.modules.iter().any(|module| {
+        module
+            .semantic
+            .nodes()
+            .iter()
+            .any(|node| matches!(node.kind(), oxc_ast::AstKind::ImportExpression(_)))
+    });
+    let mut roots: Vec<usize> = if !dynamic && !options.entries.is_empty() {
+        options.entries.iter().map(|entry| entry.index()).collect()
+    } else if dynamic {
+        (0..count).collect()
+    } else {
+        let imported: FxHashSet<ModuleId> = world
+            .modules
+            .iter()
+            .flat_map(|module| module.imports.values().copied().flatten())
+            .collect();
+        (0..count)
+            .filter(|&index| !imported.contains(&world.modules[index].id))
+            .collect()
+    };
+    // Modules no root reaches may still be loaded first.
+    let mut reached = vec![false; count];
+    let edges = |elide: bool| -> Vec<Vec<usize>> {
+        world
+            .modules
+            .iter()
+            .map(|module| {
+                let scoping = module.semantic.scoping();
+                let used_as_value = |symbol: Option<SymbolId>| {
+                    symbol.is_some_and(|symbol| {
+                        scoping
+                            .get_resolved_references(symbol)
+                            .any(oxc_syntax::reference::Reference::is_value)
+                    })
+                };
+                let mut targets = Vec::new();
+                for statement in &module.program.body {
+                    let source = match statement {
+                        Statement::ImportDeclaration(import) => {
+                            let kept = import.import_kind != ImportOrExportKind::Type
+                                && (!elide
+                                    || import.specifiers.as_ref().is_none_or(|specifiers| {
+                                        specifiers.is_empty()
+                                            || specifiers.iter().any(|specifier| {
+                                                let typed = matches!(
+                                                    specifier,
+                                                    oxc_ast::ast::ImportDeclarationSpecifier::ImportSpecifier(
+                                                        specifier
+                                                    ) if specifier.import_kind == ImportOrExportKind::Type
+                                                );
+                                                !typed
+                                                    && used_as_value(
+                                                        specifier.local().symbol_id.get(),
+                                                    )
+                                            })
+                                    }));
+                            kept.then_some(&import.source)
+                        }
+                        Statement::ExportFromDeclaration(export) => {
+                            (export.export_kind != ImportOrExportKind::Type)
+                                .then_some(&export.source)
+                        }
+                        Statement::ExportAllDeclaration(export) => {
+                            (export.export_kind != ImportOrExportKind::Type)
+                                .then_some(&export.source)
+                        }
+                        _ => None,
+                    };
+                    if let Some(target) = source
+                        .and_then(|source| module.imports.get(source.value.as_str()).copied())
+                        .flatten()
+                        .map(ModuleId::index)
+                        .filter(|&target| target < count && !targets.contains(&target))
+                    {
+                        targets.push(target);
+                    }
+                }
+                targets
+            })
+            .collect()
+    };
+    let mut early = FxHashSet::default();
+    for elide in [false, true] {
+        let edges = edges(elide);
+        let mut start = 0;
+        loop {
+            for &root in &roots[start..] {
+                let mut entered = vec![false; count];
+                let mut stack: Vec<(usize, usize)> = Vec::new();
+                let mut enter =
+                    |module: usize, stack: &mut Vec<(usize, usize)>, entered: &mut Vec<bool>| {
+                        entered[module] = true;
+                        reached[module] = true;
+                        for &(waiting, _) in stack.iter() {
+                            if import_cycles.get(waiting) == import_cycles.get(module) {
+                                early.insert(world.modules[waiting].id);
+                            }
+                        }
+                        stack.push((module, 0));
+                    };
+                enter(root, &mut stack, &mut entered);
+                while let Some(&mut (module, ref mut at)) = stack.last_mut() {
+                    let Some(&target) = edges[module].get(*at) else {
+                        stack.pop();
+                        continue;
+                    };
+                    *at += 1;
+                    if !entered[target] {
+                        enter(target, &mut stack, &mut entered);
+                    }
+                }
+            }
+            start = roots.len();
+            match reached.iter().position(|&reached| !reached) {
+                Some(unreached) => roots.push(unreached),
+                None => break,
+            }
+        }
+    }
+    early
+}
+
 /// The modules whose exports the host can use: the entries (or, without any, the modules no
 /// other module imports) and every module they re-export from, transitively.
 pub(crate) fn open_modules(world: &World<'_>, options: &AnalysisOptions) -> FxHashSet<ModuleId> {
@@ -884,6 +1049,8 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub lexicals: FxHashMap<NodeRef, Vec<SymbolId>>,
     /// Each module's strongly connected component of the import graph (by module index).
     pub import_cycles: Vec<usize>,
+    /// See [`entered_early`].
+    pub entered_early: FxHashSet<ModuleId>,
     /// How many entries were given up (see [`SATURATE_AFTER`]).
     saturated: usize,
     stats: Stats,
@@ -1044,6 +1211,11 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         cx.enter();
         match unit.body {
             Body::Module(program) => {
+                // Its import cycle may run first and call back in before it has declared
+                // anything.
+                if cx.an.entered_early.contains(&module.id) {
+                    cx.note_call();
+                }
                 cx.hoist(&program.body);
                 cx.statements(&program.body);
             }
@@ -1178,13 +1350,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 .is_some_and(|slot| top(slot, &mut lost)),
             Dep::Heap(site) => {
                 lost.push(Pts::site(site));
-                self.state.heap.get_mut(&site).is_some_and(|obj| {
-                    let changed = !obj.dynamic || obj.length.is_some() || !obj.holey;
-                    obj.dynamic = true;
-                    obj.length = None;
-                    obj.holey = true;
-                    changed
-                })
+                self.state.heap.get_mut(&site).is_some_and(Obj::give_up)
             }
         };
         if changed {
@@ -1964,17 +2130,24 @@ impl Cx<'_, '_, '_> {
                 obj.deleted,
                 obj.holey,
                 obj.length,
+                obj.sized,
                 obj.present.len(),
                 obj.shares_buffer.len(),
                 obj.accessors,
             );
             update(obj);
+            // A given-up entry stays at the top, so an update that would lower a flag again
+            // (and then be given up again, round after round) changes nothing.
+            if obj.given_up {
+                obj.give_up();
+            }
             if before
                 != (
                     obj.dynamic,
                     obj.deleted,
                     obj.holey,
                     obj.length,
+                    obj.sized,
                     obj.present.len(),
                     obj.shares_buffer.len(),
                     obj.accessors,

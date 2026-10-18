@@ -26,6 +26,21 @@ pub fn fixtures() -> Vec<PathBuf> {
 
 /// Every fixture entry in the repository (`tests/fixtures/**/input.ts{,x}`), sorted.
 pub fn all_fixtures() -> Vec<PathBuf> {
+    entries_under(&["tests/fixtures"])
+}
+
+/// Every program entry the repository's tests compile: the fixtures, and the WASM and island
+/// cases (`input.ts{,x}` under `tests/{fixtures,wasm,wasm-errors,islands}`), sorted.
+pub fn corpus() -> Vec<PathBuf> {
+    entries_under(&[
+        "tests/fixtures",
+        "tests/wasm",
+        "tests/wasm-errors",
+        "tests/islands",
+    ])
+}
+
+fn entries_under(roots: &[&str]) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         for name in ["input.ts", "input.tsx"] {
             if dir.join(name).is_file() {
@@ -44,13 +59,16 @@ pub fn all_fixtures() -> Vec<PathBuf> {
         }
     }
     let mut out = Vec::new();
-    walk(
-        &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures")
-            .canonicalize()
-            .unwrap(),
-        &mut out,
-    );
+    for root in roots {
+        walk(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(root)
+                .canonicalize()
+                .unwrap(),
+            &mut out,
+        );
+    }
     out
 }
 

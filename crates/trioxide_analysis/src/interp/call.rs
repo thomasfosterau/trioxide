@@ -727,12 +727,13 @@ impl<'a> Cx<'_, '_, 'a> {
                 .heap(object)
                 .is_some_and(|obj| obj.length.is_none() && obj.props.is_empty() && !obj.holey);
             self.mark(object, |obj| {
-                if fresh && !obj.dynamic {
+                if fresh && !obj.sized && !obj.dynamic {
                     obj.length = length;
                 } else if obj.length != length {
                     obj.length = None;
                     obj.dynamic = true;
                 }
+                obj.sized = true;
             });
             self.always(EffectKind::Allocates);
             return Val::object(Type::TypedArray(kind), object);
@@ -757,11 +758,12 @@ impl<'a> Cx<'_, '_, 'a> {
                     let filled = self.filled_at_once(site);
                     self.mark(object, |obj| {
                         obj.holey |= !filled;
-                        obj.length = if obj.length.is_none() || obj.length == exact {
+                        obj.length = if !obj.sized || obj.length == exact {
                             exact
                         } else {
                             None
                         };
+                        obj.sized = true;
                     });
                 }
                 // An argument with no value yet (not reached this round): nothing to record.
@@ -782,12 +784,13 @@ impl<'a> Cx<'_, '_, 'a> {
                             obj.holey |= !filled;
                             obj.length = None;
                         } else if obj.length != exact {
-                            obj.length = if obj.elem.ty == Type::Never {
+                            obj.length = if !obj.sized && obj.elem.ty == Type::Never {
                                 exact
                             } else {
                                 None
                             };
                         }
+                        obj.sized = true;
                     });
                 }
             }
