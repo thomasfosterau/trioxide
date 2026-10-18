@@ -28,7 +28,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
 const outDir = path.join(here, '.out');
 const cacheDir = path.join(outDir, '.cache');
-const enabled = Boolean(process.env.TRIOXIDE_CONFORMANCE);
+const enabled = process.env.TRIOXIDE_CONFORMANCE === '1';
 
 /**
  * The vendored libraries: where their tests live (copied next to the output unchanged), which

@@ -36,8 +36,9 @@ Also useful:
   picks; `fit.mjs` refits its weights, `reach.mjs` reports what qualifies without
   `trustTypes`.
 - `TRIOXIDE_CONFORMANCE=1 pnpm --filter trioxide-conformance test` builds the vendored
-  libraries in `tests/conformance/` and runs their own tests against the output. `TRIOXIDE_EVERY_CLUSTER=1` makes the differential suite's auto leg turn every
-  eligible cluster into an island.
+  libraries in `tests/conformance/` and runs their own tests against the output.
+- `TRIOXIDE_EVERY_CLUSTER=1` makes the differential suite's auto leg turn every eligible
+  cluster into an island.
 - `FIXTURE=enums pnpm --filter trioxide-differential test` runs one differential fixture.
   `TRIOXIDE_BIN=…` skips the cargo build it otherwise does first.
 - `cargo check -p trioxide_cli --no-default-features` builds without tsrs.
