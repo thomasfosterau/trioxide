@@ -280,6 +280,9 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             let file = std::path::absolute(file)
                 .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
             let mut project = open_project(global, Some(&file))?;
+            // Analyse the program from this file first, as `build` does: a project that was
+            // never analysed transforms without facts, so no fact-driven pass would fire.
+            project.plan(std::slice::from_ref(&file))?;
             let out = project.transform(&file)?;
             renderer.module_diagnostics(&out);
             if out.has_errors() {
