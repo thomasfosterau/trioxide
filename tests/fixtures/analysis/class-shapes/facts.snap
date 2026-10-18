@@ -93,7 +93,7 @@ nodes:
   45:3 call `console.log(p.norm(), p.x /*@proven n...`: unknown
   45:3 member `console.log`: unknown
   45:3 ref `console`: unknown
-  45:15 call `p.norm()`: number[0, inf]@proven
+  45:15 call `p.norm()`: 5@proven
   45:15 member `p.norm`: function@proven
   45:15 ref `p`: Point@proven
   45:25 member `p.x`: 3@proven

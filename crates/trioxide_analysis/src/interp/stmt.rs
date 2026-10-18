@@ -591,7 +591,12 @@ impl<'a> Cx<'_, '_, 'a> {
         self.loop_resized.push((FxHashSet::default(), false));
         let dropped = self.dropped.len();
         let entry = self.env.clone();
-        let mut head = entry.clone();
+        // A loop that ran before (inside another, or in this unit's last run) starts where it
+        // settled: it still stops only at a post-fixpoint above `entry`, usually at once.
+        let mut head = match self.loop_heads.get(&node) {
+            Some(settled) => entry.join(settled),
+            None => entry.clone(),
+        };
         let mut exit = if binding.is_some() {
             entry.clone()
         } else {
@@ -660,6 +665,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 break;
             }
         }
+        self.loop_heads.insert(node, head.clone());
         let mut kept = Vec::new();
         for (label, env) in self.breaks.split_off(break_mark) {
             if label.is_none_or(|label| labels.contains(&label)) {

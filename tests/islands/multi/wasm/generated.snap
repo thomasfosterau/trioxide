@@ -80,7 +80,7 @@ input_file: tests/islands/multi/wasm/input.ts
         {
           "name": "k",
           "ty": {
-            "kind": "f64"
+            "kind": "i32"
           },
           "mutated": false
         }
@@ -183,101 +183,105 @@ use trioxide_rt::prelude::*;
 
 fn identity(n: i32) -> &'static mut [f64] {
     let m = abi::alloc_array::<f64>((n * n) as usize);
-    let mut i = 0.0;
-    while i < f64::from(n) {
-        array::set(m, at(f64::from(n), i, i), 1.0);
-        i += 1.0;
+    let mut i: i32 = 0;
+    while i < n {
+        array::set(m, at(f64::from(n), i, f64::from(i)), 1.0);
+        i += 1;
     }
     m
 }
 
 fn multiply(a: &[f64], b: &[f64], n: f64) -> &'static mut [f64] {
     let out = abi::new_array::<f64>(n * n);
-    let mut i = 0.0;
-    while i < n {
-        let mut j = 0.0;
-        while j < n {
+    let mut i: i32 = 0;
+    while f64::from(i) < n {
+        let mut j: i32 = 0;
+        while f64::from(j) < n {
             let mut s = 0.0;
-            let mut k = 0.0;
-            while k < n {
-                s += array::get(a, at(n, i, k)) * array::get(b, at(n, k, j));
-                k += 1.0;
+            let mut k: i32 = 0;
+            while f64::from(k) < n {
+                s
+                    += array::get(a, at(n, i, f64::from(k)))
+                        * array::get(b, at(n, k, f64::from(j)));
+                k += 1;
             }
-            array::set(out, at(n, i, j), s);
-            j += 1.0;
+            array::set(out, at(n, i, f64::from(j)), s);
+            j += 1;
         }
-        i += 1.0;
+        i += 1;
     }
     out
 }
 
-fn power(m: &[f64], n: i32, mut k: f64) -> &'static mut [f64] {
+fn power(m: &[f64], n: i32, mut k: i32) -> &'static mut [f64] {
     let mut result = identity(n);
     let mut base: &[f64] = m;
-    while k > 0.0 {
-        if ops::rem(k, 2.0) == 1.0 {
+    while k > 0 {
+        if ops::rem_i32(k, 2) == 1.0 {
             result = multiply(result, base, f64::from(n));
         }
         base = multiply(base, base, f64::from(n));
-        k = math::floor(k / 2.0);
+        k = math::floor(f64::from(k) / 2.0) as i32;
     }
     result
 }
 
 fn trace(m: &[f64], n: i32) -> f64 {
     let mut t = 0.0;
-    let mut i = 0.0;
-    while i < f64::from(n) {
-        t += array::get(m, at(f64::from(n), i, i));
-        i += 1.0;
+    let mut i: i32 = 0;
+    while i < n {
+        t += array::get(m, at(f64::from(n), i, f64::from(i)));
+        i += 1;
     }
     t
 }
 
 fn determinant(m: &[f64], n: i32) -> f64 {
     let a = abi::alloc_array::<f64>(m.len());
-    let mut i = 0.0;
-    while i < array::len(m) {
+    let mut i: i32 = 0;
+    while i < m.len() as i32 {
         // SAFETY: the analysis proves the index is in bounds.
-        array::set(a, i, unsafe { array::get_unchecked(m, i as usize) });
-        i += 1.0;
+        array::set_i32(a, i, unsafe { array::get_unchecked(m, i as usize) });
+        i += 1;
     }
     let mut det = 1.0;
-    let mut col = 0.0;
-    while col < f64::from(n) {
-        let mut pivot = col;
-        let mut row = col + 1.0;
-        while row < f64::from(n) {
-            if math::abs(array::get(a, at(f64::from(n), row, col)))
-                > math::abs(array::get(a, at(f64::from(n), pivot, col)))
+    let mut col: i32 = 0;
+    while col < n {
+        let mut pivot: i32 = col;
+        let mut row: i32 = col + 1;
+        while row < n {
+            if math::abs(array::get(a, at(f64::from(n), row, f64::from(col))))
+                > math::abs(array::get(a, at(f64::from(n), pivot, f64::from(col))))
             {
                 pivot = row;
             }
-            row += 1.0;
+            row += 1;
         }
-        if array::get(a, at(f64::from(n), pivot, col)) == 0.0 {
+        if array::get(a, at(f64::from(n), pivot, f64::from(col))) == 0.0 {
             return 0.0;
         }
         if pivot != col {
             swapRows(a, n, pivot, col);
             det = -det;
         }
-        det *= array::get(a, at(f64::from(n), col, col));
-        let mut row_2 = col + 1.0;
-        while row_2 < f64::from(n) {
-            let f = array::get(a, at(f64::from(n), row_2, col))
-                / core::hint::black_box(array::get(a, at(f64::from(n), col, col)));
-            let mut k = col;
-            while k < f64::from(n) {
-                let index = at(f64::from(n), row_2, k);
+        det *= array::get(a, at(f64::from(n), col, f64::from(col)));
+        let mut row_2: i32 = col + 1;
+        while row_2 < n {
+            let f = array::get(a, at(f64::from(n), row_2, f64::from(col)))
+                / core::hint::black_box(
+                    array::get(a, at(f64::from(n), col, f64::from(col))),
+                );
+            let mut k: i32 = col;
+            while k < n {
+                let index = at(f64::from(n), row_2, f64::from(k));
                 let value = array::get(a, index)
-                    - f * array::get(a, at(f64::from(n), col, k));
+                    - f * array::get(a, at(f64::from(n), col, f64::from(k)));
                 array::set(a, index, value);
-                k += 1.0;
+                k += 1;
             }
-            row_2 += 1.0;
+            row_2 += 1;
         }
-        col += 1.0;
+        col += 1;
     }
     det
 }
@@ -290,11 +294,11 @@ fn axpy(y: &mut [f64], x: &[f64], alpha: i32) {
     }
 }
 
-fn at(n: f64, row: f64, col: f64) -> f64 {
-    row * n + col
+fn at(n: f64, row: i32, col: f64) -> f64 {
+    f64::from(row) * n + col
 }
 
-fn swapRows(a: &mut [f64], n: i32, r1: f64, r2: f64) {
+fn swapRows(a: &mut [f64], n: i32, r1: i32, r2: i32) {
     let mut k = 0.0;
     while k < f64::from(n) {
         let t = array::get(a, at(f64::from(n), r1, k));
@@ -326,7 +330,7 @@ pub unsafe extern "C" fn __abi_multiply(
 }
 
 #[unsafe(export_name = "power")]
-pub unsafe extern "C" fn __abi_power(m_ptr: u32, m_len: u32, n: i32, k: f64) -> u32 {
+pub unsafe extern "C" fn __abi_power(m_ptr: u32, m_len: u32, n: i32, k: i32) -> u32 {
     // SAFETY: the glue passes fresh copies.
     let m = unsafe { abi::slice::<f64>(m_ptr, m_len) };
     abi::return_array(power(m, n, k))

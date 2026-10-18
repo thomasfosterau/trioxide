@@ -243,11 +243,11 @@ nodes:
   45:3 call `console.log(fr(0.1), fr(3.4028235e38)...`: unknown
   45:3 member `console.log`: unknown
   45:3 ref `console`: unknown
-  45:15 call `fr(0.1)`: number@proven
+  45:15 call `fr(0.1)`: number[0.10000000149011612, inf] nonNaN nonNegZero@proven
   45:15 ref `fr`: function@proven
-  45:24 call `fr(3.4028235e38)`: number@proven
+  45:24 call `fr(3.4028235e38)`: number[0.10000000149011612, inf] nonNaN nonNegZero@proven
   45:24 ref `fr`: function@proven
-  45:42 call `fr(3.4028236e38)`: number@proven
+  45:42 call `fr(3.4028236e38)`: number[0.10000000149011612, inf] nonNaN nonNegZero@proven
   45:42 ref `fr`: function@proven
   46:9 bind `xs`: number[]@proven
   46:14 array `[0, -0, 0.5, -0.5, -0.4, 2.5, -2.5, 1...`: number[]@proven escape=none stable-shape

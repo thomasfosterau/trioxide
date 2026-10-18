@@ -505,6 +505,7 @@ pub fn run(
         lexicals,
         import_cycles,
         saturated: 0,
+        loop_heads: FxHashMap::default(),
         stats: Stats::default(),
     };
     let started = std::time::Instant::now();
@@ -519,6 +520,7 @@ pub fn run(
         if analyzer.round == SATURATE_AFTER {
             analyzer.deps.get_mut().saturating = Some(Vec::new());
         }
+        let mut deferred = Vec::new();
         for &unit in &world.unit_order {
             if !analyzer.deps.get_mut().dirty.remove(&unit) {
                 continue;
@@ -527,10 +529,17 @@ pub fn run(
             if world.module(unit.id.module).broken {
                 continue;
             }
+            // In the first round, a function no caller has reached yet would only run on
+            // `never` arguments, and again once one does: it waits a round for its callers.
+            if analyzer.round == 0 && analyzer.uncalled(unit) {
+                deferred.push(unit.id);
+                continue;
+            }
             analyzer.stats.interpretations += 1;
             analyzer.interpret(unit);
             analyzer.saturate();
         }
+        analyzer.deps.get_mut().dirty.extend(deferred);
         analyzer.round += 1;
         if analyzer.deps.get_mut().dirty.is_empty() {
             converged = true;
@@ -914,6 +923,9 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub import_cycles: Vec<usize>,
     /// How many entries were given up (see [`SATURATE_AFTER`]).
     saturated: usize,
+    /// Where each unit's loops settled in its last run, by loop node: its next run starts
+    /// them there.
+    loop_heads: FxHashMap<NodeRef, FxHashMap<NodeId, Env>>,
     stats: Stats,
 }
 
@@ -1032,9 +1044,22 @@ pub(crate) struct Cx<'c, 'w, 'a> {
     pub loop_resized: Vec<(FxHashSet<AllocId>, bool)>,
     /// Arrays whose length relations were dropped, in order.
     pub dropped: Vec<SymbolId>,
+    /// Where each loop settled when it last ran, in this run or the unit's last: a loop that
+    /// runs again starts from there.
+    pub loop_heads: FxHashMap<NodeId, Env>,
 }
 
 impl<'w, 'a> Analyzer<'w, 'a> {
+    /// Whether `unit` is a function that no known caller has called yet and that unknown
+    /// code can't call.
+    fn uncalled(&self, unit: &Unit<'a>) -> bool {
+        matches!(unit.body, Body::Function(_) | Body::Arrow(_))
+            && !self.state.this.contains_key(&unit.id)
+            && !self.state.params.contains_key(&unit.id)
+            && !self.state.spread_called.contains(&unit.id)
+            && !unit_open(self.world, &self.state, unit)
+    }
+
     fn interpret(&mut self, unit: &'w Unit<'a>) {
         let deps = self.deps.get_mut();
         deps.current = Some(unit.id);
@@ -1049,6 +1074,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         self.output.nodes.reserve(capacity);
         let module = self.world.module(unit.id.module);
         let this = self.this_for(unit);
+        let loop_heads = self.loop_heads.remove(&unit.id).unwrap_or_default();
         let mut cx = Cx {
             an: self,
             unit,
@@ -1068,6 +1094,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             loop_writes: Vec::new(),
             loop_resized: Vec::new(),
             dropped: Vec::new(),
+            loop_heads,
         };
         cx.enter();
         match unit.body {
@@ -1110,6 +1137,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
         let returned = std::mem::replace(&mut cx.returned, Val::never());
         let record = std::mem::take(&mut cx.record);
+        let loop_heads = std::mem::take(&mut cx.loop_heads);
+        if !loop_heads.is_empty() {
+            self.loop_heads.insert(unit.id, loop_heads);
+        }
         self.join_return(unit.id, &returned);
         // A site joined with an unknown object is no longer followed: anything may happen to
         // it from here, so it escapes.
@@ -1387,6 +1418,18 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let slot = self.state.supers.entry(class).or_insert_with(Val::never);
         if Self::join_into(self.round, slot, value) {
             self.touch(Dep::Super(class));
+            // A class (or instance) other code already reaches exposes its new parent too.
+            let level = if self.state.open_instances.contains(&class) {
+                Escape::Unknown
+            } else {
+                self.state
+                    .heap
+                    .get(&class)
+                    .map_or(Escape::None, |obj| obj.escape)
+            };
+            if level > Escape::None {
+                self.escape(&value.pts, level);
+            }
         }
     }
 
@@ -1470,6 +1513,16 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 pending.push(info.init);
                 pending.extend(info.members.iter().filter_map(|member| member.unit));
                 pending.extend(info.constructor);
+                // Inherited members are reachable through it too (a parent joined later
+                // escapes in `join_super`).
+                if let Some(sites) = self
+                    .state
+                    .supers
+                    .get(&class)
+                    .and_then(|parent| parent.pts.sites())
+                {
+                    pending.extend_from_slice(sites);
+                }
             }
         }
     }
@@ -1561,12 +1614,18 @@ impl Cx<'_, '_, '_> {
     /// Records the value of `node` for this round, joining with earlier visits.
     pub fn record_node(&mut self, node: NodeId, value: &Val) {
         let key = self.node(node);
-        self.an
-            .output
-            .nodes
-            .entry(key)
-            .and_modify(|existing| *existing = existing.join(value))
-            .or_insert_with(|| value.clone());
+        match self.an.output.nodes.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                // Loops revisit nodes, mostly with the value they had.
+                if entry.get() != value {
+                    let joined = entry.get().join(value);
+                    entry.insert(joined);
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(value.clone());
+            }
+        }
     }
 
     /// The value with TypeScript's declared type filled in if the analysis knows nothing.
