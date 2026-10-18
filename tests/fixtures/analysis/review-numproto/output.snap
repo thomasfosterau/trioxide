@@ -8,7 +8,7 @@ function patch() {
 	Number.prototype.toFixed = () => 42;
 }
 function use(n) {
-	return 1.5.toFixed(2);
+	return n.toFixed(2);
 }
 export function main() {
 	patch();

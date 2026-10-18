@@ -16,7 +16,7 @@ function viaArguments(x) {
 	const args = arguments;
 	args[0] = 100;
 	// Strict mode: x is unaffected.
-	return 5;
+	return x;
 }
 export function main() {
 	console.log(first(1), count(1, 2), viaArguments(5));

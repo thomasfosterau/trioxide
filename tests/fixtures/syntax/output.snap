@@ -25,7 +25,7 @@ const DEFAULTS = {
 };
 function configure({ retries = 3, ...rest }) {
 	return {
-		retries: 3,
+		retries,
 		...DEFAULTS,
 		...rest
 	};

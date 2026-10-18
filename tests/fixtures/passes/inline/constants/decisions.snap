@@ -4,7 +4,7 @@ description: tests/fixtures/passes/inline/constants
 input_file: tests/fixtures/passes/inline/constants/input.ts
 ---
 //- input.ts
-18:10 inline skipped: the binding's single value is only Declared (trustTypes is off)
+18:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
 18:20 inline applied
 22:15 inline applied
 22:26 inline applied
@@ -21,7 +21,7 @@ input_file: tests/fixtures/passes/inline/constants/input.ts
 28:25 inline applied
 28:49 inline applied
 28:64 inline applied
-18:10 fold skipped: the expression's single value is only Declared (trustTypes is off)
+18:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 22:15 fold applied
 14:7 dce applied
 15:7 dce applied

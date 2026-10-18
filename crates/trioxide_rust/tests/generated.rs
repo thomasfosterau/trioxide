@@ -212,8 +212,7 @@ fn built_islands_take_over_direct_calls() {
     // The kernel's own JS caller (`describe`) calls the island; island members keep calling
     // each other in JS, so the fallback stays pure JS.
     let kernel = module(&output, "kernel.ts");
-    // (The JS passes may specialise its arguments: every caller passes the same values.)
-    assert!(kernel.code.contains("area$wasm("), "{}", kernel.code);
+    assert!(kernel.code.contains("area$wasm(a, b)"), "{}", kernel.code);
     assert!(kernel.code.contains("curve(a, b, out);"), "{}", kernel.code);
 }
 

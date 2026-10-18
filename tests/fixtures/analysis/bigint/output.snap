@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/bigint/input.ts
 // Bigints: arithmetic stays bigint; mixing with numbers throws.
 function mix(a, b) {
 	try {
-		return a + 1;
+		return a + b;
 	} catch {
 		return "TypeError";
 	}

@@ -16,7 +16,7 @@ export class Account {
 class Internal {
 	value = 1;
 	get() {
-		return 1;
+		return this.value;
 	}
 }
 export function main() {

@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/strings
+input_file: tests/fixtures/passes/review/strings/input.ts
+---
+//- input.ts
+7:62 inline skipped: the string is too long to copy into each use
+7:74 inline skipped: the string is too long to copy into each use

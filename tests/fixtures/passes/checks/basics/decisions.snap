@@ -4,8 +4,8 @@ description: tests/fixtures/passes/checks/basics
 input_file: tests/fixtures/passes/checks/basics/input.ts
 ---
 //- input.ts
-9:12 inline applied
-14:36 inline applied
+9:12 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+14:36 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
 24:11 inline applied
 24:22 inline applied
 17:11 checks applied
@@ -16,8 +16,11 @@ input_file: tests/fixtures/passes/checks/basics/input.ts
 31:25 checks applied
 34:7 checks applied
 37:10 checks applied
-14:36 fold applied
+9:12 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+14:36 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+14:36 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 15:17 fold skipped: the comparison's operands have effects
+17:17 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 17:25 fold applied
 28:3 fold applied
 31:7 fold applied

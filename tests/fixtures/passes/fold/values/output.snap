@@ -19,6 +19,7 @@ function signs() {
 }
 function bounded() {
 	const r = Math.random();
+	// r is in [0, 1): the comparisons are decided by its range.
 	const label = r < 1 ? "below one" : "one or more";
 	return label.length > 0 ? label : "negative";
 }
@@ -34,7 +35,11 @@ function rounding() {
 	];
 }
 function guard(n) {
-	return "big";
+	// Every caller passes 4.
+	if (n > 3) {
+		return "big";
+	}
+	return "small";
 }
 export function main() {
 	console.log(wrap(), signs(), bounded(), rounding(), guard(4));

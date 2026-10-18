@@ -20,7 +20,7 @@ export function describe(value) {
 function parse(input) {
 	// The declared union narrows to its number member; the check makes it proven.
 	if (typeof input === "number") {
-		return 3;
+		return input;
 	}
 	return input.length;
 }

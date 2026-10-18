@@ -14,7 +14,7 @@ class Vec2 {
 		this.y = y;
 	}
 	length() {
-		return Math.sqrt(1 + this.y * this.y);
+		return Math.sqrt(this.x * this.x + this.y * this.y);
 	}
 }
 function classify(value) {
@@ -30,7 +30,7 @@ function classify(value) {
 	return value < 0 ? "negative" : value === 0 ? Object.is(value, -0) ? "-0" : "0" : "positive";
 }
 function clamp(value, low, high) {
-	return Math.min(Math.max(value, -1), 1);
+	return Math.min(Math.max(value, low), high);
 }
 function sum(values) {
 	let total = 0;

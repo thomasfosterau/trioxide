@@ -21,9 +21,9 @@ function classify(n) {
 }
 function search(grid, target) {
 	let found = -1;
-	outer: for (let row = 0; row < 2; row++) {
-		for (let column = 0; column < 2; column++) {
-			if (grid[row][column] === 3) {
+	outer: for (let row = 0; row < grid.length; row++) {
+		for (let column = 0; column < grid[row].length; column++) {
+			if (grid[row][column] === target) {
 				found = row * 10 + column;
 				break outer;
 			}

@@ -54,6 +54,9 @@ pub struct Project {
     island_builder: Option<Box<dyn IslandBuilder>>,
     /// Fact refreshes during compilation, and the time they took.
     refreshes: (usize, std::time::Duration),
+    /// Modules whose last compile dropped exports no module used: an edit elsewhere may start
+    /// using one, so [`update`](Self::update) invalidates them too.
+    unexported: rustc_hash::FxHashSet<ModuleId>,
     partition: Partition,
     /// Islands from the partition that built: calls to their exports go to their glue.
     links: Vec<islands::IslandLink>,
@@ -141,6 +144,7 @@ impl Project {
             debug_islands: Vec::new(),
             island_builder: None,
             refreshes: (0, std::time::Duration::ZERO),
+            unexported: rustc_hash::FxHashSet::default(),
             partition: Partition::default(),
             links: Vec::new(),
         })
@@ -293,7 +297,11 @@ impl Project {
             source: &module.source,
         });
         self.stale = true;
-        let dependants = self.graph.dependants(id);
+        let mut dependants = self.graph.dependants(id);
+        // A module that dropped an export the edit may now import compiles differently.
+        dependants.extend(self.unexported.iter().copied());
+        dependants.sort_unstable();
+        dependants.dedup();
         Ok(Invalidation {
             changed: Some(module.path.clone()),
             dependants: dependants
@@ -498,11 +506,23 @@ impl Project {
         }
         let log = &mut self.logs[id.index()];
         *log = ModuleLog::default();
+        // Island functions stay, and so do the exports the glue's JS fallback calls.
+        let mut keep = trioxide_js::Keep::default();
+        for island in &self.partition.islands {
+            // Calls anywhere into an island stay calls.
+            keep.functions.extend(island.functions.iter().copied());
+            keep.exports |= island.module == Some(id)
+                || island
+                    .functions
+                    .iter()
+                    .any(|function| function.module == id);
+        }
         let input = ModuleSource {
             id,
             path: &module.path,
             source: &module.source,
             source_type: module.source_type,
+            keep: &keep,
         };
         let rewrite = (!self.links.is_empty()).then(|| islands::Rewrite {
             module: id,
@@ -536,6 +556,15 @@ impl Project {
         self.refreshes.0 += facts.refreshes();
         self.refreshes.1 += facts.refresh_time();
         facts.restore();
+        let unexported = log
+            .passes
+            .iter()
+            .any(|event| event.message.as_deref() == Some(trioxide_js::passes::UNEXPORTED));
+        if unexported {
+            self.unexported.insert(id);
+        } else {
+            self.unexported.remove(&id);
+        }
         log.functions.extend(
             self.partition
                 .decisions
@@ -586,11 +615,13 @@ pub fn strip_types(
         oxc_span::SourceType::from_path(path).unwrap_or_else(|_| oxc_span::SourceType::ts());
     let mut facts = trioxide_analysis::Facts::new(false);
     let mut log = ModuleLog::default();
+    let keep = trioxide_js::Keep::default();
     let input = ModuleSource {
         id: ModuleId::new(0),
         path,
         source,
         source_type,
+        keep: &keep,
     };
     Ok(project
         .compiler

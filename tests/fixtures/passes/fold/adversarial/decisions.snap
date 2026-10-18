@@ -4,17 +4,18 @@ description: tests/fixtures/passes/fold/adversarial
 input_file: tests/fixtures/passes/fold/adversarial/input.ts
 ---
 //- input.ts
-38:50 inline applied
-38:55 inline applied
+38:50 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+38:55 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
 44:20 inline applied
 44:39 inline applied
 44:55 inline applied
 44:68 inline applied
-58:59 inline applied
-38:33 fold applied
+58:59 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+38:33 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 50:7 fold skipped: the comparison's operands have effects
 50:8 fold skipped: the expression has effects, so it stays
 53:10 fold applied
-58:59 fold applied
+58:59 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+58:59 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 42:9 dce applied
 38:25 simplify applied

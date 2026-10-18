@@ -6,7 +6,7 @@ input_file: tests/fixtures/analysis/unchecked-index/input.ts
 //- input.ts
 // Index reads past the end give undefined, whatever TypeScript's element type says.
 function at(values, index) {
-	return values[5];
+	return values[index];
 }
 export function main() {
 	const values = [

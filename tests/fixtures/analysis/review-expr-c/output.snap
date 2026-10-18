@@ -28,7 +28,8 @@ function oddKeys() {
 // Tagged template strings.
 function tag(strings, ...values) {
 	const first = strings[0];
-	console.log(first, 2, values.length);
+	const n = strings.length;
+	console.log(first, n, values.length);
 	return "";
 }
 // Setter-only accessor read.

@@ -36,14 +36,14 @@ export * from "./math.js";
 //- geometry.ts
 export const PI_ISH = 3.14;
 export function perimeter(side) {
-	return 12;
+	return side * 4;
 }
 export default function area(side) {
-	return 12.56;
+	return side * side * 3.14;
 }
 export const counter = { count: 0 };
 
 //- math.ts
 export function double(value) {
-	return 42;
+	return value * 2;
 }

@@ -1,4 +1,4 @@
-//! Pass 4: non-null and `typeof` check elimination (PLAN §4).
+//! PLAN §4 pass 4: non-null and `typeof` check elimination.
 //!
 //! - `a?.b` becomes `a.b`, and `a?.()` becomes `a()`, when `ty(a)` is usable and excludes
 //!   `null` and `undefined`.
@@ -23,13 +23,13 @@ use trioxide_types::Type;
 use super::{
     Decisions, Position, track_position,
     util::{
-        Query, always_nullish, binds_or_suspends, is_global_constant, is_protected_position,
-        never_nullish, typeof_names, weak,
+        Query, Slot, always_nullish, binds_or_suspends, is_global_constant, never_nullish,
+        typeof_names, weak,
     },
 };
 use crate::{Pass, PassContext};
 
-/// Pass 4 (`"checks"`).
+/// PLAN §4 pass 4 (`"checks"`), run second.
 pub struct Checks;
 
 impl Pass for Checks {
@@ -64,6 +64,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
         if !self.position.live() {
             return;
         }
+        let slot = Slot::of(ctx);
         match expression {
             Expression::ChainExpression(chain) => {
                 if !self.chain(&mut chain.expression) {
@@ -76,18 +77,22 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
                 let span = logical.span;
                 let left = logical.left.node_id();
                 let fact = self.query.ty(left);
-                if self.query.usable(fact.trust) && never_nullish(fact.value) {
+                if self.query.usable(fact.trust)
+                    && never_nullish(fact.value)
+                    && slot.admits(&logical.left, false)
+                {
                     self.decisions.applied(span);
                     let value = logical.left.take_in(&ctx.ast);
-                    *expression = value;
+                    *expression = slot.wrap(value, ctx);
                 } else if self.query.usable(fact.trust)
                     && always_nullish(fact.value)
                     && self.query.pure(left)
                     && !binds_or_suspends(&logical.left)
+                    && slot.admits(&logical.right, false)
                 {
                     self.decisions.applied(span);
                     let value = logical.right.take_in(&ctx.ast);
-                    *expression = value;
+                    *expression = slot.wrap(value, ctx);
                 } else if fact.trust == trioxide_analysis::Trust::Declared
                     && (never_nullish(fact.value) || always_nullish(fact.value))
                 {
@@ -95,7 +100,9 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
                         .skipped(span, weak(fact.trust, "the left operand's type"));
                 }
             }
-            Expression::BinaryExpression(_) if !is_protected_position(ctx) => {
+            Expression::BinaryExpression(binary)
+                if slot.admits(&Expression::new_null_literal(binary.span, ctx), true) =>
+            {
                 if let Some(value) = self.comparison(expression, ctx) {
                     let span = expression.span();
                     self.decisions.applied(span);

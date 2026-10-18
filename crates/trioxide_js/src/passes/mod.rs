@@ -1,15 +1,17 @@
 //! The optimisation passes (PLAN §4) and the default pipeline.
 //!
 //! Foundation passes, in one fact-driven group that runs once (its facts are refreshed at most
-//! once per module, before it, and only if an earlier group changed the module):
+//! once per module, before it, and only if an earlier group changed the module). In run
+//! order, with their PLAN §4 numbers:
 //!
-//! 1. [`Inline`] (`"inline"`): references to constant bindings, imports of them and enum
-//!    members become literals.
-//! 2. [`Checks`] (`"checks"`): `?.`, `??`, `typeof` and nullish comparisons the types decide.
-//! 3. [`Fold`] (`"fold"`): expressions the facts prove constant, comparisons and `Math.*` calls
-//!    the ranges decide, and branches with constant tests.
-//! 4. [`Dce`] (`"dce"`): unreachable statements, unused pure bindings and functions, unused
-//!    exports (app world) and pure expression statements.
+//! - [`Inline`] (`"inline"`, pass 1): references to constant bindings, imports of them and
+//!   enum members become literals.
+//! - [`Checks`] (`"checks"`, pass 4): `?.`, `??`, `typeof` and nullish comparisons the types
+//!   decide. It runs before fold, which then takes the guards it made constant.
+//! - [`Fold`] (`"fold"`, pass 2): expressions the facts prove constant, comparisons and
+//!   `Math.*` calls the ranges decide, and branches with constant tests.
+//! - [`Dce`] (`"dce"`, pass 3): unreachable statements, unused pure bindings and functions,
+//!   unused exports (app world) and pure expression statements.
 //!
 //! Then a syntactic cleanup group, run to a fixed point without reading facts:
 //! [`Simplify`] (`"simplify"`) folds what the first group left constant with
@@ -21,6 +23,25 @@
 //!
 //! Every pass checks its facts with [`Facts::is_usable`](trioxide_analysis::Facts::is_usable)
 //! and logs each rewrite (`applied`) and each declined candidate (`skipped`, with the reason).
+//! Where a pass may rewrite is decided by one helper, [`util::Slot`], which looks through
+//! parentheses and TypeScript-only wrappers.
+//!
+//! **Specialisation.** In a closed world a parameter's facts are what every caller passes, so
+//! they can make a function's body constant (`y < height` becomes `y < 4`). That is sound but
+//! hard to read, so it is off unless `passes.specialize` is `true`: with it off, no fact is
+//! folded about an expression that reads a parameter, `this`, or a local assigned from them,
+//! and DCE only removes unreachable code that follows a `return`, `throw`, `break` or
+//! `continue` (the rest may be unreachable only because of what callers pass). Calls are
+//! still folded where they are made (`f(3)` becomes `6`).
+//!
+//! **Termination.** Purity facts don't prove that a call returns: a pure call that never
+//! returns (an infinite loop, a stack overflow) can be removed or folded, so the output may
+//! finish where the original didn't. This is accepted, as it is in most optimising compilers.
+//!
+//! **Islands.** The facade passes a [`Keep`](crate::Keep) per module: exports of modules that
+//! define WASM island functions stay (the glue's JS fallback calls them by name), calls to
+//! island functions are not folded, and island functions are not removed. Functions forced to
+//! an island (`"use wasm"`, `@trioxide wasm`) are never removed either.
 
 mod checks;
 mod dce;
@@ -42,6 +63,35 @@ pub use fold::Fold;
 pub use imports::{KeepImports, RecordImports};
 pub use inline::Inline;
 pub use simplify::Simplify;
+
+/// Whether a function is a forced WASM island: a `"use wasm"` directive in its body, or a
+/// `@trioxide wasm` tag in a comment attached at `starts` (the function's, or its `export`'s).
+fn forced_island(
+    function: &Function<'_>,
+    tagged: &rustc_hash::FxHashSet<u32>,
+    starts: &[u32],
+) -> bool {
+    function.body.as_ref().is_some_and(|body| {
+        body.directives
+            .iter()
+            .any(|directive| directive.directive == "use wasm")
+    }) || starts.iter().any(|start| tagged.contains(start))
+}
+
+/// The positions comments with a `@trioxide wasm` tag are attached to.
+fn wasm_tags(program: &oxc_ast::ast::Program<'_>) -> rustc_hash::FxHashSet<u32> {
+    program
+        .comments
+        .iter()
+        .filter(|comment| {
+            comment
+                .span
+                .source_text(program.source_text)
+                .contains("@trioxide wasm")
+        })
+        .map(|comment| comment.attached_to)
+        .collect()
+}
 
 use crate::PassGroup;
 use util::Query;
@@ -72,9 +122,13 @@ pub fn default_groups() -> Vec<PassGroup> {
 /// Decisions a pass made during one traversal, flushed into the [`ModuleLog`] afterwards.
 struct Decisions {
     pass: &'static str,
-    events: Vec<(Option<Span>, Option<String>)>,
+    events: Vec<(Option<Span>, Option<String>, Option<&'static str>)>,
     applied: usize,
 }
+
+/// The message on a DCE event that dropped an export no module used (the facade invalidates
+/// such modules when another changes).
+pub const UNEXPORTED: &str = "export removed: no module uses it";
 
 impl Decisions {
     fn new(pass: &'static str) -> Self {
@@ -87,7 +141,12 @@ impl Decisions {
 
     fn applied(&mut self, span: Span) {
         self.applied += 1;
-        self.events.push((Some(span), None));
+        self.events.push((Some(span), None, None));
+    }
+
+    fn applied_with(&mut self, span: Span, message: &'static str) {
+        self.applied += 1;
+        self.events.push((Some(span), None, Some(message)));
     }
 
     /// A rewrite not worth logging (dropping redundant parentheses).
@@ -96,15 +155,18 @@ impl Decisions {
     }
 
     fn skipped(&mut self, span: Span, reason: impl Into<String>) {
-        self.events.push((Some(span), Some(reason.into())));
+        self.events.push((Some(span), Some(reason.into()), None));
     }
 
     /// Writes the decisions into `log` and returns whether anything was rewritten.
     fn flush(self, log: &mut ModuleLog) -> bool {
-        for (span, reason) in self.events {
+        for (span, reason, message) in self.events {
             match reason {
                 None => log.applied(self.pass, span),
                 Some(reason) => log.skipped(self.pass, span, reason),
+            }
+            if let (Some(message), Some(event)) = (message, log.passes.last_mut()) {
+                event.message = Some(message.to_string());
             }
         }
         self.applied > 0
@@ -167,8 +229,11 @@ impl Position {
 /// Where the leading comments of removed statements go: a comment separated from the statement
 /// by a blank line is about the code around it (a file header, a section title), not the
 /// statement, so it moves to the next statement that stays.
+///
+/// The comments of a removed `;` (what folding an `if` with no branch taken leaves) and of an
+/// `export` dropped from a declaration always move: they are about what is still there.
 #[derive(Default)]
-struct Comments(Vec<(u32, u32)>);
+struct Comments(Vec<(u32, u32, bool)>);
 
 impl Comments {
     /// Removes the statements `keep` says go, noting where their comments move.
@@ -184,11 +249,19 @@ impl Comments {
             if kept {
                 next = Some(start);
             } else if let Some(next) = next {
-                self.0.push((start, next));
+                let always = matches!(statement, Statement::EmptyStatement(_));
+                self.0.push((start, next, always));
             }
         }
         let mut keep = keep.iter();
         statements.retain(|_| *keep.next().expect("a flag per statement"));
+    }
+
+    /// Notes that the code at `from` now starts at `to` (all its comments move).
+    fn rename(&mut self, from: u32, to: u32) {
+        if from != to {
+            self.0.push((from, to, true));
+        }
     }
 
     /// Re-attaches the comments of `program` as noted.
@@ -196,16 +269,20 @@ impl Comments {
         if self.0.is_empty() {
             return;
         }
-        let moved: rustc_hash::FxHashMap<u32, u32> = self.0.into_iter().collect();
+        let moved: rustc_hash::FxHashMap<u32, (u32, bool)> = self
+            .0
+            .into_iter()
+            .map(|(from, to, always)| (from, (to, always)))
+            .collect();
         let source = program.source_text;
         for comment in &mut program.comments {
-            let Some(&to) = moved.get(&comment.attached_to) else {
+            let Some(&(to, always)) = moved.get(&comment.attached_to) else {
                 continue;
             };
             let between = source
                 .get(comment.span.end as usize..comment.attached_to as usize)
                 .unwrap_or("");
-            if comment.is_leading() && between.matches('\n').count() >= 2 {
+            if comment.is_leading() && (always || between.matches('\n').count() >= 2) {
                 comment.attached_to = to;
             }
         }

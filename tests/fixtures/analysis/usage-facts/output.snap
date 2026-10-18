@@ -8,8 +8,8 @@ input_file: tests/fixtures/analysis/usage-facts/input.ts
 const external = JSON.parse("{}");
 let log = 0;
 function bump(n) {
-	log += 2;
-	return 2;
+	log += n;
+	return n;
 }
 function early(flag) {
 	if (flag) {
@@ -19,7 +19,7 @@ function early(flag) {
 }
 function loop(values) {
 	let total = 0;
-	for (let i = 0; i < 3; i++) {
+	for (let i = 0; i < values.length; i++) {
 		total += values[i] * values[i];
 	}
 	return total;
@@ -43,14 +43,14 @@ function guarded(values, o) {
 	let total = 0;
 	for (let i = 0; i < values.length; i++) {
 		if (o !== null) {
-			total += 6;
+			total += o.x * 2;
 		}
 	}
 	return total;
 }
 function clock(values) {
 	let total = 0;
-	for (let i = 0; i < 2; i++) {
+	for (let i = 0; i < values.length; i++) {
 		total += Date.now() * 0;
 	}
 	return total;
@@ -58,7 +58,7 @@ function clock(values) {
 function boxed(values) {
 	const box = { v: 1 };
 	let total = 0;
-	for (let i = 0; i < 3; i++) {
+	for (let i = 0; i < values.length; i++) {
 		total += box.v * 2;
 		box.v++;
 	}
@@ -70,7 +70,7 @@ function captured(values) {
 		c++;
 	};
 	let total = 0;
-	for (let i = 0; i < 3; i++) {
+	for (let i = 0; i < values.length; i++) {
 		total += c * 2;
 		inc();
 	}
@@ -79,23 +79,23 @@ function captured(values) {
 class Scale {
 	factor = 2;
 	apply(x) {
-		return x * 2;
+		return x * this.factor;
 	}
 }
 function method(values, scale) {
 	let total = 0;
-	for (let i = 0; i < 2; i++) {
+	for (let i = 0; i < values.length; i++) {
 		total += scale.apply(i);
 	}
 	return total;
 }
 function exits(values, k) {
 	let total = 0;
-	for (let i = 0; i < 6; i++) {
+	for (let i = 0; i < values.length; i++) {
 		if (i > 3) {
 			break;
 		}
-		total += 10;
+		total += k * 5;
 	}
 	return total;
 }

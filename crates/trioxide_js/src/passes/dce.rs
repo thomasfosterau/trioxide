@@ -1,4 +1,4 @@
-//! Pass 3: dead code elimination (PLAN §4).
+//! PLAN §4 pass 3: dead code elimination.
 //!
 //! On every statement list:
 //! - **Unreachable code**: statements with `reachable` `Proven` false go, unless they declare
@@ -26,7 +26,7 @@ use oxc_ast::ast::{
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::symbol::SymbolId;
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_common::SymbolRef;
 
 use super::{
@@ -36,9 +36,9 @@ use super::{
         weak,
     },
 };
-use crate::{Pass, PassContext};
+use crate::{Keep, Pass, PassContext};
 
-/// Pass 3 (`"dce"`).
+/// PLAN §4 pass 3 (`"dce"`), run last in its group.
 pub struct Dce;
 
 impl Pass for Dce {
@@ -63,6 +63,8 @@ pub(super) fn run<'a>(
     query: Option<Query<'_>>,
 ) -> bool {
     let dynamic_scope = has_dynamic_scope(program, ctx.scoping());
+    let tagged = super::wasm_tags(program);
+    let keep = ctx.keep;
     let mut changed = false;
     for _ in 0..8 {
         let references = live_references(program, ctx.scoping());
@@ -77,6 +79,9 @@ pub(super) fn run<'a>(
             references,
             dynamic_scope,
             comments: Comments::default(),
+            keep,
+            specialize: ctx.specialize,
+            tagged: &tagged,
         };
         ctx.traverse(&mut visitor, program, ());
         visitor.comments.apply(program);
@@ -97,6 +102,10 @@ struct Visitor<'f> {
     references: FxHashMap<SymbolId, Vec<Span>>,
     dynamic_scope: bool,
     comments: Comments,
+    keep: &'f Keep,
+    specialize: bool,
+    /// Where `@trioxide wasm` tags are attached.
+    tagged: &'f FxHashSet<u32>,
 }
 
 impl<'a> Traverse<'a, ()> for Visitor<'_> {
@@ -112,9 +121,22 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
         }
         let top_level = matches!(ctx.parent(), Ancestor::ProgramBody(_));
         let live = self.position.live();
+        let end = statements.iter().position(|statement| {
+            matches!(
+                statement,
+                Statement::ReturnStatement(_)
+                    | Statement::ThrowStatement(_)
+                    | Statement::BreakStatement(_)
+                    | Statement::ContinueStatement(_)
+            )
+        });
         let keep: Vec<bool> = statements
             .iter_mut()
-            .map(|statement| self.statement(statement, top_level, live, ctx))
+            .enumerate()
+            .map(|(index, statement)| {
+                let after_end = end.is_some_and(|end| index > end);
+                self.statement(statement, top_level, live, after_end, ctx)
+            })
             .collect();
         self.comments.remove(statements, &keep);
     }
@@ -134,11 +156,18 @@ impl Visitor<'_> {
         statement: &mut Statement<'a>,
         top_level: bool,
         live: bool,
+        after_end: bool,
         ctx: &mut TraverseCtx<'a, ()>,
     ) -> bool {
         let span = statement.span();
         if self.facts && live && self.query.dead(statement.node_id()) {
-            if declares_hoisted(statement) {
+            if !self.specialize && !after_end {
+                self.decisions.skipped(
+                    span,
+                    "unreachable by the facts, which may rest on what callers pass \
+                     (`passes.specialize` is off)",
+                );
+            } else if declares_hoisted(statement) {
                 self.decisions.skipped(
                     span,
                     "unreachable, but declares a `var` or function, which are visible before it",
@@ -204,6 +233,15 @@ impl Visitor<'_> {
                     return true;
                 }
                 let unit = self.query.node(function.node_id());
+                if unit.is_some_and(|unit| self.keep.functions.contains(&unit))
+                    || super::forced_island(function, self.tagged, &[function.span.start])
+                {
+                    self.decisions.skipped(
+                        span,
+                        "unused, but it is a WASM island function (an explicit request stays)",
+                    );
+                    return true;
+                }
                 let complete = unit.map_or(trioxide_analysis::Fact::unknown(), |unit| {
                     self.query.facts.callers_complete(unit)
                 });
@@ -347,9 +385,25 @@ impl Visitor<'_> {
             return;
         }
         let _ = scoping;
+        if self.keep.exports {
+            self.decisions
+                .skipped(span, "unused, but a WASM island's glue may call it");
+            return;
+        }
+        if let Declaration::FunctionDeclaration(function) = &export.declaration
+            && super::forced_island(function, self.tagged, &[span.start, function.span.start])
+        {
+            self.decisions.skipped(
+                span,
+                "unused, but it is a WASM island function (an explicit request stays)",
+            );
+            return;
+        }
         let declaration = export.declaration.take_in(&ctx.ast);
+        // Its JSDoc and directives' comments now belong to the declaration.
+        self.comments.rename(span.start, declaration.span().start);
         *statement = Statement::from(declaration);
-        self.decisions.applied(span);
+        self.decisions.applied_with(span, super::UNEXPORTED);
     }
 
     /// Drops `export { … }` specifiers no module can use. Returns whether the statement stays.
@@ -358,7 +412,7 @@ impl Visitor<'_> {
         export: &mut ExportNamedDeclaration<'a>,
         ctx: &TraverseCtx<'a, ()>,
     ) -> bool {
-        if export.export_kind.is_type() || export.specifiers.is_empty() {
+        if export.export_kind.is_type() || export.specifiers.is_empty() || self.keep.exports {
             return true;
         }
         let scoping = ctx.scoping();
@@ -385,7 +439,7 @@ impl Visitor<'_> {
             !unused
         });
         for span in spans {
-            self.decisions.applied(span);
+            self.decisions.applied_with(span, super::UNEXPORTED);
         }
         export.specifiers.len() == before || !export.specifiers.is_empty()
     }

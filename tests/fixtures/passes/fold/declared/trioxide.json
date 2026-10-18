@@ -1,1 +1,1 @@
-{ "world": "library" }
+{ "world": "library", "passes": { "specialize": true } }

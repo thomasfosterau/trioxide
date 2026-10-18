@@ -1,4 +1,4 @@
-//! Pass 2: constant propagation and folding (PLAN §4).
+//! PLAN §4 pass 2: constant propagation and folding.
 //!
 //! - **Values**: an expression whose `ty` is a usable singleton (one number, `null` or
 //!   `undefined`) and which is usable-pure becomes that literal. -0, NaN and int32 wraparound
@@ -16,22 +16,25 @@
 use oxc_allocator::TakeIn;
 use oxc_ast::ast::{Argument, BinaryOperator, Expression, LogicalOperator, Program, Statement};
 use oxc_ecmascript::constant_evaluation::ConstantEvaluation;
+use oxc_semantic::Scoping;
 use oxc_span::GetSpan;
+use oxc_syntax::symbol::SymbolId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use rustc_hash::FxHashSet;
 use trioxide_common::NodeId;
 use trioxide_types::{NumberType, Type};
 
 use super::{
     Decisions, Position, Unwrapped, track_position,
     util::{
-        EvalCtx, Query, binds_or_suspends, constant_expr, declares_hoisted, is_canonical_literal,
-        is_global_name, is_inert, is_protected_position, parenthesize_for, truthiness,
-        type_constant, weak,
+        EvalCtx, Query, Slot, binds_or_suspends, caller_dependent, constant_expr, declares_hoisted,
+        depends_on, is_canonical_literal, is_global_name, is_inert, truthiness, type_constant,
+        weak,
     },
 };
-use crate::{Pass, PassContext};
+use crate::{Keep, Pass, PassContext};
 
-/// Pass 2 (`"fold"`).
+/// PLAN §4 pass 2 (`"fold"`), run third.
 pub struct Fold;
 
 impl Pass for Fold {
@@ -40,11 +43,14 @@ impl Pass for Fold {
     }
 
     fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool {
+        let dependent = (!ctx.specialize).then(|| caller_dependent(program, ctx.scoping()));
         let mut visitor = Visitor {
+            dependent,
             query: Query {
                 facts: ctx.facts,
                 module: ctx.module,
             },
+            keep: ctx.keep,
             position: Position::default(),
             decisions: Decisions::new(self.name()),
             unwrapped: Unwrapped::default(),
@@ -56,6 +62,9 @@ impl Pass for Fold {
 
 struct Visitor<'f> {
     query: Query<'f>,
+    keep: &'f Keep,
+    /// Bindings whose values may come from callers, unless `passes.specialize` is on.
+    dependent: Option<FxHashSet<SymbolId>>,
     position: Position,
     decisions: Decisions,
     unwrapped: Unwrapped,
@@ -75,7 +84,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
     fn enter_expression(&mut self, expression: &mut Expression<'a>, ctx: &mut TraverseCtx<'a, ()>) {
         // A branch taken may itself fold.
         for _ in 0..4 {
-            if !self.position.live() || is_protected_position(ctx) || !self.fold(expression, ctx) {
+            if !self.position.live() || !self.fold(expression, ctx) {
                 break;
             }
         }
@@ -99,23 +108,32 @@ impl Visitor<'_> {
         {
             return false;
         }
+        let slot = Slot::of(ctx);
+        if matches!(slot, Slot::Delete | Slot::Statement) {
+            return false;
+        }
         let span = expression.span();
         let node = expression.node_id();
-        if let Some(value) = self.value(expression, node, span) {
+        // Literals: any value fold the slot admits.
+        let literal_ok = slot.admits(&Expression::new_null_literal(span, ctx), true);
+        if literal_ok && let Some(value) = self.value(expression, node, span, ctx.scoping()) {
             let literal = constant_expr(&value, span, ctx);
-            *expression = parenthesize_for(literal, ctx);
+            *expression = slot.wrap(literal, ctx);
             self.decisions.applied(span);
             return true;
         }
+        let take = |branch: &mut Expression<'a>, ctx: &TraverseCtx<'a, ()>| {
+            slot.admits(branch, false).then(|| branch.take_in(&ctx.ast))
+        };
         let replacement = match expression {
-            Expression::BinaryExpression(_) => self
-                .comparison(expression)
+            Expression::BinaryExpression(_) if literal_ok => self
+                .comparison(expression, ctx.scoping())
                 .map(|value| Expression::new_boolean_literal(span, value, ctx)),
-            Expression::CallExpression(_) => self.math(expression, ctx),
+            Expression::CallExpression(_) => self.math(expression, slot, ctx),
             Expression::ConditionalExpression(conditional) => {
                 match self.test(&conditional.test, ctx, true) {
-                    Some(true) => Some(conditional.consequent.take_in(&ctx.ast)),
-                    Some(false) => Some(conditional.alternate.take_in(&ctx.ast)),
+                    Some(true) => take(&mut conditional.consequent, ctx),
+                    Some(false) => take(&mut conditional.alternate, ctx),
                     None => None,
                 }
             }
@@ -128,10 +146,10 @@ impl Visitor<'_> {
                     LogicalOperator::Coalesce => None,
                 };
                 match keep_left {
-                    Some(true) => Some(logical.left.take_in(&ctx.ast)),
+                    Some(true) => take(&mut logical.left, ctx),
                     // The left operand is dropped: it must be pure.
                     Some(false) if self.test(&logical.left, ctx, true).is_some() => {
-                        Some(logical.right.take_in(&ctx.ast))
+                        take(&mut logical.right, ctx)
                     }
                     _ => None,
                 }
@@ -140,7 +158,7 @@ impl Visitor<'_> {
         };
         match replacement {
             Some(replacement) => {
-                *expression = parenthesize_for(replacement, ctx);
+                *expression = slot.wrap(replacement, ctx);
                 self.decisions.applied(span);
                 true
             }
@@ -154,10 +172,21 @@ impl Visitor<'_> {
         expression: &Expression<'_>,
         node: NodeId,
         span: oxc_span::Span,
+        scoping: &Scoping,
     ) -> Option<trioxide_analysis::Constant> {
         let fact = self.query.ty(node);
         let value = type_constant(fact.value)?;
         if binds_or_suspends(expression) {
+            return None;
+        }
+        if self.specialises(expression, scoping) {
+            self.decisions
+                .skipped(span, "the expression's single value depends on what its callers pass (`passes.specialize` is off)");
+            return None;
+        }
+        if self.calls_island(expression) {
+            self.decisions
+                .skipped(span, "calls a WASM island function, which stays a call");
             return None;
         }
         if !self.query.usable(fact.trust) {
@@ -178,6 +207,45 @@ impl Visitor<'_> {
         Some(value)
     }
 
+    /// Whether a fact about `expression` may rest on what its function's callers pass (and
+    /// `passes.specialize` is off).
+    fn specialises(&self, expression: &Expression<'_>, scoping: &Scoping) -> bool {
+        self.dependent
+            .as_ref()
+            .is_some_and(|dependent| depends_on(expression, dependent, scoping))
+    }
+
+    /// Whether evaluating `expression` calls a function compiled into a WASM island.
+    fn calls_island(&self, expression: &Expression<'_>) -> bool {
+        struct Find<'q, 'f> {
+            query: Query<'f>,
+            keep: &'q Keep,
+            found: bool,
+        }
+        impl<'a> oxc_ast_visit::Visit<'a> for Find<'_, '_> {
+            fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+                if let Some(site) = self.query.node(call.node_id.get()) {
+                    let resolution = self.query.facts.site_resolution(site);
+                    self.found |= resolution
+                        .callees
+                        .iter()
+                        .any(|callee| self.keep.functions.contains(callee));
+                }
+                oxc_ast_visit::walk::walk_call_expression(self, call);
+            }
+        }
+        if self.keep.functions.is_empty() {
+            return false;
+        }
+        let mut find = Find {
+            query: self.query,
+            keep: self.keep,
+            found: false,
+        };
+        oxc_ast_visit::Visit::visit_expression(&mut find, expression);
+        find.found
+    }
+
     /// The number type of a usable numeric operand.
     fn number(&self, expression: &Expression<'_>) -> Option<NumberType> {
         match self.query.usable_ty(expression.node_id())? {
@@ -187,7 +255,7 @@ impl Visitor<'_> {
     }
 
     /// A numeric comparison its operands' ranges decide.
-    fn comparison(&mut self, expression: &Expression<'_>) -> Option<bool> {
+    fn comparison(&mut self, expression: &Expression<'_>, scoping: &Scoping) -> Option<bool> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
@@ -206,6 +274,13 @@ impl Visitor<'_> {
         }
         let (left, right) = (self.number(&binary.left)?, self.number(&binary.right)?);
         let outcome = compare(binary.operator, left, right)?;
+        if self.specialises(expression, scoping) {
+            self.decisions.skipped(
+                binary.span,
+                "the comparison depends on what its callers pass (`passes.specialize` is off)",
+            );
+            return None;
+        }
         if !self.query.pure(binary.node_id.get()) || binds_or_suspends(expression) {
             self.decisions
                 .skipped(binary.span, "the comparison's operands have effects");
@@ -218,6 +293,7 @@ impl Visitor<'_> {
     fn math<'a>(
         &mut self,
         expression: &mut Expression<'a>,
+        slot: Slot,
         ctx: &TraverseCtx<'a, ()>,
     ) -> Option<Expression<'a>> {
         let Expression::CallExpression(call) = expression else {
@@ -272,6 +348,18 @@ impl Visitor<'_> {
         {
             return None;
         }
+        if call
+            .arguments
+            .iter()
+            .filter_map(Argument::as_expression)
+            .any(|argument| self.specialises(argument, ctx.scoping()))
+        {
+            self.decisions.skipped(
+                call.span,
+                "the call's result depends on what its callers pass (`passes.specialize` is off)",
+            );
+            return None;
+        }
         let result = self.query.ty(call.node_id.get());
         if !self.query.usable(result.trust) || !matches!(result.value, Type::Number(_)) {
             return None;
@@ -281,9 +369,9 @@ impl Visitor<'_> {
                 .skipped(call.span, "the call's arguments have effects");
             return None;
         }
-        call.arguments[index]
-            .as_expression_mut()
-            .map(|argument| argument.take_in(&ctx.ast))
+        let argument = call.arguments[index].as_expression_mut()?;
+        slot.admits(argument, false)
+            .then(|| argument.take_in(&ctx.ast))
     }
 
     /// The truthiness of a test: a literal's, or the usable type's. With `dropped`, the test
@@ -300,6 +388,15 @@ impl Visitor<'_> {
                 scoping: ctx.scoping(),
             };
             return test.evaluate_value_to_boolean(&eval);
+        }
+        if self.specialises(test, ctx.scoping()) {
+            if truthiness(self.query.ty(test.node_id()).value).is_some() {
+                self.decisions.skipped(
+                    test.span(),
+                    "the test depends on what its callers pass (`passes.specialize` is off)",
+                );
+            }
+            return None;
         }
         let ty = self.query.ty(test.node_id());
         let truthy = truthiness(ty.value)?;

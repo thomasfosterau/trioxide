@@ -1,0 +1,11 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/negative-zero
+input_file: tests/fixtures/passes/review/negative-zero/input.ts
+---
+//- input.ts
+// `Math.abs(-0)` is `+0`; `-z` of `z = -0` is `+0`.
+export function main() {
+	console.log(Object.is(0, 0), 1 / 0, 1 / 0);
+	console.log(Object.is(0, 0), Object.is(0, 0), Object.is(-0, -0));
+}

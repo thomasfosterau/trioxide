@@ -1,4 +1,4 @@
-//! Pass 1: constant and enum inlining, across modules (PLAN §4).
+//! PLAN §4 pass 1: constant and enum inlining, across modules.
 //!
 //! A read of a binding becomes a literal when the binding (or the export an import resolves
 //! to) is a `const` with a literal value ([`Facts::symbol_constant`]), or is never reassigned
@@ -15,17 +15,19 @@
 
 use oxc_ast::ast::{Expression, Program};
 use oxc_span::GetSpan;
+use oxc_syntax::symbol::SymbolId;
 use oxc_traverse::{Traverse, TraverseCtx};
+use rustc_hash::FxHashSet;
 use trioxide_analysis::Constant;
 use trioxide_common::SymbolRef;
 
 use super::{
     Decisions, Position, track_position,
-    util::{Query, constant_expr, parenthesize_for, small_enough, type_constant, weak},
+    util::{Query, Slot, caller_dependent, constant_expr, small_enough, type_constant, weak},
 };
 use crate::{Pass, PassContext};
 
-/// Pass 1 (`"inline"`).
+/// PLAN §4 pass 1 (`"inline"`), run first.
 pub struct Inline;
 
 impl Pass for Inline {
@@ -34,6 +36,7 @@ impl Pass for Inline {
     }
 
     fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool {
+        let dependent = (!ctx.specialize).then(|| caller_dependent(program, ctx.scoping()));
         let mut visitor = Visitor {
             query: Query {
                 facts: ctx.facts,
@@ -41,6 +44,7 @@ impl Pass for Inline {
             },
             position: Position::default(),
             decisions: Decisions::new(self.name()),
+            dependent,
         };
         ctx.traverse(&mut visitor, program, ());
         visitor.decisions.flush(ctx.log)
@@ -51,13 +55,19 @@ struct Visitor<'f> {
     query: Query<'f>,
     position: Position,
     decisions: Decisions,
+    /// Bindings whose values may come from callers, unless `passes.specialize` is on.
+    dependent: Option<FxHashSet<SymbolId>>,
 }
 
 impl<'a> Traverse<'a, ()> for Visitor<'_> {
     track_position!();
 
     fn enter_expression(&mut self, expression: &mut Expression<'a>, ctx: &mut TraverseCtx<'a, ()>) {
-        if !self.position.live() || super::util::is_protected_position(ctx) {
+        if !self.position.live() {
+            return;
+        }
+        let slot = Slot::of(ctx);
+        if !slot.admits(&Expression::new_null_literal(expression.span(), ctx), true) {
             return;
         }
         let value = match expression {
@@ -73,7 +83,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
                 ctx.scoping_mut().delete_reference(object);
             }
             let literal = constant_expr(&value, span, ctx);
-            *expression = parenthesize_for(literal, ctx);
+            *expression = slot.wrap(literal, ctx);
             self.decisions.applied(span);
         }
     }
@@ -124,6 +134,17 @@ impl Visitor<'_> {
             let target = facts.resolve_import(symbol).unwrap_or(symbol);
             let fact = facts.symbol_ty(target);
             let value = type_constant(fact.value)?;
+            if self
+                .dependent
+                .as_ref()
+                .is_some_and(|dependent| dependent.contains(&symbol.symbol))
+            {
+                self.decisions.skipped(
+                    ident.span,
+                    "the binding's single value depends on what its callers pass (`passes.specialize` is off)",
+                );
+                return None;
+            }
             if !self.query.usable(fact.trust) {
                 self.decisions
                     .skipped(ident.span, weak(fact.trust, "the binding's single value"));

@@ -4,8 +4,9 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::Program;
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_traverse::{Traverse, traverse_mut};
+use rustc_hash::FxHashSet;
 use trioxide_analysis::Facts;
-use trioxide_common::{ModuleId, log::ModuleLog};
+use trioxide_common::{ModuleId, NodeRef, log::ModuleLog};
 
 /// Which passes run, from `Options::passes` and `Options::trust_types`.
 #[derive(Debug, Clone, Default)]
@@ -49,6 +50,17 @@ impl FactSource for Facts {
     }
 }
 
+/// What a module's passes must keep whatever the facts say, set by the facade per module.
+#[derive(Debug, Clone, Default)]
+pub struct Keep {
+    /// The module's exports stay exported: the JS fallback of a WASM island's glue calls
+    /// them by name, which no import shows.
+    pub exports: bool,
+    /// Functions compiled into WASM islands: never removed, and calls to them never folded,
+    /// so an island request doesn't vanish into JS.
+    pub functions: FxHashSet<NodeRef>,
+}
+
 /// What a pass gets to work with.
 pub struct PassContext<'a, 'f> {
     /// The arena the module's AST lives in. New nodes must be allocated here.
@@ -59,6 +71,12 @@ pub struct PassContext<'a, 'f> {
     pub facts: &'f Facts,
     /// Where to record what fired and what was skipped, for `trioxide explain`.
     pub log: &'f mut ModuleLog,
+    /// What must stay whatever the facts say.
+    pub keep: &'f Keep,
+    /// Whether facts that hold only because every caller passes the same values may be
+    /// folded into a function's body (`passes.specialize`, off by default: it costs
+    /// readability).
+    pub specialize: bool,
     scoping: Option<Scoping>,
 }
 
@@ -149,6 +167,7 @@ pub struct PassManager {
     /// The most times a fixpoint group is repeated.
     pub max_iterations: usize,
     refreshes: usize,
+    keep: Keep,
 }
 
 impl PassManager {
@@ -159,6 +178,7 @@ impl PassManager {
             options,
             max_iterations: 8,
             refreshes: 0,
+            keep: Keep::default(),
         }
     }
 
@@ -171,6 +191,11 @@ impl PassManager {
             manager.add_group(group);
         }
         manager
+    }
+
+    /// Sets what the passes must keep in the module [`run`](Self::run) optimises.
+    pub fn set_keep(&mut self, keep: Keep) {
+        self.keep = keep;
     }
 
     /// How many times [`run`](Self::run) refreshed the facts.
@@ -229,6 +254,13 @@ impl PassManager {
                     module,
                     facts: facts.facts(),
                     log: &mut *log,
+                    keep: &self.keep,
+                    specialize: self
+                        .options
+                        .enabled
+                        .get("specialize")
+                        .copied()
+                        .unwrap_or(false),
                     scoping: Some(scoping),
                 };
                 let mut changed = false;

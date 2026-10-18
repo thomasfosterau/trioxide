@@ -23,8 +23,8 @@ use trioxide_analysis::Facts;
 use super::{
     Comments, Decisions, Position, Unwrapped, track_position,
     util::{
-        EvalCtx, Query, constant_expr, declares_hoisted, from_ecmascript, is_canonical_literal,
-        is_inert, is_protected_position, parenthesize_for, small_enough,
+        EvalCtx, Query, Slot, constant_expr, declares_hoisted, from_ecmascript,
+        is_canonical_literal, is_inert, small_enough,
     },
 };
 use crate::{Pass, PassContext};
@@ -79,7 +79,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
 
     fn enter_expression(&mut self, expression: &mut Expression<'a>, ctx: &mut TraverseCtx<'a, ()>) {
         for _ in 0..4 {
-            if self.position.opaque() || is_protected_position(ctx) || !self.fold(expression, ctx) {
+            if self.position.opaque() || !self.fold(expression, ctx) {
                 break;
             }
         }
@@ -140,7 +140,8 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
 }
 
 /// The value of an inert bitwise operation (`|`, `&`, `^`, `<<`, `>>`, `>>>`, `~`), computed
-/// with ToInt32/ToUint32 exactly (`oxc_ecmascript` leaves these alone).
+/// with ToInt32/ToUint32 exactly, or of unary `-`/`+` over a folded number
+/// (`oxc_ecmascript` leaves these alone).
 fn int32(expression: &Expression<'_>, eval: &EvalCtx<'_, '_>) -> Option<f64> {
     use oxc_ast::ast::{BinaryOperator, UnaryOperator};
     use oxc_ecmascript::{ToInt32, ToUint32};
@@ -163,6 +164,20 @@ fn int32(expression: &Expression<'_>, eval: &EvalCtx<'_, '_>) -> Option<f64> {
                 BinaryOperator::ShiftRight => f64::from(left.to_int_32() >> shift),
                 BinaryOperator::ShiftRightZeroFill => f64::from(left.to_uint_32() >> shift),
                 _ => return None,
+            })
+        }
+        // `oxc_ecmascript` leaves `-(-0)` and `+(-1)` alone.
+        Expression::UnaryExpression(unary)
+            if matches!(
+                unary.operator,
+                UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus
+            ) && !matches!(unary.argument, Expression::NumericLiteral(_)) =>
+        {
+            let value = number(&unary.argument, eval)?;
+            Some(if unary.operator == UnaryOperator::UnaryNegation {
+                -value
+            } else {
+                value
             })
         }
         Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::BitwiseNot => {
@@ -211,6 +226,16 @@ fn short_circuits(element: &oxc_ast::ast::ChainElement<'_>, ctx: &TraverseCtx<'_
     }
 }
 
+/// `ToNumber` of a constant operand that isn't a bigint (bigint operators work differently).
+fn number(expression: &Expression<'_>, eval: &EvalCtx<'_, '_>) -> Option<f64> {
+    use oxc_ecmascript::ToNumber;
+    let value = expression.without_parentheses().evaluate_value(eval)?;
+    if value.is_big_int() {
+        return None;
+    }
+    value.to_number(eval)
+}
+
 impl Visitor<'_> {
     fn eval_ctx<'a, 's>(ctx: &'s TraverseCtx<'a, ()>) -> EvalCtx<'a, 's> {
         EvalCtx {
@@ -227,8 +252,14 @@ impl Visitor<'_> {
     }
 
     fn fold<'a>(&mut self, expression: &mut Expression<'a>, ctx: &mut TraverseCtx<'a, ()>) -> bool {
-        // Parentheses left around what a fold made a primary expression.
+        let slot = Slot::of(ctx);
+        if matches!(slot, Slot::Delete | Slot::Statement) {
+            return false;
+        }
+        // Parentheses left around what a fold made a primary expression (but `(eval)(…)` is
+        // an indirect eval).
         if let Expression::ParenthesizedExpression(paren) = expression
+            && !(slot == Slot::Callee && matches!(paren.expression, Expression::Identifier(_)))
             && matches!(
                 &paren.expression,
                 Expression::NumericLiteral(_)
@@ -255,14 +286,24 @@ impl Visitor<'_> {
             return false;
         }
         let span = expression.span();
+        let literal_ok = slot.admits(&Expression::new_null_literal(span, ctx), true);
+        let take = |branch: &mut Expression<'a>, ctx: &TraverseCtx<'a, ()>| {
+            slot.admits(branch, false).then(|| branch.take_in(&ctx.ast))
+        };
         let replacement = match expression {
-            Expression::ChainExpression(chain) if short_circuits(&chain.expression, ctx) => Some(
-                constant_expr(&trioxide_analysis::Constant::Undefined, span, ctx),
-            ),
+            Expression::ChainExpression(chain)
+                if literal_ok && short_circuits(&chain.expression, ctx) =>
+            {
+                Some(constant_expr(
+                    &trioxide_analysis::Constant::Undefined,
+                    span,
+                    ctx,
+                ))
+            }
             Expression::ConditionalExpression(conditional) => {
                 match Self::truthiness(&conditional.test, ctx) {
-                    Some(true) => Some(conditional.consequent.take_in(&ctx.ast)),
-                    Some(false) => Some(conditional.alternate.take_in(&ctx.ast)),
+                    Some(true) => take(&mut conditional.consequent, ctx),
+                    Some(false) => take(&mut conditional.alternate, ctx),
                     None => None,
                 }
             }
@@ -285,12 +326,12 @@ impl Visitor<'_> {
                     LogicalOperator::Or => Self::truthiness(&logical.left, ctx),
                 };
                 match left {
-                    Some(true) => Some(logical.left.take_in(&ctx.ast)),
-                    Some(false) => Some(logical.right.take_in(&ctx.ast)),
+                    Some(true) => take(&mut logical.left, ctx),
+                    Some(false) => take(&mut logical.right, ctx),
                     None => None,
                 }
             }
-            _ if is_inert(expression, ctx.scoping()) => {
+            _ if literal_ok && is_inert(expression, ctx.scoping()) => {
                 let value = int32(expression, &Self::eval_ctx(ctx))
                     .map(oxc_ecmascript::ConstantValue::Number)
                     .or_else(|| expression.evaluate_value(&Self::eval_ctx(ctx)));
@@ -303,7 +344,7 @@ impl Visitor<'_> {
         };
         match replacement {
             Some(replacement) => {
-                *expression = parenthesize_for(replacement, ctx);
+                *expression = slot.wrap(replacement, ctx);
                 self.decisions.applied(span);
                 true
             }

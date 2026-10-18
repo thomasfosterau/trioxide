@@ -346,13 +346,34 @@ read facts after a change. An import guard brackets both groups: when the passes
 import's last value use, the TypeScript strip would elide the whole declaration and its module
 might not run, so a side-effect `import "…"` is added in its place.
 
-Rules every pass follows: facts inside proven-unreachable code are not used; nodes a pass
-creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await` or `yield`
+**Specialisation** is opt-in (`passes: { "specialize": true }`). In a closed world a
+parameter's facts are whatever every caller passes, which can make a function's body constant
+(`y < height` becomes `y < 4`): sound, but it fights readable output and makes a `"use wasm"`
+kernel's glue disagree with its body. With it off, no fact is folded about an expression that
+reads a parameter, `this` or a local assigned from them, and DCE only removes unreachable code
+after a `return`/`throw`/`break`/`continue`; calls are still folded where they are made.
+
+**Islands.** The facade gives each module's passes a `trioxide_js::Keep`: exports of modules
+that define island functions stay (the `ready()` glue's JS fallback calls them by name, which no
+import shows), calls to island functions are not folded, and island functions are not
+removed; functions forced by `"use wasm"` or `@trioxide wasm` are never removed. After an
+update, modules that dropped unused exports are invalidated too, since the edit may now import
+one.
+
+**Termination** is not proven: a pure call that never returns (an infinite loop, a stack
+overflow) may be removed or folded, so the output can finish where the original didn't. This
+is accepted.
+
+Rules every pass follows: one helper (`Slot`) decides where a pass may rewrite, looking through
+parentheses and TypeScript-only wrappers: never a `delete` operand or a whole expression
+statement, never a value fold in a callee, never an identifier under `typeof`, and a member or
+`eval` replacing a callee becomes `(0, x)`; facts inside proven-unreachable code are not used;
+nodes a pass creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await` or `yield`
 are never dropped, whatever their purity says (binding `this` and suspending are not effects
 in the facts); `var` and function declarations are never removed with the branch or dead code
 that contains them while referenced; literals are printed as unary minus over a literal, and as
 `0 / 0`, `1 / 0`, `void 0` where `NaN`, `Infinity` or `undefined` is shadowed; strings over 32
-bytes are not copied into uses; detached comments (separated by a blank line) of a removed
+bytes, or with lone surrogates or invisible characters, are not copied into uses; detached comments (separated by a blank line) of a removed
 statement move to the next one.
 
 ---

@@ -1,0 +1,10 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/reexport-barrel
+input_file: tests/fixtures/passes/review/reexport-barrel/input.ts
+---
+//- input.ts
+4:15 inline applied
+2:1 imports applied
+//- hub.ts
+//- s1.ts

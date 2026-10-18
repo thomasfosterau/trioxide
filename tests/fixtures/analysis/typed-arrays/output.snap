@@ -6,8 +6,8 @@ input_file: tests/fixtures/analysis/typed-arrays/input.ts
 //- input.ts
 // Typed arrays: element types follow the kind, whatever is stored.
 function fill(target, value) {
-	for (let i = 0; i < 4; i++) {
-		target[i] = 300;
+	for (let i = 0; i < target.length; i++) {
+		target[i] = value;
 	}
 }
 export function main() {

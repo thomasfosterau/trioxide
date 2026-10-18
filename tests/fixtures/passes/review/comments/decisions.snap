@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/comments
+input_file: tests/fixtures/passes/review/comments/input.ts
+---
+//- input.ts
+6:7 inline applied
+6:3 fold applied
+2:7 dce applied

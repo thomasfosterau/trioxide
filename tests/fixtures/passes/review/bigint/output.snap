@@ -1,0 +1,24 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/bigint
+input_file: tests/fixtures/passes/review/bigint/input.ts
+---
+//- input.ts
+// Arithmetic that throws on bigints is not inert, however literal it looks.
+function attempt(name, run) {
+	try {
+		run();
+		return `${name}: ok`;
+	} catch (error) {
+		return `${name}: ${error.name}`;
+	}
+}
+export function main() {
+	console.log(attempt("plus", () => {
+		// @ts-ignore
+		+1n;
+	}), attempt("mixed", () => {
+		// @ts-ignore
+		1n + 1;
+	}), attempt("negate", () => {}), -1n, -2n);
+}

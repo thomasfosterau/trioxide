@@ -37,9 +37,9 @@ function shadowedNames(NaN, Infinity, Math) {
 		0 / 0,
 		1 / 0,
 		-(1 / 0),
-		25,
-		1,
-		2
+		Math.floor(2.5),
+		NaN,
+		Infinity
 	];
 }
 function negativeZero() {
@@ -61,6 +61,6 @@ function sideEffects() {
 }
 export function main() {
 	console.log(getters(), counter.reads, primitive(), hoisting());
-	console.log(shadowedNames(1, 2, { floor: (x) => 25 }));
+	console.log(shadowedNames(1, 2, { floor: (x) => x * 10 }));
 	console.log(negativeZero().map((x) => Object.is(x, -0)), sideEffects());
 }

@@ -23,7 +23,7 @@ use oxc_syntax::{
     symbol::SymbolId,
 };
 use oxc_traverse::{Ancestor, TraverseCtx};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_analysis::{Constant, Fact, Facts, Trust};
 use trioxide_common::{ModuleId, NodeId, NodeRef};
 use trioxide_types::Type;
@@ -104,7 +104,11 @@ pub fn weak(trust: Trust, what: &str) -> String {
 /// The single value every member of `ty` allows, if there is one.
 pub fn type_constant(ty: &Type) -> Option<Constant> {
     match ty {
-        Type::Number(number) => number.as_constant().map(Constant::Number),
+        // A zero is `-0` only when `non_neg_zero` is off, and then it isn't a single value;
+        // so a zero constant is `+0` whatever sign its interval bound has.
+        Type::Number(number) => number
+            .as_constant()
+            .map(|value| Constant::Number(if value == 0.0 { 0.0 } else { value })),
         Type::Null => Some(Constant::Null),
         Type::Undefined => Some(Constant::Undefined),
         _ => None,
@@ -267,10 +271,25 @@ pub fn constant_expr<'a, S>(
     }
 }
 
-/// Whether `constant` is short enough to copy into a use.
+/// Whether `constant` may be copied into a use: short enough, and (for strings) printable as
+/// written. Strings with invisible formatting characters (a BOM, zero-width or bidi marks)
+/// would read wrong, and U+FFFD is how oxc encodes lone surrogates, which would be corrupted.
 pub fn small_enough(constant: &Constant) -> bool {
+    let invisible = |c: char| {
+        matches!(
+            c,
+            '\u{00AD}'
+                | '\u{061C}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{2069}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFD}'
+        )
+    };
     match constant {
-        Constant::String(value) => value.len() <= MAX_STRING_BYTES,
+        Constant::String(value) => value.len() <= MAX_STRING_BYTES && !value.chars().any(invisible),
         Constant::BigInt(digits) => digits.len() <= MAX_STRING_BYTES,
         _ => true,
     }
@@ -316,7 +335,10 @@ pub fn parenthesize_for<'a, S>(
             | Ancestor::LogicalExpressionLeft(_)
             | Ancestor::LogicalExpressionRight(_)
     );
-    if compound && tight {
+    // `new (f())()` is not `new f()()`.
+    let call_under_new = matches!(expression, Expression::CallExpression(_))
+        && matches!(ctx.parent(), Ancestor::NewExpressionCallee(_));
+    if (compound && tight) || call_under_new {
         let span = expression.span();
         Expression::new_parenthesized_expression(span, expression, ctx)
     } else {
@@ -324,18 +346,92 @@ pub fn parenthesize_for<'a, S>(
     }
 }
 
-/// Whether the expression is a position whose value a rewrite must not change the identity of:
-/// a callee or tag (it decides `this`), a `delete` operand, or the whole of an expression
-/// statement (DCE removes those; a literal there could print as a directive).
-pub fn is_protected_position<S>(ctx: &TraverseCtx<'_, S>) -> bool {
-    match ctx.parent() {
-        Ancestor::CallExpressionCallee(_)
-        | Ancestor::NewExpressionCallee(_)
-        | Ancestor::TaggedTemplateExpressionTag(_)
-        | Ancestor::ExpressionStatementExpression(_)
-        | Ancestor::ChainExpressionExpression(_) => true,
-        Ancestor::UnaryExpressionArgument(unary) => *unary.operator() == UnaryOperator::Delete,
-        _ => false,
+/// What the expression being visited is to its context, looking through parentheses and
+/// TypeScript-only wrappers (`as`, `!`, `satisfies`, `<T>x`), which change nothing at run time.
+/// Every pass decides where it may rewrite through this (see [`Slot::admits`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    /// An ordinary value.
+    Value,
+    /// A callee or template tag: what it is decides `this`, and an `eval` callee makes a
+    /// direct eval.
+    Callee,
+    /// The operand of `typeof`: an identifier there doesn't throw when undeclared.
+    Typeof,
+    /// The operand of `delete`, which acts on the reference, not the value.
+    Delete,
+    /// A whole expression statement: DCE removes those, and a literal there could print as a
+    /// directive.
+    Statement,
+}
+
+impl Slot {
+    /// The slot of the expression `ctx` is visiting.
+    pub fn of<S>(ctx: &TraverseCtx<'_, S>) -> Self {
+        for ancestor in ctx.ancestors() {
+            return match ancestor {
+                Ancestor::ParenthesizedExpressionExpression(_)
+                | Ancestor::TSAsExpressionExpression(_)
+                | Ancestor::TSSatisfiesExpressionExpression(_)
+                | Ancestor::TSNonNullExpressionExpression(_)
+                | Ancestor::TSTypeAssertionExpression(_)
+                | Ancestor::TSInstantiationExpressionExpression(_) => continue,
+                Ancestor::CallExpressionCallee(_)
+                | Ancestor::NewExpressionCallee(_)
+                | Ancestor::TaggedTemplateExpressionTag(_) => Self::Callee,
+                Ancestor::UnaryExpressionArgument(unary) => match *unary.operator() {
+                    UnaryOperator::Delete => Self::Delete,
+                    UnaryOperator::Typeof => Self::Typeof,
+                    _ => Self::Value,
+                },
+                Ancestor::ExpressionStatementExpression(_) => Self::Statement,
+                _ => Self::Value,
+            };
+        }
+        Self::Value
+    }
+
+    /// Whether `replacement` may take the place of the visited expression. A `value` fold
+    /// (the expression becomes the literal it evaluates to) is never done in a callee, where
+    /// it would change the error a call of a non-function throws. A replacement that is an
+    /// identifier never goes under `typeof`, where an undeclared one would stop throwing a
+    /// temporal-dead-zone or reference error the original threw.
+    pub fn admits(self, replacement: &Expression<'_>, value: bool) -> bool {
+        match self {
+            Self::Value => true,
+            Self::Callee => !value,
+            Self::Typeof => !matches!(replacement.without_parentheses(), Expression::Identifier(_)),
+            Self::Delete | Self::Statement => false,
+        }
+    }
+
+    /// `replacement`, ready to take the visited expression's place: in a callee, a member
+    /// expression or `eval` becomes `(0, x)` so it keeps the original's `this` (undefined)
+    /// and stays an indirect eval; elsewhere it is parenthesised where precedence needs it.
+    pub fn wrap<'a, S>(
+        self,
+        replacement: Expression<'a>,
+        ctx: &TraverseCtx<'a, S>,
+    ) -> Expression<'a> {
+        let rebinds = match replacement.without_parentheses() {
+            Expression::StaticMemberExpression(_)
+            | Expression::ComputedMemberExpression(_)
+            | Expression::PrivateFieldExpression(_)
+            | Expression::ChainExpression(_) => true,
+            Expression::Identifier(ident) => ident.name == "eval",
+            _ => false,
+        };
+        if self == Self::Callee && rebinds {
+            let span = replacement.span();
+            let zero = Expression::new_numeric_literal(span, 0.0, None, NumberBase::Decimal, ctx);
+            let sequence = Expression::new_sequence_expression(
+                span,
+                oxc_allocator::ArenaVec::from_iter_in([zero, replacement], &ctx.ast),
+                ctx,
+            );
+            return Expression::new_parenthesized_expression(span, sequence, ctx);
+        }
+        parenthesize_for(replacement, ctx)
     }
 }
 
@@ -412,9 +508,8 @@ pub fn is_inert(expression: &Expression<'_>, scoping: &Scoping) -> bool {
                     is_inert(&unary.argument, scoping)
                 }
                 UnaryOperator::UnaryNegation | UnaryOperator::BitwiseNot => primitive,
-                UnaryOperator::UnaryPlus => {
-                    primitive && !matches!(unary.argument, Expression::BigIntLiteral(_))
-                }
+                // `+1n` throws.
+                UnaryOperator::UnaryPlus => primitive && !may_be_bigint(&unary.argument),
                 UnaryOperator::Delete => false,
             }
         }
@@ -451,17 +546,39 @@ fn is_primitive_inert(expression: &Expression<'_>, scoping: &Scoping) -> bool {
 
 /// Inert, a primitive and not a bigint (so arithmetic on it can't throw).
 fn is_number_like_inert(expression: &Expression<'_>, scoping: &Scoping) -> bool {
-    match expression.without_parentheses() {
-        Expression::BigIntLiteral(_) => false,
-        Expression::UnaryExpression(unary)
-            if matches!(
-                unary.argument.without_parentheses(),
-                Expression::BigIntLiteral(_)
-            ) =>
-        {
-            false
+    !may_be_bigint(expression) && is_primitive_inert(expression, scoping)
+}
+
+/// Whether the value of an expression over literals may be a bigint.
+fn may_be_bigint(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::BigIntLiteral(_) => true,
+        Expression::ParenthesizedExpression(paren) => may_be_bigint(&paren.expression),
+        Expression::UnaryExpression(unary) => match unary.operator {
+            UnaryOperator::UnaryNegation | UnaryOperator::BitwiseNot => {
+                may_be_bigint(&unary.argument)
+            }
+            _ => false,
+        },
+        Expression::BinaryExpression(binary) => {
+            !binary.operator.is_equality()
+                && !binary.operator.is_compare()
+                && !matches!(
+                    binary.operator,
+                    BinaryOperator::In | BinaryOperator::Instanceof
+                )
+                && (may_be_bigint(&binary.left) || may_be_bigint(&binary.right))
         }
-        other => is_primitive_inert(other, scoping),
+        Expression::LogicalExpression(logical) => {
+            may_be_bigint(&logical.left) || may_be_bigint(&logical.right)
+        }
+        Expression::ConditionalExpression(conditional) => {
+            may_be_bigint(&conditional.consequent) || may_be_bigint(&conditional.alternate)
+        }
+        Expression::SequenceExpression(sequence) => {
+            sequence.expressions.last().is_some_and(may_be_bigint)
+        }
+        _ => false,
     }
 }
 
@@ -571,8 +688,8 @@ pub fn has_dynamic_scope(program: &Program<'_>, scoping: &Scoping) -> bool {
 }
 
 /// Whether removing `statement` would remove a binding visible outside it: a `var`
-/// (hoisted to the function) anywhere in it outside nested functions, or a function
-/// declaration directly in it.
+/// (hoisted to the function) anywhere in it outside nested functions, a function declaration
+/// directly in it, or an import or export.
 pub fn declares_hoisted(statement: &Statement<'_>) -> bool {
     struct Find {
         found: bool,
@@ -601,7 +718,19 @@ pub fn declares_hoisted(statement: &Statement<'_>) -> bool {
             let _ = class;
         }
     }
-    if matches!(statement, Statement::FunctionDeclaration(_)) {
+    // Module declarations take effect wherever they are written: imports are linked and run
+    // first, and exports (an exported function is hoisted too) are the module's interface.
+    if matches!(
+        statement,
+        Statement::FunctionDeclaration(_)
+            | Statement::ImportDeclaration(_)
+            | Statement::ExportDeclaration(_)
+            | Statement::ExportNamedDeclaration(_)
+            | Statement::ExportFromDeclaration(_)
+            | Statement::ExportDefaultDeclaration(_)
+            | Statement::ExportAllDeclaration(_)
+            | Statement::TSExportAssignment(_)
+    ) {
         return true;
     }
     let mut find = Find { found: false };
@@ -657,3 +786,148 @@ impl<'a> GetAllocator<'a> for EvalCtx<'a, '_> {
 }
 
 impl<'a> ConstantEvaluationCtx<'a> for EvalCtx<'a, '_> {}
+
+/// The bindings whose values may come from a function's callers: parameters, and locals
+/// assigned (transitively) from expressions that read them or `this`. A fact about an
+/// expression reading one of these may hold only because every caller passes the same values,
+/// so folding it specialises the function to its callers (`passes.specialize`).
+pub fn caller_dependent(program: &Program<'_>, scoping: &Scoping) -> FxHashSet<SymbolId> {
+    let mut tainted: FxHashSet<SymbolId> = FxHashSet::default();
+    let mut flows: Vec<(Vec<SymbolId>, Vec<SymbolId>, bool)> = Vec::new();
+    {
+        struct Collect<'s> {
+            scoping: &'s Scoping,
+            parameters: Vec<SymbolId>,
+            flows: Vec<(Vec<SymbolId>, Vec<SymbolId>, bool)>,
+        }
+        impl<'a> Visit<'a> for Collect<'_> {
+            fn visit_formal_parameter(&mut self, parameter: &oxc_ast::ast::FormalParameter<'a>) {
+                parameter.pattern.all_binding_identifiers(&mut |ident| {
+                    self.parameters.push(ident.symbol_id());
+                    true
+                });
+                walk::walk_formal_parameter(self, parameter);
+            }
+
+            fn visit_variable_declarator(
+                &mut self,
+                declarator: &oxc_ast::ast::VariableDeclarator<'a>,
+            ) {
+                if let Some(init) = &declarator.init {
+                    let mut targets = Vec::new();
+                    declarator.id.all_binding_identifiers(&mut |ident| {
+                        targets.push(ident.symbol_id());
+                        true
+                    });
+                    let (reads, this) = reads_of(init, self.scoping);
+                    self.flows.push((targets, reads, this));
+                }
+                walk::walk_variable_declarator(self, declarator);
+            }
+
+            fn visit_assignment_expression(
+                &mut self,
+                assignment: &oxc_ast::ast::AssignmentExpression<'a>,
+            ) {
+                let mut targets = Vec::new();
+                collect_targets(&assignment.left, self.scoping, &mut targets);
+                if !targets.is_empty() {
+                    let (mut reads, this) = reads_of(&assignment.right, self.scoping);
+                    // `x += y` keeps x's old value in the mix.
+                    if assignment.operator != oxc_ast::ast::AssignmentOperator::Assign {
+                        reads.extend(targets.iter().copied());
+                    }
+                    self.flows.push((targets, reads, this));
+                }
+                walk::walk_assignment_expression(self, assignment);
+            }
+        }
+        let mut walk = Collect {
+            scoping,
+            parameters: Vec::new(),
+            flows: Vec::new(),
+        };
+        walk.visit_program(program);
+        tainted.extend(walk.parameters);
+        flows.append(&mut walk.flows);
+    }
+    loop {
+        let before = tainted.len();
+        for (targets, reads, this) in &flows {
+            if *this || reads.iter().any(|read| tainted.contains(read)) {
+                tainted.extend(targets.iter().copied());
+            }
+        }
+        if tainted.len() == before {
+            return tainted;
+        }
+    }
+}
+
+/// The program bindings `expression` reads, and whether it reads `this` (outside nested
+/// non-arrow functions, which have their own).
+fn reads_of(expression: &Expression<'_>, scoping: &Scoping) -> (Vec<SymbolId>, bool) {
+    struct Reads<'s> {
+        scoping: &'s Scoping,
+        symbols: Vec<SymbolId>,
+        this: bool,
+    }
+    impl<'a> Visit<'a> for Reads<'_> {
+        fn visit_identifier_reference(&mut self, ident: &IdentifierReference<'a>) {
+            if let Some(symbol) = ident
+                .reference_id
+                .get()
+                .and_then(|reference| self.scoping.get_reference(reference).symbol_id())
+            {
+                self.symbols.push(symbol);
+            }
+        }
+
+        fn visit_this_expression(&mut self, _: &oxc_ast::ast::ThisExpression) {
+            self.this = true;
+        }
+
+        fn visit_function(&mut self, _: &oxc_ast::ast::Function<'a>, _: ScopeFlags) {}
+    }
+    let mut reads = Reads {
+        scoping,
+        symbols: Vec::new(),
+        this: false,
+    };
+    reads.visit_expression(expression);
+    (reads.symbols, reads.this)
+}
+
+/// The identifiers an assignment target writes.
+fn collect_targets(
+    target: &oxc_ast::ast::AssignmentTarget<'_>,
+    scoping: &Scoping,
+    out: &mut Vec<SymbolId>,
+) {
+    struct Targets<'s, 'o> {
+        scoping: &'s Scoping,
+        out: &'o mut Vec<SymbolId>,
+    }
+    impl<'a> Visit<'a> for Targets<'_, '_> {
+        fn visit_identifier_reference(&mut self, ident: &IdentifierReference<'a>) {
+            if let Some(symbol) = ident
+                .reference_id
+                .get()
+                .and_then(|reference| self.scoping.get_reference(reference).symbol_id())
+            {
+                self.out.push(symbol);
+            }
+        }
+    }
+    Targets { scoping, out }.visit_assignment_target(target);
+}
+
+/// Whether evaluating `expression` reads `this` or one of `dependent`'s bindings.
+pub fn depends_on(
+    expression: &Expression<'_>,
+    dependent: &FxHashSet<SymbolId>,
+    scoping: &Scoping,
+) -> bool {
+    let (reads, this) = reads_of(expression, scoping);
+    this || reads.iter().any(|symbol| dependent.contains(symbol))
+}

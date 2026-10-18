@@ -1,0 +1,10 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/comments
+input_file: tests/fixtures/passes/review/comments/input.ts
+---
+//- input.ts
+export function main() {
+	// Only while debugging.
+	console.log("done");
+}

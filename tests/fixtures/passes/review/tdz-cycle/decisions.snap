@@ -1,0 +1,12 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/tdz-cycle
+input_file: tests/fixtures/passes/review/tdz-cycle/input.ts
+---
+//- input.ts
+//- e.ts
+7:10 inline skipped: the read may throw (e.g. in its temporal dead zone)
+7:10 fold skipped: the expression has effects, so it stays
+2:1 dce applied
+//- x.ts
+4:15 fold skipped: the expression has effects, so it stays

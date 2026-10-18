@@ -28,5 +28,5 @@ export function main() {
 //- util.ts
 // A non-entry module: exports no module imports are dropped (app world), then the bindings.
 export function used(x) {
-	return 2;
+	return x + 1;
 }

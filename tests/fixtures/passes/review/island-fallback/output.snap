@@ -1,0 +1,33 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/island-fallback
+input_file: tests/fixtures/passes/review/island-fallback/input.ts
+---
+//- input.ts
+import { run } from "./kernel.js";
+import { tagged } from "\0trioxide:island/kernel";
+// Runs at module evaluation, before `ready()`.
+const early = run(3);
+export function main() {
+	console.log(early, run(5), tagged(3, 4));
+}
+
+//- kernel.ts
+import { hot as hot$wasm } from "\0trioxide:island/kernel";
+// A forced island whose JS fallback the `ready()` glue calls by its exported name until the
+// WASM is instantiated, and whose callers must keep calling it.
+/** @trioxide wasm */
+export function hot(x) {
+	return x * 2 + 1;
+}
+/** @trioxide wasm */
+export function tagged(a, b) {
+	return a * b + 1;
+}
+export function run(n) {
+	let s = 0;
+	for (let i = 0; i < n; i++) {
+		s += hot$wasm(i);
+	}
+	return s;
+}

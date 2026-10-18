@@ -30,7 +30,7 @@ class Circle extends Shape {
 		this.radius = radius;
 	}
 	area() {
-		return Math.PI * 1;
+		return Math.PI * this.radius ** 2;
 	}
 	describe() {
 		return "circle, " + super.describe();

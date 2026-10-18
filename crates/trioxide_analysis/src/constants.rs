@@ -46,7 +46,7 @@ pub fn record(world: &World<'_>, links: &Links, options: &AnalysisOptions, facts
         if module.broken {
             continue;
         }
-        constant_bindings(module, facts);
+        constant_bindings(module, cycles[module.id.index()], facts);
     }
     for module in &world.modules {
         if module.broken {
@@ -63,11 +63,17 @@ pub fn record(world: &World<'_>, links: &Links, options: &AnalysisOptions, facts
 fn literal(module: &Module<'_>, expression: &Expression<'_>) -> Option<Constant> {
     Some(match expression {
         Expression::NumericLiteral(literal) => Constant::Number(literal.value),
-        Expression::StringLiteral(literal) => Constant::String(literal.value.to_string()),
+        // A lone surrogate is encoded lossily in `value`.
+        Expression::StringLiteral(literal) if !literal.lone_surrogates => {
+            Constant::String(literal.value.to_string())
+        }
         Expression::BooleanLiteral(literal) => Constant::Boolean(literal.value),
         Expression::NullLiteral(_) => Constant::Null,
         Expression::BigIntLiteral(literal) => Constant::BigInt(literal.value.to_string()),
-        Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
+        Expression::TemplateLiteral(template)
+            if template.expressions.is_empty()
+                && template.quasis.iter().all(|quasi| !quasi.lone_surrogates) =>
+        {
             Constant::String(template.quasis.first()?.value.cooked?.to_string())
         }
         Expression::Identifier(ident) if ident.name == "undefined" => {
@@ -108,8 +114,11 @@ fn is_literal(expression: &Expression<'_>) -> bool {
 }
 
 /// `const x = <literal>`: every read that doesn't throw (it may be in the temporal dead zone)
-/// sees the literal.
-fn constant_bindings(module: &Module<'_>, facts: &mut Facts) {
+/// sees the literal. A module-level one in an import cycle is left out: another module of the
+/// cycle may call code reading it before it is initialised, which throws, and the analysis
+/// doesn't always see that read as throwing.
+fn constant_bindings(module: &Module<'_>, in_cycle: bool, facts: &mut Facts) {
+    let scoping = module.semantic.scoping();
     for node in module.semantic.nodes().iter() {
         let AstKind::VariableDeclaration(declaration) = node.kind() else {
             continue;
@@ -130,6 +139,9 @@ fn constant_bindings(module: &Module<'_>, facts: &mut Facts) {
                 continue;
             }
             if let (Some(symbol), Some(value)) = (ident.symbol_id.get(), literal(module, init)) {
+                if in_cycle && scoping.symbol_scope_id(symbol) == scoping.root_scope_id() {
+                    continue;
+                }
                 facts.set_symbol_constant(module.symbol(symbol), value);
             }
         }
@@ -508,7 +520,7 @@ fn unused_exports(world: &World<'_>, links: &Links, options: &AnalysisOptions, f
     }
     let open = crate::interp::open_modules(world, options);
     let exposed = exposed_modules(world, links);
-    let imported: FxHashSet<SymbolRef> = links
+    let mut imported: FxHashSet<SymbolRef> = links
         .imports()
         .into_iter()
         .filter_map(|(_, target)| match target {
@@ -516,6 +528,31 @@ fn unused_exports(world: &World<'_>, links: &Links, options: &AnalysisOptions, f
             _ => None,
         })
         .collect();
+    // `export { x } from "…"` links its module to the export whether or not anything imports
+    // the re-export: removing the export would make it fail to link.
+    for module in &world.modules {
+        for entry in &module.record.indirect_export_entries {
+            let oxc_syntax::module_record::ExportImportName::Name(name) = &entry.import_name else {
+                continue;
+            };
+            let Some(Some(target)) = entry
+                .module_request
+                .as_ref()
+                .map(|request| module.imports.get(request.name.as_str()).copied().flatten())
+            else {
+                continue;
+            };
+            let resolved = crate::link::resolve_export(
+                world,
+                world.module(target),
+                name.name.as_str(),
+                &mut FxHashSet::default(),
+            );
+            if let Target::Symbol(symbol) = resolved {
+                imported.insert(symbol);
+            }
+        }
+    }
     let mut unused = FxHashMap::default();
     for module in &world.modules {
         if module.broken

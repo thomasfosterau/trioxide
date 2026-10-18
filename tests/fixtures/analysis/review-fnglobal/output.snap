@@ -9,7 +9,7 @@ function patch() {
 	g.Math.floor = () => "patched";
 }
 function use(x) {
-	return Math.floor(1.5);
+	return Math.floor(x);
 }
 export function main() {
 	patch();

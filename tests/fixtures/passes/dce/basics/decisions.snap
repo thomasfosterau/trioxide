@@ -17,16 +17,17 @@ input_file: tests/fixtures/passes/dce/basics/input.ts
 31:9 dce applied
 32:3 dce applied
 33:3 dce applied
-5:1 dce skipped: unreachable, but declares a `var` or function, which are visible before it
+5:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
 5:1 dce applied
 3:1 imports applied
 //- util.ts
-3:10 inline applied
-3:10 fold applied
+3:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+3:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+3:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 6:1 dce applied
 10:1 dce applied
 13:10 dce applied
-6:8 dce skipped: unreachable, but declares a `var` or function, which are visible before it
+6:8 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
 6:8 dce applied
 10:14 dce applied
 12:7 dce applied

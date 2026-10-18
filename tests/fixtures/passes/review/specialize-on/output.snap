@@ -1,0 +1,31 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/specialize-on
+input_file: tests/fixtures/passes/review/specialize-on/input.ts
+---
+//- input.ts
+function bounded(arr) {
+	let total = 0;
+	for (let i = 0; i <= 1; i++) {
+		total += arr[i];
+	}
+	return total;
+}
+class Point {
+	x;
+	y;
+	constructor(x, y) {
+		this.x = x;
+		this.y = y;
+	}
+	/** The distance from the origin. */
+	length() {
+		return 5;
+	}
+}
+function guard(n) {
+	return "big";
+}
+export function main() {
+	console.log(3, bounded([1, 2]), new Point(3, 4).length(), 25, guard(4));
+}

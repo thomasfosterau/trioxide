@@ -1,0 +1,15 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/island-fallback
+input_file: tests/fixtures/passes/review/island-fallback/input.ts
+---
+//- input.ts
+5:30 fold skipped: calls a WASM island function, which stays a call
+//- kernel.ts
+10:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+10:14 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+10:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+10:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+10:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+10:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+4:1 dce skipped: unused, but a WASM island's glue may call it
