@@ -1,0 +1,51 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/tdz-cycle
+input_file: tests/fixtures/analysis/tdz-cycle/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (5:8) open: reads writes allocates throws calls-unknown
+    calls 6:22 -> getN (m1)
+nodes:
+  3:10 bind `early`: unknown
+  3:17 bind `getN`: unknown
+  5:17 bind `main`: function@proven
+  6:3 call `console.log(early, getN(3))`: unknown
+  6:3 member `console.log`: unknown
+  6:3 ref `console`: unknown
+  6:15 ref `early`: number[-2, 15] int nonNaN nonNegZero@proven
+  6:22 call `getN(3)`: number[10, 15] int nonNaN nonNegZero@proven
+  6:22 ref `getN`: function@proven
+
+//- kernel.ts
+functions:
+  <module> (1:1): pure
+  getN (5:8): throws
+nodes:
+  1:10 bind `early`: unknown
+  3:7 bind `N`: 5@proven
+  5:17 bind `getN`: function@proven
+  5:22 bind `i`: number[2, 3] int nonNaN nonNegZero@proven
+  6:10 binary `N * i`: number[10, 15] int nonNaN nonNegZero@proven
+  6:10 ref `N`: 5@proven
+  6:14 ref `i`: number[2, 3] int nonNaN nonNegZero@proven
+  9:10 ref `early`: unknown
+
+//- cycle.ts
+functions:
+  <module> (1:1): reads throws
+    calls 5:11 -> getN (m1)
+nodes:
+  1:10 bind `getN`: unknown
+  3:5 bind `early`: -1@proven
+  3:13 unary `-1`: -1@proven
+  5:3 assign `early = getN(2)`: number[10, 15] int nonNaN nonNegZero@proven
+  5:3 ref `early`: number[10, 15] int nonNaN nonNegZero@proven
+  5:11 call `getN(2)`: number[10, 15] int nonNaN nonNegZero@proven
+  5:11 ref `getN`: function@proven
+  7:3 assign `early = -2`: -2@proven
+  7:3 ref `early`: -2@proven
+  7:11 unary `-2`: -2@proven
+  10:10 ref `early`: unknown

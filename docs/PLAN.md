@@ -205,10 +205,17 @@ back to TS where it knows nothing:
 - *Temporal dead zones.* Reading a `let`/`const`/`class` binding before its declaration
   runs throws: in its own unit when the read comes first in the text (or in a `switch`), in
   another unit when the declaring unit may call out before the declaration, and across an
-  import cycle.
+  import cycle. A module's own bindings count as not yet declared from its first line when
+  another module of its cycle may run while it waits for its imports, and so call back into
+  it (simulated depth-first in request order from each module the host may load first, with
+  and without TypeScript's elision of type-only imports; from every module when the program
+  has a dynamic `import()`).
 - *Convergence.* Whole-program entries that still change after 20 rounds are given up (set
-  to "any value", their objects escaping), so the run always reaches a fixed point and only
-  facts depending on those entries are lost, with a warning.
+  to "any value", their objects escaping, their flags to "anything may happen" for good), so
+  the run always reaches a fixed point and only facts depending on those entries are lost,
+  with a warning. The 40-round "no facts at all" backstop is a last resort no program in the
+  test corpus reaches (a test checks). Array lengths only go from unset to known to
+  unknown, never back.
 - *Effects* are computed twice, once counting only `Proven` facts and once counting
   `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;

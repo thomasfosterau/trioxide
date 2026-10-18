@@ -1,0 +1,30 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/tdz-cycle
+input_file: tests/fixtures/analysis/tdz-cycle/input.ts
+---
+//- input.ts
+// A module-level `const` read through an import cycle before its module has run: `kernel.ts`
+// imports `cycle.ts`, which runs first and calls `getN` before `N` is initialised.
+import { early, getN } from "./kernel.js";
+export function main() {
+	console.log(early, getN(3));
+}
+
+//- kernel.ts
+import { early } from "./cycle.js";
+const N = 5;
+export function getN(i) {
+	return N * i;
+}
+export { early };
+
+//- cycle.ts
+import { getN } from "./kernel.js";
+let early = -1;
+try {
+	early = getN(2);
+} catch {
+	early = -2;
+}
+export { early };
