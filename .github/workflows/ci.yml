@@ -71,3 +71,8 @@ jobs:
           TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
           TRIOXIDE_EVERY_CLUSTER: '1'
         run: pnpm --filter trioxide-differential exec node --test differential.test.js
+      - name: Conformance smoke (vendored libraries, their tests and the stripped build)
+        env:
+          TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
+          TRIOXIDE_CONFORMANCE: '1'
+        run: pnpm --filter trioxide-conformance test
