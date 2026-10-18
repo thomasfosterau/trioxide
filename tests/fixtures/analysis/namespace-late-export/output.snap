@@ -1,0 +1,21 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/namespace-late-export
+input_file: tests/fixtures/analysis/namespace-late-export/input.ts
+---
+//- input.ts
+// A module namespace that escapes (here through a dynamic import) before the module's own
+// body has run: the functions it exports are hoisted later in the analysis, and unknown code
+// can still reach and call them through it.
+globalThis["run"] = (lib) => lib.twice("from unknown code");
+export async function main() {
+	const lib = await import("./lib.js");
+	const run = globalThis["run"];
+	console.log(run(lib), lib.two);
+}
+
+//- lib.ts
+export function twice(x) {
+	return x + x;
+}
+export const two = twice(1);

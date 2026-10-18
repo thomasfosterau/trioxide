@@ -438,8 +438,21 @@ impl<'s> Tables<'s> {
             return;
         };
         let mut pending: Vec<AllocId> = sites.to_vec();
+        let mut walked: Vec<ModuleId> = Vec::new();
         while let Some(site) = pending.pop() {
-            if self.obj(site).is_none_or(|obj| obj.escape >= level) {
+            let Some(obj) = self.obj(site) else {
+                continue;
+            };
+            if obj.escape >= level {
+                // A namespace reaches exports its module may have written since it escaped.
+                if let ObjKind::Namespace(module) = obj.kind
+                    && !walked.contains(&module)
+                {
+                    walked.push(module);
+                    let mut exported = Vec::new();
+                    self.exported_values(cx, module, &mut exported, &mut FxHashSet::default());
+                    pending.extend(exported);
+                }
                 continue;
             }
             let obj = self.obj_mut(site).expect("the site exists");
@@ -462,7 +475,10 @@ impl<'s> Tables<'s> {
                 self.touched.push(Dep::Heap(class));
             }
             // A namespace object reaches every export.
-            if let ObjKind::Namespace(module) = kind {
+            if let ObjKind::Namespace(module) = kind
+                && !walked.contains(&module)
+            {
+                walked.push(module);
                 let mut exported = Vec::new();
                 self.exported_values(cx, module, &mut exported, &mut FxHashSet::default());
                 pending.extend(exported);

@@ -1472,10 +1472,13 @@ impl<'w, 'a> Analyzer<'w, 'a> {
 
     /// Marks every site in `pts` (and what it reaches) as escaping at least to `level`.
     pub fn escape(&mut self, pts: &Pts, level: Escape) {
+        // A namespace that escaped already still takes the exports written since.
         let needed = pts.sites().is_some_and(|sites| {
-            sites
-                .iter()
-                .any(|&site| self.tables.obj(site).is_some_and(|obj| obj.escape < level))
+            sites.iter().any(|&site| {
+                self.tables.obj(site).is_some_and(|obj| {
+                    obj.escape < level || matches!(obj.kind, ObjKind::Namespace(_))
+                })
+            })
         });
         if needed {
             self.write(tables::Op::Escape(pts.clone(), level));
