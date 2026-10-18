@@ -1,0 +1,56 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/hidden-class/basics
+input_file: tests/fixtures/passes/hidden-class/basics/input.ts
+---
+//- input.ts
+// Positive cases: properties instances get late, or only sometimes, become fields declared up
+// front, and `delete` of a property becomes an assignment of `undefined`.
+class Particle {
+	x;
+	y;
+	boost = undefined;
+	constructor(x, y) {
+		this.x = x;
+		this.y = y;
+		// Only some particles get a boost: a second hidden class.
+		if (x > 1) {
+			this.boost = x;
+		}
+	}
+}
+class Entry {
+	key;
+	value = undefined;
+	constructor(key) {
+		this.key = key;
+	}
+}
+function simulate() {
+	let total = 0;
+	for (let i = 0; i < 4; i++) {
+		const p = new Particle(i, i * 2);
+		total += p.x + p.y + (p.boost ?? 0);
+	}
+	return total;
+}
+function cache() {
+	const entries = [];
+	for (let i = 0; i < 3; i++) {
+		const e = new Entry(`k${i}`);
+		e.value = i * 10;
+		entries.push(e);
+	}
+	const first = entries[0];
+	// Deleting turns an object into a slow dictionary; assigning `undefined` doesn't.
+	first.value = undefined;
+	let out = "";
+	for (let i = 0, length = entries.length; i < length; i++) {
+		const e = entries[i];
+		out += `${e.key}=${e.value} `;
+	}
+	return out;
+}
+export function main() {
+	console.log(simulate(), cache());
+}

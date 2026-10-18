@@ -1,0 +1,29 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/for-of/declared-trusted
+input_file: tests/fixtures/passes/for-of/declared-trusted/input.ts
+---
+//- input.ts
+// With trustTypes, Declared array types count as proof: the loop is indexed and the tuple
+// spread is written out. Nothing says the copied array has no holes, so it stays a spread.
+export function sum(values) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) {
+		const value = values[i];
+		total += value;
+	}
+	return total;
+}
+export function plot(point) {
+	return Math.hypot(point[0], point[1]);
+}
+export function copy(values) {
+	return [...values];
+}
+export function main() {
+	console.log(sum([
+		1,
+		2,
+		3
+	]), plot([3, 4]), copy([5]));
+}

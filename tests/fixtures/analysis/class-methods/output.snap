@@ -38,7 +38,8 @@ class Circle extends Shape {
 }
 function total(shapes) {
 	let sum = 0;
-	for (const shape of shapes) {
+	for (let i = 0, length = shapes.length; i < length; i++) {
+		const shape = shapes[i];
 		sum += shape.area();
 	}
 	return sum;

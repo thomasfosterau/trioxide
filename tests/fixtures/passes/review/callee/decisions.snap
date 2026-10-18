@@ -9,3 +9,4 @@ input_file: tests/fixtures/passes/review/callee/input.ts
 15:13 fold applied
 48:11 fold applied
 46:9 dce applied
+3:7 hidden-class skipped: the class's instances may reach code the analysis doesn't see

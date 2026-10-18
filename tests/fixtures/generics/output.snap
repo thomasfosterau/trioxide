@@ -20,7 +20,8 @@ class Version {
 }
 function max(items) {
 	let best;
-	for (const item of items) {
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
 		if (best === undefined || item.compareTo(best) > 0) best = item;
 	}
 	return best;
@@ -41,7 +42,10 @@ class Stack {
 const swap = ([a, b]) => [b, a];
 function groupBy(items, key) {
 	const groups = {};
-	for (const item of items) (groups[key(item)] ??= []).push(item);
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
+		(groups[key(item)] ??= []).push(item);
+	}
 	return groups;
 }
 export function main() {

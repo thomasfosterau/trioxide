@@ -1,0 +1,10 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/hidden-class/basics
+input_file: tests/fixtures/passes/hidden-class/basics/input.ts
+---
+//- input.ts
+4:7 hidden-class applied
+21:7 hidden-class applied
+46:3 hidden-class applied
+48:3 for-of applied

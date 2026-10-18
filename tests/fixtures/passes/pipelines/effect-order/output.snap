@@ -1,0 +1,81 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/pipelines/effect-order
+input_file: tests/fixtures/passes/pipelines/effect-order/input.ts
+---
+//- input.ts
+// Adversarial: fusing runs callbacks element by element. That is only allowed when the order
+// can't be observed.
+const log = [];
+function note(tag, value) {
+	log.push(`${tag}${value}`);
+	return value;
+}
+function twoEffects() {
+	const values = [
+		1,
+		2,
+		3
+	];
+	// Both callbacks log: the chain stays, so the log reads f1 f2 f3 g2 g4 g6.
+	return values.map((x) => note("f", x)).map((x) => note("g", x * 2));
+}
+function firstEffect() {
+	const values = [
+		1,
+		2,
+		3
+	];
+	// Only the first callback has effects and the second reads nothing: fused.
+	let result = 0;
+	for (let i = 0, length = values.length; i < length; i++) {
+		if (!(i in values)) continue;
+		const x = values[i];
+		const x2 = note("h", x);
+		if (!(x2 !== 2)) continue;
+		result = result + x2;
+	}
+	return result;
+}
+function lastEffect() {
+	const values = [4, 5];
+	// Only the last callback has effects, and the analysis can't rule out that they reach the
+	// array (the builtin hands it to every callback): the chain stays.
+	values.map((x) => x + 1).forEach((x) => {
+		note("k", x);
+	});
+}
+function observer() {
+	const values = [
+		1,
+		2,
+		3
+	];
+	let calls = 0;
+	// The second callback reads what the first writes: the chain stays.
+	return values.map((x) => {
+		calls++;
+		return x;
+	}).map(() => calls);
+}
+function throws() {
+	const values = [
+		1,
+		2,
+		3
+	];
+	try {
+		values.map((x) => note("t", x)).forEach((x) => {
+			if (x === 1) throw new Error(`stop at ${x}`);
+		});
+		return "done";
+	} catch (error) {
+		return error.message;
+	}
+}
+export function main() {
+	console.log(twoEffects(), firstEffect());
+	lastEffect();
+	console.log(observer(), throws());
+	console.log(log.join(" "));
+}

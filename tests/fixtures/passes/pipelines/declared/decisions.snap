@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/declared
+input_file: tests/fixtures/passes/pipelines/declared/input.ts
+---
+//- input.ts
+5:10 pipelines skipped: the array's type is only Declared (trustTypes is off)
+9:10 pipelines skipped: the array's type is only Declared (trustTypes is off)

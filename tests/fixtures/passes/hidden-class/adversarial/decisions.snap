@@ -1,0 +1,13 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/hidden-class/adversarial
+input_file: tests/fixtures/passes/hidden-class/adversarial/input.ts
+---
+//- input.ts
+19:15 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+58:10 fold applied
+58:36 fold skipped: the expression has effects, so it stays
+3:7 hidden-class skipped: the class's instances may reach code the analysis doesn't see
+12:7 hidden-class skipped: code may observe its instances' keys (`Object.keys`, `for…in`, `in`, spread, …), or the class is extended
+16:7 hidden-class skipped: `describe` is on the prototype chain, so declaring it would hide it
+42:3 hidden-class skipped: the class isn't one whose instances' keys are proven unobserved

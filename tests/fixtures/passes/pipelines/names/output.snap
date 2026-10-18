@@ -1,0 +1,126 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/pipelines/names
+input_file: tests/fixtures/passes/pipelines/names/input.ts
+---
+//- input.ts
+// Adversarial: inlined callbacks share one loop body, so their bindings must not capture each
+// other's names, the loop's, or the receiver's.
+function shadows() {
+	const values = [
+		1,
+		2,
+		3,
+		4,
+		5,
+		6
+	];
+	// The `map` parameter `x` would hide the outer `x` the `filter` reads.
+	let result = 0;
+	for (let i = 0, length = values.length; i < length; i++) {
+		const x = values[i];
+		const y = x * 2;
+		if (!(y > 10)) continue;
+		result = result + y;
+	}
+	return result;
+}
+function receiverName() {
+	const values = [1, 2];
+	// A parameter named like the receiver.
+	const result = [];
+	for (let i = 0, length = values.length; i < length; i++) {
+		const values2 = values[i];
+		result.push(values2 * 3);
+	}
+	return result;
+}
+function indexName() {
+	const values = [1, 2];
+	// The callback reads an outer `i`: the loop's index can't be called that.
+	const result = [];
+	for (let j = 0, length = values.length; j < length; j++) {
+		const v = values[j];
+		result.push(v + 100);
+	}
+	return result;
+}
+function sameNames() {
+	const values = [
+		3,
+		4,
+		5
+	];
+	// Every callback calls its element `v`, and declares a `t`.
+	let result = 0;
+	for (let i = 0, length = values.length; i < length; i++) {
+		const v = values[i];
+		const t = v * 2;
+		const v2 = t;
+		const t2 = v2 > 6;
+		if (!t2) continue;
+		const t3 = result + v2;
+		result = t3;
+	}
+	return result;
+}
+function captured() {
+	const makers = [];
+	const values = [
+		1,
+		2,
+		3
+	];
+	// Closures in the callback capture each element's own binding.
+	for (let i = 0, length = values.length; i < length; i++) {
+		if (!(i in values)) continue;
+		const v = values[i];
+		makers.push(() => v * 10);
+	}
+	const result = [];
+	for (let i = 0, length = makers.length; i < length; i++) {
+		const make = makers[i];
+		result.push(make());
+	}
+	return result;
+}
+function accumulatorCaptured() {
+	const values = [
+		1,
+		2,
+		3
+	];
+	const seen = [];
+	// A closure captures the accumulator parameter: it keeps its own binding.
+	let total = 0;
+	for (let i = 0, length = values.length; i < length; i++) {
+		if (!(i in values)) continue;
+		const v = values[i];
+		const acc = total;
+		seen.push(() => acc);
+		total = acc + v;
+	}
+	return total * 100 + seen.map((f) => f()).reduce((a, b) => a + b, 0);
+}
+function reassignedParam() {
+	const values = [
+		1,
+		2,
+		3
+	];
+	// The callback reassigns its parameter, which then can't stand for the element.
+	const result = [];
+	for (let i = 0, length = values.length; i < length; i++) {
+		const item = values[i];
+		let v = item;
+		v = v * 10;
+		if (!(v > 10)) continue;
+		const v2 = item;
+		result.push(v2 + 1);
+	}
+	return result;
+}
+export function main() {
+	console.log(shadows(), receiverName(), indexName(), sameNames());
+	console.log(captured(), accumulatorCaptured(), reassignedParam());
+}

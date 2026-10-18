@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/for-of/declared-trusted
+input_file: tests/fixtures/passes/for-of/declared-trusted/input.ts
+---
+//- input.ts
+6:3 for-of applied
+11:21 for-of applied
+15:11 for-of skipped: the array may have holes, which a spread reads as `undefined`

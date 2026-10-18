@@ -1,0 +1,104 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/pipelines/adversarial
+input_file: tests/fixtures/passes/pipelines/adversarial/input.ts
+---
+//- input.ts
+// Adversarial: chains that must stay calls (or keep their exact semantics).
+function thisArg() {
+	const scale = { by: 3 };
+	// A function callback reads `this`, which the `thisArg` sets.
+	return [1, 2].map(function(x) {
+		return x * this.by;
+	}, scale);
+}
+function selfReference() {
+	// A named function expression that calls itself.
+	return [3, 4].map(function fact(n) {
+		return n <= 1 ? 1 : n * fact(n - 1);
+	});
+}
+function usesArguments() {
+	return [5, 6].map(function() {
+		// eslint-disable-next-line prefer-rest-params
+		return arguments.length;
+	});
+}
+function intermediate() {
+	// The second callback receives the intermediate array.
+	return [
+		1,
+		2,
+		3
+	].map((x) => x * 2).map((x, i, all) => x + all.length);
+}
+function afterFilter() {
+	// The index after a `filter` is the filtered array's.
+	return [
+		5,
+		6,
+		7
+	].filter((x) => x !== 6).map((x, i) => x * 10 + i);
+}
+function startIndex() {
+	return [
+		1,
+		2,
+		3
+	].includes(1, 1);
+}
+function zeros() {
+	const xs = [-0, NaN];
+	// SameValueZero: -0 equals 0, and NaN equals NaN.
+	let zero = false;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const item = xs[i];
+		if (item === 0) {
+			zero = true;
+			break;
+		}
+	}
+	let nan = false;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const item = xs[i];
+		if (item === NaN || item !== item && true) {
+			nan = true;
+			break;
+		}
+	}
+	return [
+		zero,
+		nan,
+		xs.indexOf(NaN) === -1
+	];
+}
+function tdz() {
+	try {
+		// The callback reads the binding the chain initialises, in its temporal dead zone.
+		const t = [1].map(() => t.length);
+		return String(t);
+	} catch (error) {
+		return error instanceof ReferenceError ? "ReferenceError" : "other";
+	}
+}
+function asyncCallback() {
+	const promises = [1, 2].map(async (x) => x);
+	return promises.length;
+}
+function earlyReturn() {
+	return [
+		1,
+		2,
+		3
+	].map((x) => {
+		if (x === 2) {
+			return 0;
+		}
+		return x;
+	});
+}
+export function main() {
+	console.log(thisArg());
+	console.log(selfReference(), usesArguments(), intermediate(), afterFilter());
+	console.log(startIndex(), zeros(), tdz(), asyncCallback(), earlyReturn());
+}

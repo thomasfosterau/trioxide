@@ -1,0 +1,21 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/adversarial
+input_file: tests/fixtures/passes/pipelines/adversarial/input.ts
+---
+//- input.ts
+7:16 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+14:12 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+14:12 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
+6:10 pipelines skipped: the callback uses its own `this`, `arguments` or `new.target`
+13:10 pipelines skipped: the callback refers to itself by name
+19:10 pipelines skipped: the callback uses its own `this`, `arguments` or `new.target`
+27:10 pipelines skipped: a callback after the first declares the array parameter (an intermediate array)
+32:10 pipelines skipped: a callback after a `filter` declares the index parameter
+36:10 pipelines skipped: `includes` has a start index
+42:16 pipelines applied
+43:15 pipelines applied
+50:25 pipelines skipped: the chain reads the binding it initialises
+58:20 pipelines skipped: the callback is async
+63:10 pipelines skipped: the callback returns from somewhere other than its last statement
+1:1 simplify applied

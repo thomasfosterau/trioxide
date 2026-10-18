@@ -11,7 +11,13 @@ function mapped() {
 		3
 	];
 	a.length = 5;
-	return a.map((x) => x * 2);
+	const result = new Array(a.length);
+	for (let i = 0, length = a.length; i < length; i++) {
+		if (!(i in a)) continue;
+		const x = a[i];
+		result[i] = x * 2;
+	}
+	return result;
 }
 function sliced() {
 	const a = new Array(3);

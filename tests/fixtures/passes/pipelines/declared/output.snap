@@ -1,0 +1,21 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/pipelines/declared
+input_file: tests/fixtures/passes/pipelines/declared/input.ts
+---
+//- input.ts
+// Negative cases: in the library world an exported function's parameters are only Declared,
+// so nothing proves the array is a plain one (it could be a subclass or a proxy).
+export function total(values) {
+	return values.map((x) => x * 2).reduce((s, x) => s + x, 0);
+}
+export function names(people) {
+	return people.map((p) => p.name);
+}
+export function main() {
+	console.log(total([
+		1,
+		2,
+		3
+	]), names([{ name: "a" }]));
+}

@@ -73,6 +73,12 @@ export function main() {
 		31,
 		32
 	];
-	for (const a of xs) for (const b of xs) ops(a, b, "  -12.5e3 ");
+	for (let i = 0; i < xs.length; i++) {
+		const a = xs[i];
+		for (let j = 0; j < xs.length; j++) {
+			const b = xs[j];
+			ops(a, b, "  -12.5e3 ");
+		}
+	}
 	console.log(inc(9007199254740992), inc(1));
 }

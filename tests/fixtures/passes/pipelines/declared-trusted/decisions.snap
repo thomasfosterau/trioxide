@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/declared-trusted
+input_file: tests/fixtures/passes/pipelines/declared-trusted/input.ts
+---
+//- input.ts
+5:10 pipelines skipped: `map` may run code the analysis doesn't see
+9:10 pipelines skipped: `map` may run code the analysis doesn't see

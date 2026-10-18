@@ -1,0 +1,12 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/effect-order
+input_file: tests/fixtures/passes/pipelines/effect-order/input.ts
+---
+//- input.ts
+53:49 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+14:10 pipelines skipped: more than one callback has effects
+20:10 pipelines applied
+30:3 pipelines skipped: the last callback has effects, which may change elements earlier stages read
+39:10 pipelines skipped: the first callback has effects, which a later one may observe
+50:5 pipelines skipped: more than one callback has effects

@@ -84,6 +84,14 @@ pub fn facts(
             interp::Escape::Known => Escape::Known,
             interp::Escape::Unknown => Escape::Unknown,
         };
+        if obj.kind == ObjKind::Array
+            && !obj.holey
+            && !obj.poisoned
+            && !obj.given_up
+            && obj.escape != interp::Escape::Unknown
+        {
+            facts.set_packed(site);
+        }
         let stable = !obj.dynamic
             && !obj.deleted
             && obj.added.is_empty()
@@ -97,6 +105,8 @@ pub fn facts(
             },
         );
     }
+    facts.set_patched(interp::patched_builtins(world));
+    facts.set_unobserved_classes(crate::observe::unobserved_classes(world, results));
     for &class in world.classes.keys() {
         let sites = instances.get(&class).cloned().unwrap_or_default();
         let fields = crate::shapes::definite_fields(world, class);

@@ -561,7 +561,7 @@ pub fn run(
 /// prototype. Any way of reaching a builtin prototype without naming it (`__proto__`,
 /// `Object.getPrototypeOf`, `.constructor`, `X.prototype` of anything but a program class,
 /// `Reflect`, `Function`, `eval`) turns every model off.
-fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
+pub(crate) fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
     use oxc_ast::AstKind;
     const GLOBAL_OBJECTS: [&str; 4] = ["globalThis", "window", "self", "global"];
     /// Globals that reach any object, the global object or a builtin prototype.

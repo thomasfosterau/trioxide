@@ -1,0 +1,80 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/licm/basics
+input_file: tests/fixtures/passes/licm/basics/input.ts
+---
+//- input.ts
+// Positive cases: invariant work moves out of loops, under readable names.
+function build(n) {
+	const values = [];
+	for (let i = 0; i < n; i++) values.push(i * i);
+	return values;
+}
+function scale(factor) {
+	const values = build(4);
+	const out = [];
+	// `values.length` (the loop resizes `out`, not `values`) and `Math.sqrt(factor)` move into
+	// the loop's head.
+	for (let i = 0, valuesLength = values.length, sqrtFactor = Math.sqrt(factor); i < valuesLength; i++) {
+		out.push(values[i] * sqrtFactor);
+	}
+	return out.join();
+}
+function countdown() {
+	const items = build(3);
+	const labels = [];
+	for (let j = 0, length = items.length; j < length; j++) {
+		const n = items[j];
+		labels.push(`#${n}`);
+	}
+	let i = labels.length;
+	let out = "";
+	// A `while` test: hoisted right before the loop.
+	const hoistedLabelsLength = labels.length - 3;
+	while (i > hoistedLabelsLength) {
+		i--;
+		out += labels[i] + " ";
+	}
+	return out;
+}
+function atLeastOnce(limit) {
+	const steps = build(limit);
+	let total = 0;
+	let k = 0;
+	// A `do…while` body runs before the first test: its invariants move before the loop.
+	const stepsLength = steps.length;
+	do {
+		total += stepsLength;
+		k++;
+	} while (k < 3);
+	return total;
+}
+function nested() {
+	const rows = [build(2), build(3)];
+	const weights = build(5);
+	let total = 0;
+	// `weights.length` is invariant in both loops: it moves out of the outer one.
+	rows: for (let r = 0, weightsLength = weights.length; r < 2; r++) {
+		for (let c = 0; c < weightsLength; c++) {
+			if (c === 4) continue rows;
+			total += weights[c] * r;
+		}
+	}
+	return total;
+}
+class Grid {
+	width = 3;
+	height = 2;
+	cells = [];
+	fill() {
+		// The loop writes an object (`cells`), so the analysis can't tell `this.width` stays the
+		// same: it stays in the test.
+		for (let y = 0; y < this.height; y++) {
+			for (let x = 0; x < this.width; x++) this.cells.push(x * y);
+		}
+		return this.cells.length;
+	}
+}
+export function main() {
+	console.log(scale(4), countdown(), atLeastOnce(2), nested(), new Grid().fill());
+}

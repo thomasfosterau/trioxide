@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/for-of/patched
+input_file: tests/fixtures/passes/for-of/patched/input.ts
+---
+//- input.ts
+13:3 for-of skipped: the program may patch `Array` or its prototype, so the builtin models are off
+18:23 for-of skipped: the program may patch `Array` or its prototype, so the builtin models are off

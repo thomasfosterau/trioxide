@@ -43,11 +43,16 @@
 //! island functions are not folded, and island functions are not removed. Functions forced to
 //! an island (`"use wasm"`, `@trioxide wasm`) are never removed either.
 
+mod arrays;
 mod checks;
 mod dce;
 mod fold;
+mod for_of;
+mod hidden_class;
 mod imports;
 mod inline;
+mod licm;
+mod pipelines;
 mod simplify;
 mod util;
 
@@ -60,8 +65,12 @@ use trioxide_common::log::ModuleLog;
 pub use checks::Checks;
 pub use dce::Dce;
 pub use fold::Fold;
+pub use for_of::ForOf;
+pub use hidden_class::HiddenClass;
 pub use imports::{KeepImports, RecordImports};
 pub use inline::Inline;
+pub use licm::Licm;
+pub use pipelines::Pipelines;
 pub use simplify::Simplify;
 
 /// Whether a function is a forced WASM island: a `"use wasm"` directive in its body, or a
@@ -108,6 +117,11 @@ pub fn default_groups() -> Vec<PassGroup> {
                 Box::new(Checks),
                 Box::new(Fold),
                 Box::new(Dce),
+                // Speed passes (S5b), reading the same facts so no refresh comes between.
+                Box::new(Licm),
+                Box::new(HiddenClass),
+                Box::new(ForOf),
+                Box::new(Pipelines),
             ],
             fixpoint: false,
         },

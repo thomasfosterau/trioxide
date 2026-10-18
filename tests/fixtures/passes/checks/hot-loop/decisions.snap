@@ -20,3 +20,5 @@ input_file: tests/fixtures/passes/checks/hot-loop/input.ts
 30:7 fold applied
 10:7 dce applied
 11:7 dce applied
+25:25 licm skipped: the loop may resize arrays in ways the analysis doesn't follow
+25:25 licm skipped: the loop may resize arrays in ways the analysis doesn't follow

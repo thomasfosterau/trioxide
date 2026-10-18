@@ -31,7 +31,7 @@ function splice(a) {
 }
 function modI(a) {
 	let t = 0;
-	for (let i = 0; i < a.length; i++) {
+	for (let i = 0, aLength = a.length; i < aLength; i++) {
 		i += 1;
 		t += a[i] ?? 0;
 	}
@@ -39,21 +39,21 @@ function modI(a) {
 }
 function le(a) {
 	let t = 0;
-	for (let i = 0; i <= a.length; i++) {
+	for (let i = 0, aLength = a.length; i <= aLength; i++) {
 		t += a[i] ?? 0;
 	}
 	return t;
 }
 function frac(a) {
 	let t = 0;
-	for (let i = .5; i < a.length; i++) {
+	for (let i = .5, aLength = a.length; i < aLength; i++) {
 		t += a[i] ?? 0;
 	}
 	return t;
 }
 function neg(a) {
 	let t = 0;
-	for (let i = -2; i < a.length; i++) {
+	for (let i = -2, aLength = a.length; i < aLength; i++) {
 		t += a[i] ?? 0;
 	}
 	return t;
@@ -77,9 +77,11 @@ function viaCall() {
 function cb(a) {
 	let t = 0;
 	for (let i = 0; i < a.length; i++) {
-		[0].forEach(() => {
+		const items = [0];
+		for (let j = 0, length = items.length; j < length; j++) {
+			if (!(j in items)) continue;
 			a.pop();
-		});
+		}
 		t += a[i] ?? 0;
 	}
 	return t;
@@ -104,7 +106,7 @@ function detach(a) {
 function sub(a) {
 	let t = 0;
 	const s = a.subarray(0, 2);
-	for (let i = 0; i < a.length; i++) {
+	for (let i = 0, aLength = a.length; i < aLength; i++) {
 		t += s[i] ?? 0;
 	}
 	return t;

@@ -1,0 +1,184 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/pipelines/basics
+input_file: tests/fixtures/passes/pipelines/basics/input.ts
+---
+//- input.ts
+// Positive cases: chains over arrays the analysis made, with inlineable callbacks.
+function total() {
+	const values = [
+		1,
+		2,
+		3,
+		4,
+		5
+	];
+	let total = 0;
+	for (let i = 0, length = values.length; i < length; i++) {
+		const x = values[i];
+		const y = x * 2;
+		if (!(y > 3)) continue;
+		total = total + y;
+	}
+	return total;
+}
+function adults() {
+	const people = [
+		{
+			name: "Ada",
+			age: 36
+		},
+		{
+			name: "Bo",
+			age: 12
+		},
+		{
+			name: "Cy",
+			age: 50
+		}
+	];
+	// The element passes through the filter under the same name.
+	const result = [];
+	for (let i = 0, length = people.length; i < length; i++) {
+		const p = people[i];
+		if (!(p.age >= 18)) continue;
+		result.push(p.name.toUpperCase());
+	}
+	return result;
+}
+function questions() {
+	const xs = [
+		5,
+		8,
+		13,
+		21
+	];
+	let any = false;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const x = xs[i];
+		if (x > 20) {
+			any = true;
+			break;
+		}
+	}
+	let all = true;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const x = xs[i];
+		if (!(x % 2 === 1)) {
+			all = false;
+			break;
+		}
+	}
+	let first;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const x = xs[i];
+		if (x > 6) {
+			first = x;
+			break;
+		}
+	}
+	let at = -1;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const x = xs[i];
+		if (x === 13) {
+			at = i;
+			break;
+		}
+	}
+	let has = false;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const item = xs[i];
+		if (item === 8) {
+			has = true;
+			break;
+		}
+	}
+	return [
+		any,
+		all,
+		first,
+		at,
+		has
+	];
+}
+function product() {
+	// No seed: the first element seeds the accumulator.
+	const factors = [
+		2,
+		3,
+		7
+	];
+	let result;
+	let empty = true;
+	for (let i = 0, length = factors.length; i < length; i++) {
+		const b = factors[i];
+		if (empty) {
+			result = b;
+			empty = false;
+			continue;
+		}
+		result = result * b;
+	}
+	if (empty) throw new TypeError("Reduce of empty array with no initial value");
+	return result;
+}
+function indexed() {
+	const letters = [
+		"a",
+		"b",
+		"c"
+	];
+	// The index and array parameters of the first callback.
+	const result = [];
+	for (let index = 0, length = letters.length; index < length; index++) {
+		const letter = letters[index];
+		const all = letters;
+		result.push(`${letter}${index}/${all.length}`);
+	}
+	return result;
+}
+function blockBodies() {
+	const values = [
+		1,
+		2,
+		3,
+		4
+	];
+	const result = [];
+	for (let i = 0, length = values.length; i < length; i++) {
+		const value = values[i];
+		const squared = value * value;
+		const n = squared + 1;
+		const odd = n % 2 === 1;
+		if (!odd) continue;
+		result.push(n);
+	}
+	return result;
+}
+function pairs() {
+	const entries = [["a", 1], ["b", 2]];
+	// A destructuring parameter.
+	let weighted = 0;
+	for (let i = 0, length = entries.length; i < length; i++) {
+		if (!(i in entries)) continue;
+		const [key, count] = entries[i];
+		const n = key.length * count;
+		weighted = weighted + n;
+	}
+	weighted += 1;
+	return weighted;
+}
+function visit() {
+	const log = [];
+	const items = ["x", "y"];
+	for (let position = 0, length = items.length; position < length; position++) {
+		if (!(position in items)) continue;
+		const item = items[position];
+		log.push(`${position}:${item}`);
+	}
+	return log.join(",");
+}
+export function main() {
+	console.log(total(), adults(), questions(), product(), indexed());
+	console.log(blockBodies(), pairs(), visit());
+}

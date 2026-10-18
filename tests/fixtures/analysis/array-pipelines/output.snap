@@ -12,9 +12,22 @@ export function main() {
 		3,
 		4
 	];
-	const doubled = values.map((v) => v * 2);
-	const even = doubled.filter((v, i) => i % 2 === 0);
-	const total = even.reduce((acc, v) => acc + v, 0);
+	const doubled = [];
+	for (let i = 0, length = values.length; i < length; i++) {
+		const v = values[i];
+		doubled.push(v * 2);
+	}
+	const even = [];
+	for (let i = 0, length = doubled.length; i < length; i++) {
+		const v = doubled[i];
+		if (!(i % 2 === 0)) continue;
+		even.push(v);
+	}
+	let total = 0;
+	for (let i = 0, length = even.length; i < length; i++) {
+		const v = even[i];
+		total = total + v;
+	}
 	console.log(
 		total
 		/*@proven number*/
@@ -23,12 +36,22 @@ export function main() {
 	console.log(doubled.length, even.length);
 	const words = "a b c".split(" ");
 	console.log(words.join("-"), words.length);
-	const found = values.find((v) => v > 2);
+	let found;
+	for (let i = 0, length = values.length; i < length; i++) {
+		const v = values[i];
+		if (v > 2) {
+			found = v;
+			break;
+		}
+	}
 	console.log(
 		found
 		/*@proven union*/
 	);
-	values.forEach((v, i, all) => {
+	for (let i = 0, length = values.length; i < length; i++) {
+		if (!(i in values)) continue;
+		const v = values[i];
+		const all = values;
 		console.log(v + i, all.length);
-	});
+	}
 }

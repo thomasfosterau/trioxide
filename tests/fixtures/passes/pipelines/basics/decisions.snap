@@ -1,0 +1,19 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/basics
+input_file: tests/fixtures/passes/pipelines/basics/input.ts
+---
+//- input.ts
+43:67 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+5:17 pipelines applied
+21:10 pipelines applied
+26:15 pipelines applied
+27:15 pipelines applied
+28:17 pipelines applied
+29:14 pipelines applied
+30:15 pipelines applied
+37:10 pipelines applied
+43:10 pipelines applied
+48:10 pipelines applied
+65:18 pipelines applied
+73:3 pipelines applied
