@@ -56,6 +56,45 @@ test('Project builds, updates and transforms', () => {
   assert.equal(explain([path.join(dir, 'main.ts')], 'main.ts', { root: dir }).modules.length, 1);
 });
 
+test('explain reports verdicts with the cost model numbers', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'trioxide-'));
+  writeFileSync(
+    path.join(dir, 'kernel.ts'),
+    `export function ease(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+export function log(x: number): void {
+  console.log(x);
+}
+`,
+  );
+  writeFileSync(
+    path.join(dir, 'main.ts'),
+    `import { ease, log } from "./kernel.js";
+export function main(): void {
+  let sum = 0;
+  for (let i = 0; i < 1000; i++) sum += ease(i / 999);
+  log(sum);
+}
+`,
+  );
+  const report = explain([path.join(dir, 'main.ts')], 'kernel.ts', { root: dir });
+  assert.equal(report.modules.length, 1);
+  const [ease, log] = report.modules[0].functions;
+  assert.equal(ease.name, 'ease');
+  assert.equal(ease.target, 'js');
+  assert.match(ease.reason, /cost model keeps it in JS/);
+  assert.equal(ease.cost.calls, 1000);
+  assert.ok(ease.cost.crossings > 0 && ease.cost.benefit - ease.cost.cost <= ease.cost.threshold);
+  assert.equal(log.target, 'js');
+  assert.match(log.failures[0].message, /console/);
+  // A file:function target narrows to one function.
+  assert.deepEqual(
+    explain([path.join(dir, 'main.ts')], 'kernel.ts:log', { root: dir }).modules[0].functions.map((f) => f.name),
+    ['log'],
+  );
+});
+
 test('config files are found up the tree and loaded as written', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'trioxide-'));
   mkdirSync(path.join(dir, '.git'));

@@ -7,13 +7,13 @@
 use oxc_allocator::Allocator;
 use rustc_hash::FxHashMap;
 use trioxide_analysis::Facts;
+use trioxide_common::{ModuleId, Span};
 use trioxide_types::FunctionId;
 
 use crate::{
     Directive, ExtraFacts, Placement, Reason, SourceModule, automatic_root, lower, never_called,
     world::World,
 };
-use trioxide_common::{ModuleId, Span};
 
 /// The checker's verdict on one function.
 #[derive(Debug, Clone, PartialEq, Eq)]

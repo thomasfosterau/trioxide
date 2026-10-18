@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "explain": "trioxide explain src/main.ts"
+    "explain": "trioxide explain --entry src/main.ts",
+    "compare": "node ../../benchmarks/partition/compare.mjs src/main.ts"
   },
   "devDependencies": {
     "trioxide": "workspace:*",

@@ -108,7 +108,7 @@ pub struct IslandRequest<'r> {
     /// or `"use js"`). Source directives win over them.
     pub overrides: &'r [(ModuleId, Placement)],
     /// Functions the partitioner chose (top-level function declarations, see
-    /// [`candidates`]). Each becomes an export of its module's island; one that turns out
+    /// [`eligibility::candidates`]). Each becomes an export of its module's island; one that turns out
     /// not to compile stays JS, without an error.
     pub automatic: &'r [FunctionId],
 }
@@ -149,7 +149,6 @@ pub fn islands(
     let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
     let mut world = World::build(&allocators, modules);
     world.set_overrides(request.overrides);
-    let world = world;
 
     for (module, directive) in &world.misplaced {
         if directive.placement == Placement::Wasm

@@ -66,8 +66,18 @@ function build(kernel, dir, extra) {
     : [];
 }
 
-/** Times `run()` of `entry` in a fresh process, after the `glues` are ready. */
+/**
+ * Times `run()` of `entry` in fresh processes (three, one with --quick): the median of their
+ * medians, since timings vary by ±10% from one process to the next.
+ */
 function time(entry, glues) {
+  const runs = Array.from({ length: quick ? 1 : 3 }, () => timeOnce(entry, glues));
+  runs.sort((a, b) => a.ns - b.ns);
+  return runs[runs.length >> 1];
+}
+
+/** Times `run()` of `entry` in a fresh process, after the `glues` are ready. */
+function timeOnce(entry, glues) {
   const script = `
 const started = performance.now();
 const m = await import(${JSON.stringify(pathToFileURL(entry).href)});

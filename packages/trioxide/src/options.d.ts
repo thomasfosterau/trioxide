@@ -86,7 +86,7 @@ export interface TrioxideOptions {
    * The partitioner's cost model: when moving a cluster of functions to WebAssembly pays
    * (`trioxide explain` shows its numbers). Fields not given keep their defaults.
    *
-   * @default {"threshold":0,"wasmPreferredThreshold":-50000,"saving":0.35,"arithmetic":1,"integer":1.5,"math":4,"index":1,"typedArray":1.5,"iteration":1,"trips":256,"crossing":120,"byte":0.15,"numberArray":4,"instantiation":20000}
+   * @default {"threshold":0,"wasmPreferredThreshold":-1000000,"arithmetic":0,"integer":0.04,"math":0,"index":-2,"checkedIndex":-7,"iteration":0,"trips":256,"crossing":12,"aggregate":50,"byte":0.1,"numberArray":12,"instantiation":700000}
    */
   costModel?: CostModel;
 }
@@ -212,8 +212,10 @@ export type OverrideTarget =
 /**
  * The cost model's weights and thresholds (`costModel` in `trioxide.json`).
  *
- * Operation weights are relative to one floating-point operation; `saving` converts them to
- * nanoseconds. The defaults come from `benchmarks/partition/` on V8 (Node 22).
+ * Operation weights are the nanoseconds WASM saves per operation compared with V8's
+ * optimised JS (negative where the island is slower); the cost terms are nanoseconds too.
+ * The defaults are fitted to `benchmarks/partition/` (Node 22, V8 12.4) for the code the
+ * Rust backend generates today.
  */
 export interface CostModel {
   /**
@@ -225,54 +227,50 @@ export interface CostModel {
   /**
    * The threshold in `wasm-preferred` mode.
    *
-   * @default -50000
+   * @default -1000000
    */
   wasmPreferredThreshold?: number;
   /**
-   * Nanoseconds WASM saves per weighted operation.
+   * Nanoseconds saved per floating-point arithmetic operation or comparison.
    *
-   * @default 0.35
-   */
-  saving?: number;
-  /**
-   * Weight of a floating-point arithmetic operation or comparison.
-   *
-   * @default 1
+   * @default 0
    */
   arithmetic?: number;
   /**
-   * Multiplier for operations on proven integers and bitwise operators.
+   * Nanoseconds saved per operation on proven integers, bitwise operator, `++` or `--`.
    *
-   * @default 1.5
+   * @default 0.04
    */
   integer?: number;
   /**
-   * Weight of a `Math.*` call or `**`.
+   * Nanoseconds saved per `Math.*` call or `**`.
    *
-   * @default 4
+   * @default 0
    */
   math?: number;
   /**
-   * Weight of an array element read or write.
+   * Nanoseconds saved per array element read or write whose index the island computes as
+   * an int32.
    *
-   * @default 1
+   * @default -2
    */
   index?: number;
   /**
-   * Multiplier for typed array element accesses.
+   * Nanoseconds saved per other element read or write (the index is a float, converted
+   * and checked on every access).
    *
-   * @default 1.5
+   * @default -7
    */
-  typedArray?: number;
+  checkedIndex?: number;
   /**
-   * Weight of one loop iteration's own control flow.
+   * Nanoseconds saved per loop iteration (its own control flow).
    *
-   * @default 1
+   * @default 0
    */
   iteration?: number;
   /**
-   * Trip count assumed for loops without a constant bound, and the element count assumed
-   * for arrays crossing the boundary.
+   * Trip count assumed for loops without a known bound, and the element count assumed
+   * for arrays of unknown length crossing the boundary.
    *
    * @default 256
    */
@@ -280,25 +278,32 @@ export interface CostModel {
   /**
    * Nanoseconds per call into an island (the glue's checks and the arena reset).
    *
-   * @default 120
+   * @default 12
    */
   crossing?: number;
   /**
+   * Nanoseconds per array or object argument (or result) per call: allocating it in the
+   * arena, the glue's aliasing and plain-view checks, the views it creates.
+   *
+   * @default 50
+   */
+  aggregate?: number;
+  /**
    * Nanoseconds per byte copied into or out of linear memory.
    *
-   * @default 0.15
+   * @default 0.1
    */
   byte?: number;
   /**
    * Multiplier for the bytes of a `number[]`, which is converted element by element.
    *
-   * @default 4
+   * @default 12
    */
   numberArray?: number;
   /**
    * Nanoseconds to instantiate one island.
    *
-   * @default 20000
+   * @default 700000
    */
   instantiation?: number;
 }

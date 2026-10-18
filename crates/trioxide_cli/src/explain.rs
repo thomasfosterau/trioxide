@@ -107,7 +107,8 @@ fn passes(
     position: &dyn Fn(Span) -> (usize, usize),
 ) {
     let mut applied: Vec<(&str, usize)> = Vec::new();
-    let mut skipped: Vec<String> = Vec::new();
+    // Skips by pass and reason, with where they happened.
+    let mut skipped: Vec<(&str, &str, Vec<String>)> = Vec::new();
     for event in &log.passes {
         let Some(site) = event.span else {
             continue;
@@ -124,9 +125,17 @@ fn passes(
             }
             PassOutcome::Skipped { reason } => {
                 let (line, column) = position(site);
-                let line = format!("{} skipped at {line}:{column}: {reason}", event.pass);
-                if !skipped.contains(&line) {
-                    skipped.push(line);
+                let at = format!("{line}:{column}");
+                match skipped
+                    .iter_mut()
+                    .find(|(pass, why, _)| *pass == event.pass && *why == reason.as_str())
+                {
+                    Some((_, _, sites)) => {
+                        if !sites.contains(&at) {
+                            sites.push(at);
+                        }
+                    }
+                    None => skipped.push((&event.pass, reason, vec![at])),
                 }
             }
         }
@@ -142,8 +151,12 @@ fn passes(
             .collect();
         let _ = writeln!(out, "      applied: {}", list.join(", "));
     }
-    for line in skipped {
-        let _ = writeln!(out, "      {line}");
+    for (pass, reason, sites) in skipped {
+        let _ = writeln!(
+            out,
+            "      {pass} skipped at {}: {reason}",
+            sites.join(", ")
+        );
     }
 }
 

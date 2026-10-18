@@ -104,9 +104,10 @@ tests/
   differential/               # runs original vs optimised-JS vs WASM in Node and compares output
 examples/
   dom-app/                    # should stay JS
-  image-filters/              # should become WASM
+  image-filters/              # filters the cost model scores (today's islands are slower at them, so they stay JS)
   mixed/                      # both, with a boundary
 benchmarks/
+  partition/                  # cost-model calibration: JS vs WASM timings, fit, reach
 docs/
 ```
 
@@ -402,18 +403,47 @@ statement move to the next one.
 **Clustering.** Take connected components of eligible functions in the call graph. Every
 call edge into a component from JS code is a boundary entry.
 
-**Cost model** (per island, deliberately simple at first and tuned with benchmarks):
-- *benefit*: estimated compute weight, i.e. loop nesting × arithmetic/indexing op density,
-  higher for proven-integer maths and typed-array work
-- *cost*: boundary crossings (calls into the island from loops weigh heavily), marshalling
-  bytes (typed arrays copied in/out of linear memory, `number[]` converted), plus a fixed
-  per-island instantiation cost
-- an island is kept if `benefit − cost > threshold`; otherwise it stays JS (and still gets
-  the JS passes)
+**Cost model** (per cluster; `trioxide_partition::CostModel`, `costModel` in `trioxide.json`).
+Every weight is in nanoseconds, fitted to `benchmarks/partition/` (Node 22; its README has the
+measurements, the fit and the confusion table) and meant to be refitted as the backend
+improves:
+- *benefit*: the operations the island would run per run of the program, by kind (float and
+  integer arithmetic, `Math.*` calls, element accesses with an int32 index and with a float
+  index, loop iterations), each times the time WASM saves per operation. Loops multiply by
+  their trip count: from the loop test when it compares the counter (an induction variable of
+  the loop facts) with a value whose range is known, else a default (`trips`, 256); typed
+  arrays reaching a parameter from allocation sites of known length give `p.length` bounds.
+  Callees count at their call sites' frequency; a recursive call counts as a loop. Integer
+  operations are the ones whose operands' range facts prove integers; an access is int32-
+  indexed when the index and every local in it are proven int32, as the backend types them.
+  Measured today: scalar code is a tie (integer work slightly faster in WASM), element accesses
+  are slower in WASM (~2 ns int32-indexed, ~7 ns float-indexed), so the defaults reflect that.
+- *cost*: boundary crossings (each call site into the island, weighted by the trip counts of
+  the loops around it, so calls from loops weigh heavily; a function the host may call counts
+  one call), marshalling (a cost per array or object argument or result per call, plus per
+  byte copied in, and out again when the island writes it; a `number[]` costs a multiple per
+  byte, as it is converted element by element), plus a fixed instantiation cost per island
+- an island is kept if `benefit − cost > threshold` (`threshold`, 0 in `auto`;
+  `wasmPreferredThreshold`, −1 ms, in `wasm-preferred`); otherwise it stays JS (and still
+  gets the JS passes). The cluster's members that JS calls (or the host may call) become the
+  island's exports; the others are compiled in as internal functions.
+
+**Automatic islands use the forced islands' machinery** (`trioxide_rust::islands`): the
+chosen functions are lowered with the forced ones, one island per module (a module's
+forced and chosen functions share it), so call rewriting, `ready()` glue with the JS
+fallback, and `Keep` (computed from the partition's islands, which now include the automatic
+ones) are the same for both. A chosen function that fails the final lowering stays JS.
+`trioxide_rust::eligibility::candidates` checks every top-level function declaration with one
+parse of the program (lowering each module's candidates together, then one by one only if
+they don't settle together).
 
 **Overrides.** `"use wasm"` forces an island; it is an error if the function is ineligible,
-and the diagnostic explains why. `"use js"` forbids one. Config globs do the same per file.
-`mode: "js-only" | "auto" | "wasm-preferred"`.
+and the diagnostic explains why. `"use js"` forbids one. Config globs do the same per file:
+`overrides: [{ "files": ["src/kernels/**"], "target": "wasm" }]` (globs relative to the root,
+later entries win) places a module's top-level functions as a file directive would, below the
+source's own directives. Directives and overrides apply in every mode; `wasm.enabled: false`
+(`--no-wasm`) turns all of it off. `mode: "js-only" | "auto" | "wasm-preferred"`: `js-only`
+creates no island on its own.
 
 Directives are implemented (S6; the cost model is S8's): a `"use wasm"` function directive, a
 file directive (every top-level function declaration of the file) or a `/** @trioxide wasm */`
@@ -428,19 +458,25 @@ forced functions still become the island. A forced function the analysis proves 
 `trioxide_rust::eligibility::clusters` computes the connected components of eligible
 functions for the cost model.
 
-*For S8: without `trustTypes` few functions qualify yet.* The checker only uses usable facts,
-and today the analysis proves: number and boolean parameters whose callers it all sees, and
-typed arrays whose every allocation it sees. It never proves object fields (their facts are
-`Declared` even for fresh literals), `number[]` elements (even of `[1, -2, 3]`), or the
-arguments of exported entry functions. So structs and `number[]` parameters, and anything an
-entry function reaches, need `trustTypes` (seven of the eight hand-written-island variants and
-several lowering fixtures set it). Realistic kernels become islands automatically only once
-the analysis proves field facts and the types arriving at entry points;
-`trioxide_rust::ExtraFacts::param_field` is the hook for the former.
+*Default-mode reach (S8, measured with `benchmarks/partition/reach.mjs`).* The analysis now
+proves typed arrays allocated anywhere in the program, `number[]` elements from literals,
+`push` and `map` of proven numbers, and fresh object literals' fields at struct parameters,
+so 59 of 88 functions across the benchmarks, the hand-written islands and the examples
+qualify without `trustTypes` (86 with it). What still needs `trustTypes`: the arguments of
+exported entry functions (the host passes them; the glue could check them at the call and
+fall back to JS, which would make them provable); parameters reached through function values
+held in arrays; typed arrays from builtins the heap doesn't model (`subarray`, buffer views,
+`TextEncoder`); elements of nested arrays and of `Array.from` with a callback; fields of
+objects from factories with default parameters or object spread.
+`trioxide_rust::ExtraFacts::param_field` is the hook for field facts at entry.
 
-**Explainability.** `trioxide explain [file[:fn]]` prints each decision, the failed
-eligibility rule with its source span, and the cost-model numbers. This is how users come to
-trust the partitioner.
+**Explainability.** `trioxide explain [file[:fn]] [--entry <file>…] [--json]` plans the
+program (analysis, partitioning and the JS passes, no island builds: `Project::plan`) and
+prints, per function, the decision (JS, WASM, forced or forbidden), why, every failed
+eligibility rule with its position, the cost-model numbers (benefit, each cost term,
+threshold, and the calls, operations and bytes behind them) and the JS passes that fired or
+skipped inside it. `--json` prints the `Report`; the npm package's `explain()` returns the
+same. This is how users come to trust the partitioner.
 
 ---
 
@@ -575,9 +611,9 @@ rustc version, profile, `wasm-opt` version). The source stands in for the RIR: i
 function of it, and also covers hand-written islands. Cache misses are staged into one cargo
 workspace in the cache directory and built by a single `cargo build`, which compiles them in
 parallel over a shared target directory. A missing toolchain falls back to JS with one clear
-warning, plus an `--require-wasm` flag that turns it into an error. Until S8 chooses
-islands, `Project::add_debug_island` (CLI: hidden `--debug-island <dir>`) supplies
-hand-written ones.
+warning, plus an `--require-wasm` flag that turns it into an error.
+`Project::add_debug_island` (CLI: hidden `--debug-island <dir>`) adds hand-written islands
+(the differential suite's `tests/islands/`).
 
 ---
 
@@ -585,13 +621,14 @@ hand-written ones.
 
 **Rust facade (`trioxide`):**
 ```rust
-pub struct Options { /* mode, world, trust_types, check, tsconfig, target, sourcemap, passes, wasm, dev, cache_dir, overrides */ }
+pub struct Options { /* mode, world, trust_types, check, tsconfig, target, sourcemap, passes, wasm, dev, cache_dir, overrides, cost_model */ }
 pub struct Project { /* graph + caches */ }
 impl Project {
     pub fn new(root: PathBuf, options: Options) -> Result<Self>;
     pub fn build(&mut self, entries: &[PathBuf]) -> Result<BuildOutput>;      // whole program
     pub fn update(&mut self, path: &Path, source: Option<String>) -> Result<Invalidation>;
     pub fn transform(&mut self, path: &Path) -> Result<ModuleOutput>;        // per-file, Vite
+    pub fn plan(&mut self, entries: &[PathBuf]) -> Result<Report>;          // build minus island builds, for explain
     pub fn explain(&self, query: &ExplainQuery) -> Report;
 }
 pub fn strip_types(root: &Path, path: &Path, source: &str, options: &Options) -> Result<ModuleOutput>; // differential baseline
@@ -611,7 +648,8 @@ FactSource}`, `trioxide_partition::Partitioner`, `trioxide_wasm::{IslandSpec,
 IslandSource, IslandBuilder}` (plus `trioxide_wasm::toolchain` for `check-toolchain`).
 
 **CLI:** `trioxide build [entries…] --out-dir dist [--watch]`, `trioxide transform <file>`
-(stdout), `trioxide explain [target]`, `trioxide check-toolchain [--json]`. `--config`,
+(stdout), `trioxide explain [target] [--entry <file>…] [--json]` (entries default to the
+target's file), `trioxide check-toolchain [--json]`. `--config`,
 `--root`, `--mode`, `--world`, `--trust-types`, `--no-wasm`, `--require-wasm`,
 `--emit=js|rust|wasm|report|facts` (`--emit=facts` with `transform` prints the analysis facts
 of that file: per function, class and node, with spans and trust levels),
@@ -657,8 +695,12 @@ Parallel sessions rely on this to stay safe.
   module of the build), later also `island_*.rs` and `report.json`. Every pass and lowering
   rule needs fixtures.
 - **Differential execution** (the core correctness gate): each fixture exports a `main()`
-  that prints results. A Node runner executes three variants (types stripped only,
-  trioxide JS, trioxide JS+WASM) and asserts identical output. CI fails on any divergence.
+  that prints results. A Node runner executes four variants (types stripped only,
+  trioxide JS, trioxide JS+WASM for fixtures with directives or hand-written islands, and
+  `mode: "auto"` over the whole corpus and the examples, so every island the partitioner
+  picks is checked) and asserts identical output. CI fails on any divergence. CI also runs
+  the auto leg with every eligible cluster as an island (`TRIOXIDE_EVERY_CLUSTER=1`), which
+  stresses automatic islands far beyond what the cost model picks.
 - **Generated programs**: a small generator of random programs in the numeric subset
   (expressions, loops, typed arrays), fed through the differential runner, to fuzz the Rust
   backend's semantics (`tests/differential/random.test.js`: 500 programs with a fixed seed in
@@ -673,7 +715,8 @@ Parallel sessions rely on this to stay safe.
   snapshots of a few libraries) and check they still parse, typecheck-strip, and pass their
   own tests where cheap.
 - **Benchmarks**: `benchmarks/` with tinybench (runtime of outputs) and criterion (compiler
-  throughput). Cost-model tuning is driven by these numbers.
+  throughput). Cost-model tuning is driven by these numbers: `benchmarks/partition/` times
+  kernels JS-only against WASM (plain Node timing, no dependencies) and fits the weights.
 - **Every PR**: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`,
   and the differential suite. The WASM jobs need `rustup target add wasm32-unknown-unknown`.
 

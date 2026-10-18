@@ -105,9 +105,14 @@ before(() => {
   }
 });
 
-const entries = fixtureRoots
-  .flatMap((root) => discover(root))
-  .filter((entry) => !process.env.FIXTURE || entry.includes(process.env.FIXTURE));
+// Examples whose entry exports `main()` run too (legs a, b and d): they must behave the same
+// JS-only and with the islands the partitioner picks.
+const exampleEntries = ['examples/mixed/src/main.ts', 'examples/image-filters/src/main.ts'].map((entry) =>
+  path.join(repo, entry),
+);
+const entries = [...fixtureRoots.flatMap((root) => discover(root)), ...exampleEntries].filter(
+  (entry) => !process.env.FIXTURE || entry.includes(process.env.FIXTURE),
+);
 
 const DIRECTIVE = /["']use wasm["']|@trioxide\s+wasm/;
 
@@ -187,7 +192,7 @@ function buildWithIsland(fixture, entry, dir, glue) {
 
 for (const entry of entries) {
   const fixture = path.dirname(entry);
-  const root = fixtureRoots.find((dir) => fixture.startsWith(dir + path.sep));
+  const root = fixtureRoots.find((dir) => fixture.startsWith(dir + path.sep)) ?? path.join(repo, 'examples');
   const name = path.join(path.basename(root), path.relative(root, fixture));
   const work = path.join(outDir, name);
   const hasIsland = existsSync(path.join(fixture, 'island/island.json'));

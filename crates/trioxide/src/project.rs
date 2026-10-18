@@ -211,8 +211,8 @@ impl Project {
     }
 
     /// Adds an island to every following [`build`](Self::build), as if the partitioner had
-    /// chosen it: a debug and test hook until the Rust backend (S6) and partitioner (S8)
-    /// produce islands. Its glue is not wired into any module; callers import it themselves.
+    /// chosen it: a debug and test hook for hand-written islands. Its glue is not wired into
+    /// any module; callers import it themselves.
     pub fn add_debug_island(&mut self, island: IslandSource) {
         self.debug_islands.push(island);
     }
