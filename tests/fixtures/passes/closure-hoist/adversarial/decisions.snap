@@ -1,0 +1,20 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/closure-hoist/adversarial
+input_file: tests/fixtures/passes/closure-hoist/adversarial/input.ts
+---
+//- input.ts
+10:11 closure-hoist applied
+13:11 closure-hoist skipped: the closure is used other than by calling it (its identity may be seen)
+15:11 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen
+17:11 closure-hoist skipped: the closure is used other than by calling it (its identity may be seen)
+19:11 closure-hoist skipped: the closure escapes (other code holds it), so its identity may be seen
+21:11 closure-hoist skipped: the closure captures `i`
+22:11 closure-hoist skipped: the closure is used other than by calling it (its identity may be seen)
+23:11 closure-hoist skipped: the closure captures `late`
+24:11 closure-hoist skipped: the closure escapes (other code holds it), so its identity may be seen
+11:12 inline-fn skipped: the call's value is a constant, which fold puts in its place
+11:12 fold applied
+23:40 fold skipped: the expression has effects, so it stays
+26:93 fold skipped: the expression has effects, so it stays
+10:17 dce applied

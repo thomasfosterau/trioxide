@@ -1486,6 +1486,10 @@ impl<'a> Visitor<'a, '_> {
                         declaration.kind = VariableDeclarationKind::Let;
                     }
                     declaration.declarations[0].init = None;
+                    // Only the name: the inlined code that assigns it reuses the call's span,
+                    // which must not count as inside the declaration (DCE would see no use).
+                    let declarator = &mut declaration.declarations[0];
+                    declarator.span = declarator.id.span();
                     prefix.push(Statement::VariableDeclaration(ctx.alloc(declaration)));
                     if let (Some(Some(value)), Some(target)) = (final_value, &target) {
                         body_statements.push(assign(target, value, span, ctx));
@@ -1668,7 +1672,8 @@ fn locals(body: &oxc_ast::ast::FunctionBody<'_>, scoping: &Scoping) -> Vec<Symbo
     collect.0
 }
 
-/// `kind name = init;`
+/// `kind name = init;`, with an empty span at the start of `span` (references made with
+/// `span` must not count as inside the declaration).
 fn declare<'a>(
     kind: VariableDeclarationKind,
     name: &str,
@@ -1676,6 +1681,7 @@ fn declare<'a>(
     span: Span,
     ctx: &TraverseCtx<'a, ()>,
 ) -> Statement<'a> {
+    let span = Span::empty(span.start);
     let declarator = VariableDeclarator::new(
         span,
         BindingPattern::new_binding_identifier(span, Ident::from_str_in(name, ctx), ctx),

@@ -1,0 +1,82 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/scalar/adversarial
+input_file: tests/fixtures/passes/scalar/adversarial/input.ts
+---
+//- input.ts
+// Objects scalar replacement must leave alone, each for one reason, next to one it replaces.
+const seen = new WeakSet();
+const log = [];
+export function main() {
+	for (let i = 0; i < 2; i++) {
+		// Replaced: only its keys are read and written.
+		let ok_a = i;
+		ok_a *= 3;
+		const compared = { a: i };
+		const same = compared === compared;
+		const inKey = { a: i };
+		const has = "a" in inKey;
+		const deleted = {
+			a: i,
+			b: 1
+		};
+		delete deleted.b;
+		const spread = { a: i };
+		const copy = { ...spread };
+		const json = { a: i };
+		const text = JSON.stringify(json);
+		const keys = {
+			a: i,
+			b: 2
+		};
+		const names = Object.keys(keys).join("");
+		const iterated = { a: i };
+		let forIn = "";
+		for (const key in iterated) forIn += key;
+		const passed = { a: i };
+		seen.add(passed);
+		const method = {
+			a: i,
+			get() {
+				return this.a;
+			}
+		};
+		const accessor = { get a() {
+			return i;
+		} };
+		const proto = {
+			__proto__: { a: 1 },
+			b: i
+		};
+		const computed = { ["a"]: i };
+		const missing = { a: i };
+		const tuple_0 = i, tuple_1 = i + 1;
+		const reassigned = { a: i };
+		let alias = reassigned;
+		alias.a = 9;
+		const optional = { a: i };
+		const viaClosure = { a: i };
+		const read = () => viaClosure.a;
+		log.push([
+			ok_a + 2,
+			same,
+			has,
+			deleted.b ?? "gone",
+			copy.a,
+			text,
+			names,
+			forIn,
+			seen.has(passed),
+			method.get(),
+			accessor.a,
+			proto.a + proto.b,
+			computed.a,
+			missing.b,
+			tuple_0 + tuple_1,
+			reassigned.a,
+			optional.a,
+			read()
+		].join(" "));
+	}
+	console.log(log.join("\n"));
+}

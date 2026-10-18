@@ -1,0 +1,14 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/partial-eval/declared-trusted
+input_file: tests/fixtures/passes/partial-eval/declared-trusted/input.ts
+---
+//- input.ts
+// With trustTypes, the declared parameter type is proof: the call is evaluated.
+export function scale(x) {
+	return x * 2 + 1;
+}
+export const SCALED = 41;
+export function main() {
+	console.log(41);
+}

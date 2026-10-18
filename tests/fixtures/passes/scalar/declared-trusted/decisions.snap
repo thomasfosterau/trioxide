@@ -1,0 +1,16 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/scalar/declared-trusted
+input_file: tests/fixtures/passes/scalar/declared-trusted/input.ts
+---
+//- input.ts
+7:9 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+8:9 scalar applied
+9:15 inline-fn applied
+9:26 inline applied
+9:32 inline applied
+3:10 fold applied
+9:26 fold applied
+7:9 dce applied
+8:9 dce applied
+8:9 dce applied

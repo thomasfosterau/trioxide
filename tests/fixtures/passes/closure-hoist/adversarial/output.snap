@@ -1,0 +1,41 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/closure-hoist/adversarial
+input_file: tests/fixtures/passes/closure-hoist/adversarial/input.ts
+---
+//- input.ts
+// Closures whose identity can be seen, or that capture something, stay where they are.
+const cache = new WeakMap();
+const keep = [];
+export function main() {
+	const results = [];
+	let sum = 0;
+	for (let i = 0; i < 3; i++) {
+		sum += 1;
+		const compared = () => 2;
+		const fresh = compared === keep[0];
+		const keyed = () => 3;
+		cache.set(keyed, i);
+		const tagged = () => 4;
+		tagged.calls = (tagged.calls ?? 0) + 1;
+		const pushed = () => 5;
+		keep.push(pushed);
+		const captures = () => i;
+		const self = function() {
+			return this;
+		};
+		const early = function() {
+			return late();
+		};
+		const late = () => 6;
+		results.push([
+			fresh,
+			cache.has(keyed),
+			tagged.calls,
+			captures(),
+			early(),
+			typeof self
+		].join(" "));
+	}
+	console.log(sum, keep.length, keep[0] === keep[1], results.join("|"));
+}

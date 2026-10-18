@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/partial-eval/declared-trusted
+input_file: tests/fixtures/passes/partial-eval/declared-trusted/input.ts
+---
+//- input.ts
+6:23 partial-eval applied
+9:15 inline applied

@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/declared
+input_file: tests/fixtures/passes/inline-fn/declared/input.ts
+---
+//- input.ts
+16:10 inline-fn skipped: other code than the callee may run at the call
+20:15 inline-fn applied

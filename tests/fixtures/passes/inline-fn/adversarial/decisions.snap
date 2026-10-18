@@ -1,0 +1,92 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/adversarial
+input_file: tests/fixtures/passes/inline-fn/adversarial/input.ts
+---
+//- input.ts
+22:27 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+82:27 inline-fn skipped: `fact` is recursive
+90:15 inline-fn skipped: the call's value is a constant, which fold puts in its place
+91:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+91:28 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+92:31 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+92:15 inline-fn skipped: a default parameter is followed by computed arguments, whose evaluation would move past the default's
+93:27 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+101:26 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+101:37 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+101:15 inline-fn applied
+102:24 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+102:15 inline-fn applied
+105:17 inline-fn skipped: the call's value is a constant, which fold puts in its place
+107:15 inline-fn skipped: `numbers` suspends (`yield`/`await`)
+109:15 inline-fn skipped: `self` uses `this`
+109:23 inline-fn skipped: `count` uses `arguments`
+109:32 inline-fn skipped: `fact` is recursive
+109:41 inline-fn skipped: `adder` contains a closure (its identity and what it captures would change)
+109:60 inline-fn skipped: `later` is async
+111:19 inline-fn applied
+93:15 inline-fn applied
+95:14 inline-fn applied
+96:19 inline-fn applied
+98:15 inline-fn applied
+99:17 inline-fn applied
+107:15 inline-fn skipped: `numbers` suspends (`yield`/`await`)
+27:1 inline-fn applied
+34:1 inline-fn applied
+41:1 inline-fn applied
+52:1 inline-fn applied
+57:1 inline-fn applied
+16:42 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+16:46 inline applied
+18:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+18:18 inline applied
+64:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+64:14 inline applied
+85:16 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+90:20 inline applied
+90:24 inline applied
+105:28 inline applied
+10:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+10:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+11:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+11:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+16:42 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+16:42 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+18:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+64:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+64:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+69:10 fold skipped: the test depends on what its callers pass (`passes.specialize` is off)
+69:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+69:18 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+69:18 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+85:16 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+85:16 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+90:15 fold applied
+35:23 fold applied
+35:23 fold applied
+36:9 fold applied
+36:5 fold applied
+43:9 fold applied
+43:23 fold applied
+43:5 fold applied
+43:9 fold applied
+43:23 fold applied
+43:5 fold applied
+100:20 fold applied
+102:15 fold skipped: the expression has effects, so it stays
+105:17 fold applied
+109:41 fold applied
+35:23 fold applied
+35:36 fold skipped: the expression has effects, so it stays
+36:14 fold applied
+36:36 fold applied
+17:9 dce applied
+96:19 dce applied
+104:11 dce applied
+89:9 dce applied
+9:1 dce applied
+15:7 dce applied
+62:7 dce applied
+63:1 dce applied
+84:1 dce applied
+44:5 simplify applied

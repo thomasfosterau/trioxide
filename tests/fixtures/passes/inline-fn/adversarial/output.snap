@@ -1,0 +1,115 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline-fn/adversarial
+input_file: tests/fixtures/passes/inline-fn/adversarial/input.ts
+---
+//- input.ts
+// Traps for function inlining. Each must print the same as the original.
+const order = [];
+function next(tag) {
+	order.push(tag);
+	return order.length;
+}
+function defaults(a, b = a + 100) {
+	return a * b + 1;
+}
+// A default parameter followed by a computed argument: the default would move.
+function late(a = next("default"), b = 0) {
+	return a + b;
+}
+// What may not be inlined.
+function self() {
+	return this ? this.n : -1;
+}
+function count() {
+	return arguments.length;
+}
+function* numbers() {
+	order.push("generator body");
+	yield 1;
+}
+async function later() {
+	return 1;
+}
+function fact(n) {
+	return n <= 1 ? 1 : n * fact(n - 1);
+}
+export function main() {
+	let a_1, b;
+	console.log(12, 5);
+	console.log(defaults(2), defaults(2, 3));
+	console.log(late(undefined, next("argument")), order.join(","));
+	const values = [
+		1,
+		2,
+		next("rest")
+	];
+	let sum_1 = 0;
+	for (const value of values) sum_1 += value;
+	const sum = sum_1;
+	console.log(sum);
+	let at;
+	find: {
+		const list_1 = [
+			4,
+			5,
+			6
+		];
+		for (let i_2 = 0; i_2 < 3; i_2++) {
+			if (list_1[i_2] === 6) {
+				at = i_2;
+				break find;
+			}
+		}
+		at = -1;
+	}
+	let missing;
+	find: {
+		for (let i_3 = 0; i_3 < 3; i_3++) {}
+		missing = -1;
+	}
+	console.log(at, missing);
+	let big;
+	guarded: {
+		try {
+			big = 20;
+			break guarded;
+		} finally {
+			order.push("finally");
+		}
+		big = 0;
+	}
+	let small;
+	guarded: {
+		try {
+			order.push("small");
+		} finally {
+			order.push("finally");
+		}
+		small = 0;
+	}
+	console.log(big, 0, order.join(","));
+	console.log((a_1 = next("a"), b = next("b"), b - a_1), order.join(","));
+	console.log((next("extra"), 1), order.join(","));
+	{
+		console.log(6, 10);
+	}
+	const gen = numbers();
+	console.log(order.includes("generator body"), gen.next().value, order.includes("generator body"));
+	console.log(self(), count(), fact(5), 2, typeof later());
+	outer: for (let i = 0; i < 2; i++) {
+		let found;
+		find: {
+			const list = [i];
+			const wanted = i;
+			for (let i_1 = 0; i_1 < 1; i_1++) {
+				if (list[0] === wanted) {
+					found = 0;
+					break find;
+				}
+			}
+			found = -1;
+		}
+		if (found === 0) continue outer;
+	}
+}

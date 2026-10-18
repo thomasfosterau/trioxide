@@ -1,0 +1,43 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline-fn/islands
+input_file: tests/fixtures/passes/inline-fn/islands/input.ts
+---
+//- input.ts
+import { run } from "./kernel.js";
+import { hot, table } from "\0trioxide:island/kernel";
+// Runs at module evaluation, before `ready()`: the island calls stay calls.
+const early = run(3);
+const folded = table(4);
+const direct = hot(2);
+export function main() {
+	console.log(early, folded, direct, run(5), table(3), hot(4));
+}
+
+//- kernel.ts
+import { hot as hot$wasm } from "\0trioxide:island/kernel";
+// WASM island functions: never inlined, evaluated at compile time, or removed, and nothing is
+// inlined into them.
+function square(x) {
+	return x * x;
+}
+/** @trioxide wasm */
+export function hot(x) {
+	return square(x) + 1;
+}
+/** @trioxide wasm */
+export function table(n) {
+	let s = 0;
+	for (let i = 0; i < n; i++) {
+		s += i * 2;
+	}
+	return s;
+}
+export function run(n) {
+	let s = 0;
+	for (let i = 0; i < n; i++) {
+		const p_x = i;
+		s += hot$wasm(p_x) * 1;
+	}
+	return s;
+}

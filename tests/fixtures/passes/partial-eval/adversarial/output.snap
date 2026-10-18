@@ -1,0 +1,77 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/partial-eval/adversarial
+input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
+---
+//- input.ts
+// Calls partial evaluation must leave alone (or get exactly right).
+let counter = 0;
+function forever() {
+	let i = 0;
+	while (true) i++;
+}
+function big() {
+	const out = [];
+	for (let i = 0; i < 1e3; i++) out.push(i);
+	return out;
+}
+counter++;
+const C2 = Math.random() < 2 ? 1 : 0;
+const C3 = Date.now() > 0 ? 1 : 0;
+let C5 = 0;
+try {
+	throw new Error("no");
+} catch {
+	C5 = -1;
+}
+const row_1 = [1, 2];
+const C6 = [row_1, row_1];
+const C7 = big().length;
+let C8 = 0;
+try {
+	C8 = AFTER + 1;
+} catch {
+	C8 = -1;
+}
+const AFTER = 5;
+const C9 = 42;
+const C10 = [
+	"tab	here",
+	"é",
+	"quote\"s"
+];
+const C11 = new Array(3);
+const C12 = Math.sin(1);
+const C13 = [
+	1.4142135623730951,
+	.10000000149011612,
+	4503599627370497,
+	-2147483648,
+	1,
+	-1,
+	-Infinity
+];
+const C14 = [
+	"\ud800x",
+	"\ud83d",
+	"a​b"
+];
+let s_1 = 0;
+for (let i_1 = 0; i_1 < 1e6; i_1++) s_1 = (s_1 + i_1) % 7;
+const C15 = s_1;
+function map_callback_2(s) {
+	return s.length + ":" + s.charCodeAt(0);
+}
+function map_callback_1(x) {
+	return Object.is(x, -0) ? "-0" : String(x);
+}
+function map_callback(s) {
+	return s.length;
+}
+export function main() {
+	C6[0][0] = 9;
+	console.log(1, C2, C3, 2, C5, C6[1][0], C7, C8, C9);
+	console.log(C10.map(map_callback).join(","), C11.length, 0 in C11, C12 > .84);
+	console.log(C13.map(map_callback_1).join(","));
+	console.log(C14.map(map_callback_2).join(","), C15, typeof forever);
+}
