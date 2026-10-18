@@ -1,13 +1,12 @@
 [
   {
     "name": "collatz",
-    "js": 10092629.750000015,
-    "wasm": 19227188.00000001,
-    "readyMs": 15.431477000000001,
+    "js": 8882140.99999999,
+    "wasm": 17868796.00000003,
     "model": {
       "wasm": false,
       "cost": {
-        "benefit": -13828039.05,
+        "benefit": -13817539.4,
         "cost": 300008,
         "threshold": 0,
         "crossings": 8,
@@ -21,8 +20,8 @@
       "features": {
         "calls": 1,
         "bytes": 0,
-        "arithmetic": 46168461,
-        "integer": 0,
+        "arithmetic": 46138462,
+        "integer": 29999,
         "conversion": 0,
         "wrapping": 0,
         "math": 0,
@@ -37,9 +36,8 @@
   },
   {
     "name": "gamma",
-    "js": 1269534.3749999993,
-    "wasm": 2150487.7499999963,
-    "readyMs": 12.744561999999998,
+    "js": 1092098.6250000056,
+    "wasm": 1962014.2499999958,
     "model": {
       "wasm": false,
       "cost": {
@@ -73,9 +71,8 @@
   },
   {
     "name": "histogram",
-    "js": 276405.3750000004,
-    "wasm": 3809854.625,
-    "readyMs": 14.085693000000003,
+    "js": 255925.6249999997,
+    "wasm": 3480502.7499999995,
     "model": {
       "wasm": false,
       "cost": {
@@ -109,13 +106,12 @@
   },
   {
     "name": "image-filters",
-    "js": 5714637.12500001,
-    "wasm": 17558394.50000002,
-    "readyMs": 16.360923,
+    "js": 5325408.9999999795,
+    "wasm": 23205842.99999996,
     "model": {
       "wasm": false,
       "cost": {
-        "benefit": -17840664,
+        "benefit": -9016260,
         "cost": 392298,
         "threshold": 0,
         "crossings": 8,
@@ -129,14 +125,14 @@
       "features": {
         "calls": 1,
         "bytes": 921600,
-        "arithmetic": 30720480,
-        "integer": 2995200,
+        "arithmetic": 10445040,
+        "integer": 23270640,
         "conversion": 0,
         "wrapping": 0,
         "math": 0,
         "remainder": 0,
-        "index": 0,
-        "checkedIndex": 2457600,
+        "index": 384000,
+        "checkedIndex": 2073600,
         "iteration": 3072240,
         "aggregates": 2
       },
@@ -145,13 +141,12 @@
   },
   {
     "name": "int-hash",
-    "js": 11424460.750000037,
-    "wasm": 5220111.125000003,
-    "readyMs": 9.798823000000002,
+    "js": 10194730.999999933,
+    "wasm": 4634157.250000016,
     "model": {
       "wasm": true,
       "cost": {
-        "benefit": 8600000.3,
+        "benefit": 9300000.3,
         "cost": 300008,
         "threshold": 0,
         "crossings": 8,
@@ -165,8 +160,8 @@
       "features": {
         "calls": 1,
         "bytes": 0,
-        "arithmetic": 4000000,
-        "integer": 16000001,
+        "arithmetic": 2000000,
+        "integer": 18000001,
         "conversion": 0,
         "wrapping": 2000000,
         "math": 2000000,
@@ -181,13 +176,12 @@
   },
   {
     "name": "mandelbrot",
-    "js": 4928738.750000008,
-    "wasm": 5095277.500000008,
-    "readyMs": 14.632027,
+    "js": 4271367.749999996,
+    "wasm": 4123999.4999999963,
     "model": {
       "wasm": false,
       "cost": {
-        "benefit": -5007015,
+        "benefit": -2287462.5,
         "cost": 300008,
         "threshold": 0,
         "crossings": 8,
@@ -201,8 +195,8 @@
       "features": {
         "calls": 1,
         "bytes": 0,
-        "arithmetic": 100140300,
-        "integer": 0,
+        "arithmetic": 92370150,
+        "integer": 7770150,
         "conversion": 0,
         "wrapping": 0,
         "math": 0,
@@ -217,13 +211,12 @@
   },
   {
     "name": "matmul",
-    "js": 1401073.9375000014,
-    "wasm": 14549327.500000004,
-    "readyMs": 11.680620999999999,
+    "js": 1366802.7500000051,
+    "wasm": 1086312.3124999986,
     "model": {
       "wasm": false,
       "cost": {
-        "benefit": -12806563.2,
+        "benefit": -3244468.8,
         "cost": 329694.2,
         "threshold": 0,
         "crossings": 8,
@@ -237,14 +230,14 @@
       "features": {
         "calls": 1,
         "bytes": 294912,
-        "arithmetic": 7114944,
-        "integer": 0,
+        "arithmetic": 2663520,
+        "integer": 4451424,
         "conversion": 0,
         "wrapping": 0,
         "math": 0,
         "remainder": 0,
-        "index": 0,
-        "checkedIndex": 1778688,
+        "index": 1778688,
+        "checkedIndex": 0,
         "iteration": 894048,
         "aggregates": 3
       },
@@ -253,29 +246,28 @@
   },
   {
     "name": "noise",
-    "js": 9279896.250000007,
-    "wasm": 15246037.999999998,
-    "readyMs": 14.767461,
+    "js": 8619727.999999981,
+    "wasm": 10419483.500000013,
     "model": {
-      "wasm": false,
+      "wasm": true,
       "cost": {
-        "benefit": -11427936,
+        "benefit": 10905840,
         "cost": 300016,
         "threshold": 0,
         "crossings": 16,
         "marshalling": 0,
         "instantiation": 300000,
         "calls": 2,
-        "work": 59599680,
+        "work": 55913280,
         "bytes": 0
       },
       "function": "brightCells",
       "features": {
         "calls": 2,
         "bytes": 0,
-        "arithmetic": 7374720,
-        "integer": 36864000,
-        "conversion": 3686400,
+        "arithmetic": 6759360,
+        "integer": 37479360,
+        "conversion": 0,
         "wrapping": 0,
         "math": 6144000,
         "remainder": 0,
@@ -289,9 +281,8 @@
   },
   {
     "name": "number-reduction",
-    "js": 40820.85351562504,
-    "wasm": 610307.7500000005,
-    "readyMs": 20.508598999999997,
+    "js": 34752.52929687489,
+    "wasm": 490575.2187499992,
     "model": {
       "wasm": false,
       "cost": {
@@ -325,9 +316,8 @@
   },
   {
     "name": "per-element",
-    "js": 218169.44531250026,
-    "wasm": 831107.4999999981,
-    "readyMs": 12.673586,
+    "js": 196251.5468749988,
+    "wasm": 784527.1249999967,
     "model": {
       "wasm": false,
       "cost": {
@@ -361,13 +351,12 @@
   },
   {
     "name": "rounding",
-    "js": 5266633.374999998,
-    "wasm": 3529816.9999999944,
-    "readyMs": 15.149845999999997,
+    "js": 4586583.499999989,
+    "wasm": 2160548.0000000056,
     "model": {
-      "wasm": false,
+      "wasm": true,
       "cost": {
-        "benefit": -400000,
+        "benefit": 1700000,
         "cost": 300008,
         "threshold": 0,
         "crossings": 8,
@@ -381,8 +370,8 @@
       "features": {
         "calls": 1,
         "bytes": 0,
-        "arithmetic": 8000000,
-        "integer": 0,
+        "arithmetic": 2000000,
+        "integer": 6000000,
         "conversion": 0,
         "wrapping": 0,
         "math": 3000000,
@@ -397,13 +386,12 @@
   },
   {
     "name": "sdf",
-    "js": 573922.4218749985,
-    "wasm": 705446.1874999998,
-    "readyMs": 11.427425,
+    "js": 444650.0624999992,
+    "wasm": 625325.7812499999,
     "model": {
       "wasm": false,
       "cost": {
-        "benefit": -84030,
+        "benefit": 42075,
         "cost": 300008,
         "threshold": 0,
         "crossings": 8,
@@ -417,8 +405,8 @@
       "features": {
         "calls": 1,
         "bytes": 0,
-        "arithmetic": 1680600,
-        "integer": 0,
+        "arithmetic": 1320300,
+        "integer": 360300,
         "conversion": 0,
         "wrapping": 0,
         "math": 600000,
@@ -433,9 +421,8 @@
   },
   {
     "name": "small-arrays",
-    "js": 133587.39843750023,
-    "wasm": 2485435.0625000023,
-    "readyMs": 15.025443999999997,
+    "js": 116801.62499999991,
+    "wasm": 2246824.2500000033,
     "model": {
       "wasm": false,
       "cost": {
@@ -469,9 +456,8 @@
   },
   {
     "name": "small-helpers",
-    "js": 2050.6385498046884,
-    "wasm": 17279.12744140625,
-    "readyMs": 11.663555999999996,
+    "js": 1665.6240234374925,
+    "wasm": 16296.420898437525,
     "model": {
       "wasm": false,
       "cost": {
@@ -505,9 +491,8 @@
   },
   {
     "name": "stencil",
-    "js": 110635.36718749978,
-    "wasm": 204419.5468750001,
-    "readyMs": 13.339181999999997,
+    "js": 105549.8593750004,
+    "wasm": 169489.51562500003,
     "model": {
       "wasm": false,
       "cost": {
@@ -541,9 +526,8 @@
   },
   {
     "name": "tile-digest",
-    "js": 1173325.1875000014,
-    "wasm": 725048.1406250007,
-    "readyMs": 10.258594000000002,
+    "js": 1287923.5000000051,
+    "wasm": 692090.562500006,
     "model": {
       "wasm": true,
       "cost": {
@@ -577,13 +561,12 @@
   },
   {
     "name": "transcendental",
-    "js": 3541969.249999994,
-    "wasm": 3773280.3749999986,
-    "readyMs": 12.654926999999997,
+    "js": 3110038.000000003,
+    "wasm": 3310080.9999999967,
     "model": {
       "wasm": false,
       "cost": {
-        "benefit": -60000,
+        "benefit": 150000,
         "cost": 300008,
         "threshold": 0,
         "crossings": 8,
@@ -597,8 +580,8 @@
       "features": {
         "calls": 1,
         "bytes": 0,
-        "arithmetic": 1200000,
-        "integer": 0,
+        "arithmetic": 600000,
+        "integer": 600000,
         "conversion": 0,
         "wrapping": 0,
         "math": 400000,

@@ -14,7 +14,7 @@ const repo = path.resolve(here, '../..');
 const trioxide =
   process.env.TRIOXIDE_BIN ??
   ['release', 'debug'].map((p) => path.join(repo, 'target', p, 'trioxide')).find((p) => existsSync(p));
-const out = path.join(here, '.out', 'reach');
+const out = path.join(here, '..', '.out', 'reach');
 mkdirSync(out, { recursive: true });
 
 const programs = [

@@ -8,11 +8,7 @@ importers:
 
   .: {}
 
-  benchmarks/passes:
-    devDependencies:
-      tinybench:
-        specifier: 6.1.6
-        version: 6.1.6
+  benchmarks: {}
 
   examples/dom-app:
     devDependencies:
@@ -43,6 +39,12 @@ importers:
       vite:
         specifier: 8.3.4
         version: 8.3.4(@types/node@22.19.1)
+
+  examples/telemetry:
+    devDependencies:
+      trioxide:
+        specifier: workspace:*
+        version: link:../../packages/trioxide
 
   packages/trioxide:
     devDependencies:
@@ -1116,10 +1118,6 @@ packages:
   theredoc@1.0.0:
     resolution: {integrity: sha512-KU3SA3TjRRM932jpNfD3u4Ec3bSvedyo5ITPI7zgWYnKep7BwQQaxlhI9qbO+lKJoRnoAbEVfMcAHRuKVYikDA==}
 
-  tinybench@6.1.6:
-    resolution: {integrity: sha512-qEHpSqUC/KkD4rypubEZ/gSENbH6x4E8d8UM5aBndJhRjTW3sPW4jmS5C1/wHhMFMj040jgJl2XvQOYdZDgKkA==}
-    engines: {node: '>=20.0.0'}
-
   tinybench@6.2.2:
     resolution: {integrity: sha512-nIZ2N2dFpjBsg2hgitKu7mA+FvsIJuGJOwysRngmVRRmWgR/UyPjwJj8c/fT/dhm8EkHnF5EOogRf+0Z2qrimA==}
     engines: {node: '>=20.0.0'}
@@ -2093,8 +2091,6 @@ snapshots:
       theredoc: 1.0.0
 
   theredoc@1.0.0: {}
-
-  tinybench@6.1.6: {}
 
   tinybench@6.2.2: {}
 

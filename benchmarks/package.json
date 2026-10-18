@@ -1,0 +1,11 @@
+{
+  "name": "trioxide-benchmarks",
+  "private": true,
+  "type": "module",
+  "description": "Runtime of trioxide's output (JS passes, whole programs, JS vs WASM kernels) and compiler throughput. See README.md.",
+  "scripts": {
+    "bench": "node bench.mjs",
+    "fit": "node partition/fit.mjs",
+    "reach": "node partition/reach.mjs"
+  }
+}
