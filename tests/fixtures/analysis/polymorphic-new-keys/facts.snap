@@ -1,0 +1,52 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/polymorphic-new-keys
+input_file: tests/fixtures/analysis/polymorphic-new-keys/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  P.<fields> (3:9) open: reads writes throws calls-unknown
+  Q.<fields> (6:9) open: reads writes throws calls-unknown
+  make (9:1): reads writes allocates throws calls-unknown
+  main (13:8) open: reads writes allocates throws calls-unknown
+    calls 14:13 -> make
+    calls 15:13 -> make
+classes:
+  P (3:1): fields [a] shape unknown
+  Q (6:1): fields [a] shape unknown
+nodes:
+  3:7 bind `P`: function@proven
+  6:7 bind `Q`: function@proven
+  9:10 bind `make`: function@proven
+  9:15 bind `flag`: boolean@proven
+  9:31 ref `P`: unknown
+  9:35 ref `Q`: unknown
+  10:9 bind `C`: function | function@proven
+  10:13 cond `flag ? P : Q`: function | function@proven
+  10:13 ref `flag`: boolean@proven
+  10:20 ref `P`: function@proven
+  10:24 ref `Q`: function@proven
+  11:10 new `new C()`: P@declared
+  11:14 ref `C`: function | function@proven
+  13:17 bind `main`: function@proven
+  14:9 bind `p`: P@declared
+  14:13 call `make(true)`: P@declared
+  14:13 ref `make`: function@proven
+  15:9 bind `q`: P@declared
+  15:13 cast `make(false) as Q & { b?: number }`: P@declared
+  15:13 call `make(false)`: P@declared
+  15:13 ref `make`: function@proven
+  15:28 ref `Q`: unknown
+  16:7 binary `Number("1") === 1`: boolean@proven
+  16:7 call `Number("1")`: number@declared
+  16:7 ref `Number`: unknown
+  16:26 assign `q.b = 3`: 3@proven
+  16:26 member `q.b`: unknown
+  16:26 ref `q`: P@declared
+  17:3 call `console.log(p.a, q)`: unknown
+  17:3 member `console.log`: unknown
+  17:3 ref `console`: unknown
+  17:15 member `p.a`: number@declared
+  17:15 ref `p`: P@declared
+  17:20 ref `q`: P@declared

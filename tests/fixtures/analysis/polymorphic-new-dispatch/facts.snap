@@ -1,0 +1,121 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/polymorphic-new-dispatch
+input_file: tests/fixtures/analysis/polymorphic-new-dispatch/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  A.<fields> (3:9) open: reads writes throws calls-unknown
+  A.m (5:4) open: pure
+  B.<fields> (9:9) open: reads writes throws calls-unknown
+  B.m (12:4) open: pure
+  F (16:1) open: reads writes throws calls-unknown
+  make (20:1): reads writes allocates throws calls-unknown
+  makeAny (24:1): reads writes allocates throws calls-unknown
+  main (28:8) open: reads writes allocates throws calls-unknown
+    calls 29:13 -> make
+    calls 30:13 -> make
+    calls 36:13 -> makeAny
+    calls 37:13 -> makeAny
+classes:
+  A (3:1): fields [x] shape unknown
+  B (9:1): fields [x, y] shape unknown
+nodes:
+  3:7 bind `A`: function@proven
+  9:7 bind `B`: function@proven
+  16:10 bind `F`: function@proven
+  17:3 assign `this.z = 3`: 3@proven
+  17:3 member `this.z`: unknown
+  17:3 this `this`: unknown
+  19:7 bind `ctors`: (function | function | function)[]@proven
+  19:22 array `[A, B, F]`: (function | function | function)[]@proven escape=known stable-shape
+  19:23 ref `A`: function@proven
+  19:26 ref `B`: function@proven
+  19:29 ref `F`: function@proven
+  20:10 bind `make`: function@proven
+  20:15 bind `i`: number[0, 1] int nonNaN nonNegZero@proven
+  20:27 ref `A`: unknown
+  20:31 ref `B`: unknown
+  21:9 bind `C`: function | function@proven
+  21:13 cond `i === 0 ? A : B`: function | function@proven
+  21:13 binary `i === 0`: boolean@proven
+  21:13 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  21:23 ref `A`: function@proven
+  21:27 ref `B`: function@proven
+  22:10 new `new C()`: A | B@declared
+  22:14 ref `C`: function | function@proven
+  24:10 bind `makeAny`: function@proven
+  24:18 bind `i`: number[1, 2] int nonNaN nonNegZero@proven
+  25:9 bind `C`: undefined | function | function | function@proven
+  25:13 member `ctors[i]`: undefined | function | function | function@proven
+  25:13 ref `ctors`: (function | function | function)[]@proven
+  25:19 ref `i`: number[1, 2] int nonNaN nonNegZero@proven
+  26:10 new `new C()`: unknown
+  26:14 ref `C`: undefined | function | function | function@proven
+  28:17 bind `main`: function@proven
+  29:9 bind `a`: A | B@declared
+  29:13 call `make(0)`: A | B@declared
+  29:13 ref `make`: function@proven
+  30:9 bind `b`: A | B@declared
+  30:13 call `make(1)`: A | B@declared
+  30:13 ref `make`: function@proven
+  31:9 bind `m`: number@declared
+  31:13 call `b.m()`: number@declared
+  31:13 member `b.m`: unknown
+  31:13 ref `b`: A | B@declared
+  32:9 bind `x`: number | string@declared
+  32:13 member `b.x`: number | string@declared
+  32:13 ref `b`: A | B@declared
+  33:3 call `console.log(a.m(), m, x, typeof a.x, ...`: unknown
+  33:3 member `console.log`: unknown
+  33:3 ref `console`: unknown
+  33:15 call `a.m()`: number@declared
+  33:15 member `a.m`: unknown
+  33:15 ref `a`: A | B@declared
+  33:22 ref `m`: number@declared
+  33:25 ref `x`: number | string@declared
+  33:28 unary `typeof a.x`: string@proven
+  33:35 member `a.x`: number | string@declared
+  33:35 ref `a`: A | B@declared
+  33:40 call `Object.keys(b).join()`: string@proven
+  33:40 member `Object.keys(b).join`: unknown
+  33:40 call `Object.keys(b)`: string[]@proven escape=none stable-shape
+  33:40 member `Object.keys`: unknown
+  33:40 ref `Object`: unknown
+  33:52 ref `b`: A | B@declared
+  34:3 assign `(b as any).extra = true`: boolean@proven
+  34:3 member `(b as any).extra`: unknown
+  34:4 cast `b as any`: A | B@declared
+  34:4 ref `b`: A | B@declared
+  35:3 call `console.log(Object.keys(b).join(), b ...`: unknown
+  35:3 member `console.log`: unknown
+  35:3 ref `console`: unknown
+  35:15 call `Object.keys(b).join()`: string@proven
+  35:15 member `Object.keys(b).join`: unknown
+  35:15 call `Object.keys(b)`: string[]@proven escape=none stable-shape
+  35:15 member `Object.keys`: unknown
+  35:15 ref `Object`: unknown
+  35:27 ref `b`: A | B@declared
+  35:38 binary `b instanceof B`: boolean@proven
+  35:38 ref `b`: A | B@declared
+  35:51 ref `B`: function@proven
+  36:9 bind `f`: unknown
+  36:13 call `makeAny(2)`: unknown
+  36:13 ref `makeAny`: function@proven
+  37:9 bind `g`: unknown
+  37:13 call `makeAny(1)`: unknown
+  37:13 ref `makeAny`: function@proven
+  38:3 call `console.log(f.z, g.y, f instanceof A,...`: unknown
+  38:3 member `console.log`: unknown
+  38:3 ref `console`: unknown
+  38:15 member `f.z`: unknown
+  38:15 ref `f`: unknown
+  38:20 member `g.y`: unknown
+  38:20 ref `g`: unknown
+  38:25 binary `f instanceof A`: boolean@proven
+  38:25 ref `f`: unknown
+  38:38 ref `A`: function@proven
+  38:41 binary `g instanceof B`: boolean@proven
+  38:41 ref `g`: unknown
+  38:54 ref `B`: function@proven
