@@ -49,10 +49,27 @@ impl<'a> Cx<'_, '_, 'a> {
 
     /// A call expression.
     pub fn call(&mut self, call: &'a CallExpression<'a>) -> Val {
-        let site = call.node_id.get();
-        let callee = call.callee.without_parentheses();
+        self.call_with(
+            call.node_id.get(),
+            &call.callee,
+            call.optional,
+            |cx: &mut Self| cx.arguments(&call.arguments),
+        )
+    }
+
+    /// A call at `site` of `callee` (a method call when it is a member expression), with
+    /// the arguments `args` evaluates (once, after the callee): calls and tagged templates.
+    pub fn call_with(
+        &mut self,
+        site: NodeId,
+        callee: &'a Expression<'a>,
+        optional: bool,
+        args: impl FnOnce(&mut Self) -> Args,
+    ) -> Val {
+        let whole = callee;
+        let callee = callee.without_parentheses();
         if let Expression::Super(_) = callee {
-            let args = self.arguments(&call.arguments);
+            let args = args(self);
             self.super_call(site, &args);
             return Val::proven(Type::Undefined);
         }
@@ -67,7 +84,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         .filter(|builtin| builtin.callable)
             {
                 self.record_node(object.node_id.get(), &Val::unknown());
-                let args = self.arguments(&call.arguments);
+                let args = args(self);
                 return self.builtin_call(builtin, &args, None, site, Trust::Proven);
             }
             // Reflection that redefines properties or prototypes poisons its target.
@@ -77,7 +94,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 && is_reflective(object.name.as_str(), static_member.property.name.as_str())
             {
                 self.record_node(object.node_id.get(), &Val::unknown());
-                let args = self.arguments(&call.arguments);
+                let args = args(self);
                 for value in &args.values {
                     self.an.poison(&value.pts);
                 }
@@ -104,7 +121,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 && let Some((kind, trust)) = self.receiver_kind(&receiver)
                 && let Some(builtin) = builtins::method_of(kind, name)
             {
-                let args = self.arguments(&call.arguments);
+                let args = args(self);
                 return self.builtin_call(builtin, &args, Some(&receiver), site, trust);
             }
             if !member.optional() {
@@ -113,7 +130,7 @@ impl<'a> Cx<'_, '_, 'a> {
             if let Expression::Super(_) = member.object() {
                 let function = self.super_method(&key);
                 self.record_node(member.node_id(), &function);
-                let args = self.arguments(&call.arguments);
+                let args = args(self);
                 return self.call_value(
                     site,
                     &function,
@@ -147,7 +164,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 .collect();
             let function = functions.iter().fold(Val::never(), |acc, f| acc.join(f));
             self.record_node(member.node_id(), &function);
-            let args = self.arguments(&call.arguments);
+            let args = args(self);
             let mut value = Val::never();
             for (receiver, function) in per_site.iter().zip(&functions) {
                 let result =
@@ -159,10 +176,10 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             return value;
         }
-        let function = self.expr(&call.callee);
-        let args = self.arguments(&call.arguments);
+        let function = self.expr(whole);
+        let args = args(self);
         let mut value = self.call_value(site, &function, None, &args.values, args.spread);
-        if call.optional && function.ty.may_be_nullish() {
+        if optional && function.ty.may_be_nullish() {
             value = value.join(&Val::proven(Type::Undefined));
         }
         value
