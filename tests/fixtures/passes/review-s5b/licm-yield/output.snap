@@ -1,0 +1,25 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/licm-yield
+input_file: tests/fixtures/passes/review-s5b/licm-yield/input.ts
+---
+//- input.ts
+// Review: other code can resize an array while a generator is suspended at a `yield`.
+function* walk(a) {
+	for (let i = 0; i < a.length; i++) {
+		yield a[i];
+	}
+}
+export function main() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const seen = [];
+	for (const x of walk(a)) {
+		seen.push(x);
+		if (x === 1) a.pop();
+	}
+	console.log(seen.join(","));
+}

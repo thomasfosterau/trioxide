@@ -1,0 +1,23 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/licm-zero-trip
+input_file: tests/fixtures/passes/review-s5b/licm-zero-trip/input.ts
+---
+//- input.ts
+function total(o) {
+	let s = 0;
+	for (let i = 0; o !== undefined && i < 3; i++) s += o.k * 2;
+	return s;
+}
+let calls = 0;
+function folded() {
+	// The test folds to `false`: the body's `o.k * 2` must still never run.
+	const o = undefined;
+	calls++;
+	let s = calls - 1;
+	for (let i = 0; false; i++) s += o.k * 2;
+	return s;
+}
+export function main() {
+	console.log(total(undefined), total({ k: 2 }), folded());
+}

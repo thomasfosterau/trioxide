@@ -1,0 +1,21 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/licm/adversarial
+input_file: tests/fixtures/passes/licm/adversarial/input.ts
+---
+//- input.ts
+11:39 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+51:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+57:50 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+11:39 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+11:56 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+51:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+51:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+57:40 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+57:50 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+11:56 licm skipped: it may throw, and is only known to be safe where it runs in the body (after the test, or the earlier statements, it may rely on)
+19:23 licm skipped: the loop may resize the array
+30:23 licm skipped: the length read may throw
+40:23 licm skipped: the loop may resize the array
+65:43 licm skipped: the loop's head may have effects, and runs before anything put before the loop
+65:3 for-of applied

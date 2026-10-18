@@ -6,7 +6,7 @@ input_file: tests/fixtures/passes/review/specialize/input.ts
 //- input.ts
 function bounded(arr) {
 	let total = 0;
-	for (let i = 0; i <= arr.length - 1; i++) {
+	for (let i = 0, lastIndex = arr.length - 1; i <= lastIndex; i++) {
 		total += arr[i];
 	}
 	return total;

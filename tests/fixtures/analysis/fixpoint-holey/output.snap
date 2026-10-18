@@ -13,7 +13,8 @@ function holey() {
 	return xs;
 }
 export function main() {
-	for (const f of [mul1]) {
+	for (let items = [mul1], i = 0; i < items.length; i++) {
+		const f = items[i];
 		const xs = holey();
 		f(xs);
 		console.log(xs.length, xs[0], 0 in xs);

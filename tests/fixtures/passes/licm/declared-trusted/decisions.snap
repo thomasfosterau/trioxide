@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/licm/declared-trusted
+input_file: tests/fixtures/passes/licm/declared-trusted/input.ts
+---
+//- input.ts
+6:23 licm skipped: the loop may resize arrays in ways the analysis doesn't follow

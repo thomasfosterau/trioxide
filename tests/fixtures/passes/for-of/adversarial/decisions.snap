@@ -1,0 +1,18 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/for-of/adversarial
+input_file: tests/fixtures/passes/for-of/adversarial/input.ts
+---
+//- input.ts
+9:9 licm skipped: the loop may resize arrays in ways the analysis doesn't follow
+7:3 for-of applied
+17:3 for-of applied
+28:3 for-of applied
+30:17 for-of skipped: the array may have holes, which a spread reads as `undefined`
+38:3 for-of applied
+49:3 for-of applied
+59:3 for-of skipped: the value may not be an array
+60:3 for-of skipped: the array's type is unknown
+61:3 for-of skipped: the array's type is unknown
+62:3 for-of skipped: the array's type is unknown
+77:7 for-of skipped: the value may not be an array

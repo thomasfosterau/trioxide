@@ -62,8 +62,9 @@ export const CONFIGURATIONS = {
   'trust-types': { trustTypes: true },
   'all-passes': {
     passes: {
-      inline: true, checks: true, fold: true, dce: true, 'partial-eval': true, scalar: true,
-      'closure-hoist': true, params: true, 'inline-fn': true, simplify: true, imports: true, specialize: true,
+      inline: true, checks: true, fold: true, dce: true, licm: true, 'hidden-class': true, 'for-of': true,
+      pipelines: true, 'partial-eval': true, scalar: true, 'closure-hoist': true, params: true,
+      'inline-fn': true, simplify: true, imports: true, specialize: true,
     },
   },
 };

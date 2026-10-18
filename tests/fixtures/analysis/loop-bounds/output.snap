@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/loop-bounds/input.ts
 // Array reads bounded by `.length` in loop conditions are in bounds; shrinking breaks that.
 function sum(values) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += values[i];
 	}
 	return total;

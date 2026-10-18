@@ -8,7 +8,8 @@ input_file: tests/fixtures/analysis/narrowing-values/input.ts
 const config = JSON.parse("null");
 export function main() {
 	const items = ["a", null];
-	for (const item of items) {
+	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
 		if (item === null) {
 			console.log(
 				null

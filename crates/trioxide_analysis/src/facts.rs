@@ -338,6 +338,7 @@ pub struct FunctionInfo {
 /// | [`function`](Self::function), [`resolve_import`](Self::resolve_import) | units and linked imports |
 /// | [`symbol_constant`](Self::symbol_constant), [`enum_member`](Self::enum_member) | bindings and enum members with literal values |
 /// | [`export_used`](Self::export_used) | whether any module can use an export |
+/// | [`builtin_intact`](Self::builtin_intact), [`may_have_holes`](Self::may_have_holes), [`instance_keys_observed`](Self::instance_keys_observed) | unpatched builtins, packed arrays, classes whose instances' keys nothing observes |
 ///
 /// A node-keyed table kept per module, so a module's entries are built (and replaced) whole.
 #[derive(Debug, Clone)]
@@ -424,6 +425,12 @@ pub struct Facts {
     enum_members: FxHashMap<(SymbolRef, String), (Constant, Trust)>,
     /// Exports no module can use.
     unused_exports: FxHashSet<SymbolRef>,
+    /// Builtin namespaces and prototypes the program may patch, once the analysis ran.
+    patched: Option<FxHashSet<String>>,
+    /// Array allocation sites none of whose arrays ever has a hole.
+    packed: FxHashSet<NodeRef>,
+    /// Classes no code can observe the own keys of.
+    unobserved_classes: FxHashSet<ClassId>,
 }
 
 /// What a call site may call (see [`Facts::site_resolution`]).
@@ -781,6 +788,49 @@ impl Facts {
         }
     }
 
+    /// Whether the program leaves the builtin `name` alone (a namespace such as `"Array"` or
+    /// `"Object"`, whose prototype goes with it, or `"TypedArray"`): `Proven` true when no
+    /// code shadows, reassigns or hands out the namespace or reaches a builtin prototype
+    /// without naming it, so the builtin models (methods, iteration, holes reading through
+    /// the prototype) describe what runs (PLAN §3, "Builtin integrity"); `Proven` false when
+    /// it may be patched; `Unknown` before the analysis ran.
+    pub fn builtin_intact(&self, name: &str) -> Fact<bool> {
+        match &self.patched {
+            Some(patched) => Fact::proven(!patched.contains(name)),
+            None => Fact::unknown(),
+        }
+    }
+
+    /// Whether an array made at `site` may ever have a hole (a missing index below its
+    /// length): `Proven` false when no array from the site ever has one (no `delete`, sparse
+    /// write, `length` growth or holey literal), otherwise `Unknown` true.
+    pub fn may_have_holes(&self, site: NodeRef) -> Fact<bool> {
+        if self.packed.contains(&site) {
+            Fact::proven(false)
+        } else {
+            Fact {
+                value: true,
+                trust: Trust::Unknown,
+            }
+        }
+    }
+
+    /// Whether code may observe which own properties instances of `class` have, or in which
+    /// order (`Object.keys`, `for…in`, `JSON.stringify`, spread, `in`, `hasOwnProperty`, …).
+    /// `Proven` false when the class is not open, no program class extends it, its
+    /// prototype gets no properties outside its body, and no such observer may see any of its
+    /// instances; otherwise `Unknown` true.
+    pub fn instance_keys_observed(&self, class: ClassId) -> Fact<bool> {
+        if self.unobserved_classes.contains(&class) {
+            Fact::proven(false)
+        } else {
+            Fact {
+                value: true,
+                trust: Trust::Unknown,
+            }
+        }
+    }
+
     /// Drops every node-keyed fact of `module` (so they all read as `Unknown`), e.g. when a
     /// pass rewrote it in a way its node ids can't follow. The rewrite must keep its meaning:
     /// facts elsewhere about values and effects stay. Facts elsewhere that name its nodes go:
@@ -819,6 +869,8 @@ impl Facts {
         self.enum_members
             .retain(|(symbol, _), _| symbol.module != module);
         self.unused_exports.retain(|symbol| symbol.module != module);
+        self.packed.retain(other);
+        self.unobserved_classes.retain(other);
         let graph = std::mem::take(&mut self.call_graph);
         let units = graph.units.into_iter().filter(other).collect();
         let edges = graph
@@ -911,6 +963,8 @@ impl Facts {
             .remap(&node, |sites| sites.into_iter().map(node).collect());
         let nodes = |set: FxHashSet<NodeRef>| set.into_iter().filter_map(node).collect();
         self.unreachable = nodes(std::mem::take(&mut self.unreachable));
+        self.packed = nodes(std::mem::take(&mut self.packed));
+        self.unobserved_classes = nodes(std::mem::take(&mut self.unobserved_classes));
         let mut open_sites: FxHashSet<NodeRef> = nodes(std::mem::take(&mut self.open_sites));
         let graph = std::mem::take(&mut self.call_graph);
         let units = graph.units.into_iter().filter_map(node).collect();
@@ -1090,6 +1144,18 @@ impl Facts {
 
     pub(crate) fn set_export_unused(&mut self, symbol: SymbolRef) {
         self.unused_exports.insert(symbol);
+    }
+
+    pub(crate) fn set_patched(&mut self, patched: FxHashSet<String>) {
+        self.patched = Some(patched);
+    }
+
+    pub(crate) fn set_packed(&mut self, site: NodeRef) {
+        self.packed.insert(site);
+    }
+
+    pub(crate) fn set_unobserved_classes(&mut self, classes: FxHashSet<ClassId>) {
+        self.unobserved_classes = classes;
     }
 
     pub(crate) fn set_call_graph(&mut self, graph: CallGraph) {

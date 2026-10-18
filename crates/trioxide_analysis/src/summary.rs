@@ -41,7 +41,7 @@ pub fn facts(
     // The rest doesn't need the node facts: work it out alongside.
     // SAFETY: the world and the results are only read until the scope below ends.
     let shared = unsafe { crate::threads::Shared::new((world, results)) };
-    let (modules, (graph, effects), (symbols, (allocations, shapes))) =
+    let (modules, (graph, effects), (symbols, (allocations, shapes, packed))) =
         std::thread::scope(|scope| {
             let calls = scope.spawn(|| {
                 let (world, results) = shared.get();
@@ -111,17 +111,28 @@ pub fn facts(
     for (class, shape) in shapes {
         facts.set_class_shape(class, shape);
     }
+    for site in packed {
+        facts.set_packed(site);
+    }
+    facts.set_patched(interp::patched_builtins(world));
+    facts.set_unobserved_classes(crate::observe::unobserved_classes(world, results));
     facts
 }
 
-/// What the heap says about each allocation site and class.
-type HeapFacts = (Vec<(NodeRef, Allocation)>, Vec<(NodeRef, Fact<ClassShape>)>);
+/// What the heap says about each allocation site and class, and the arrays that never have
+/// holes.
+type HeapFacts = (
+    Vec<(NodeRef, Allocation)>,
+    Vec<(NodeRef, Fact<ClassShape>)>,
+    Vec<NodeRef>,
+);
 
-/// The allocation facts of every site and the shape of every class.
+/// The allocation facts of every site, the shape of every class and the packed array sites.
 fn heap_facts(world: &World<'_>, state: &State) -> HeapFacts {
     let mut allocations = Vec::with_capacity(state.heap.len());
     let mut shapes = Vec::with_capacity(world.classes.len());
     let mut instances: FxHashMap<NodeRef, Vec<&interp::Obj>> = FxHashMap::default();
+    let mut packed = Vec::new();
     for (&site, obj) in &state.heap {
         let kind = match obj.kind {
             ObjKind::Object => AllocKind::Object,
@@ -141,6 +152,14 @@ fn heap_facts(world: &World<'_>, state: &State) -> HeapFacts {
             interp::Escape::Known => Escape::Known,
             interp::Escape::Unknown => Escape::Unknown,
         };
+        if obj.kind == ObjKind::Array
+            && !obj.holey
+            && !obj.poisoned
+            && !obj.given_up
+            && obj.escape != interp::Escape::Unknown
+        {
+            packed.push(site);
+        }
         let stable = !obj.dynamic
             && !obj.deleted
             && obj.added.is_empty()
@@ -189,7 +208,7 @@ fn heap_facts(world: &World<'_>, state: &State) -> HeapFacts {
             },
         ));
     }
-    (allocations, shapes)
+    (allocations, shapes, packed)
 }
 
 /// The fact for a value, with object types filled in from the heap.

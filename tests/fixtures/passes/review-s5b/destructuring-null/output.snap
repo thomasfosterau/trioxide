@@ -1,0 +1,31 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/destructuring-null
+input_file: tests/fixtures/passes/review-s5b/destructuring-null/input.ts
+---
+//- input.ts
+const map_callback = ([a, b]) => a + b;
+// Review: destructuring a `null` element must throw the error it threw before.
+function viaCallback() {
+	const rows = [[1, 2], null];
+	try {
+		const sums = rows.map(map_callback);
+		return String(sums);
+	} catch (error) {
+		return error.message;
+	}
+}
+function viaLoop() {
+	const rows = [{ a: 1 }, null];
+	let total = 0;
+	try {
+		for (const { a } of rows) total += 1;
+		return String(total);
+	} catch (error) {
+		return error.message;
+	}
+}
+export function main() {
+	console.log(viaCallback());
+	console.log(viaLoop());
+}

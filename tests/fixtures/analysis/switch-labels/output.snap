@@ -21,7 +21,7 @@ function classify(n) {
 }
 function search(grid, target) {
 	let found = -1;
-	outer: for (let row = 0; row < grid.length; row++) {
+	outer: for (let row = 0, gridLength = grid.length; row < gridLength; row++) {
 		for (let column = 0; column < grid[row].length; column++) {
 			if (grid[row][column] === target) {
 				found = row * 10 + column;

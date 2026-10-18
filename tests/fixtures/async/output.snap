@@ -26,7 +26,10 @@ function* fibonacci() {
 class Queue {
 	log = [];
 	async run(tasks) {
-		for (const task of tasks) this.log.push(await task());
+		for (let i = 0; i < tasks.length; i++) {
+			const task = tasks[i];
+			this.log.push(await task());
+		}
 		return this.log;
 	}
 }

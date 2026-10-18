@@ -28,7 +28,12 @@ function guarded(go) {
 }
 function once() {
 	// Not in a loop: it would need a module-level constant.
-	return VALUES.map((v) => v - 1);
+	const result = [];
+	for (let i = 0, length = VALUES.length; i < length; i++) {
+		const v = VALUES[i];
+		result.push(v - 1);
+	}
+	return result;
 }
 export function main() {
 	console.log(labeled(3), guarded(true), guarded(false), once().join(","));

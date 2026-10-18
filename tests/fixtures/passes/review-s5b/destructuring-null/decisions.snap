@@ -1,0 +1,10 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/destructuring-null
+input_file: tests/fixtures/passes/review-s5b/destructuring-null/input.ts
+---
+//- input.ts
+17:59 inline applied
+17:5 for-of skipped: the loop destructures elements that may be `null` or `undefined`
+6:18 pipelines skipped: a callback destructures an element that may be `null` or `undefined`
+6:27 closure-hoist applied

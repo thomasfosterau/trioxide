@@ -19,7 +19,7 @@ function early(flag) {
 }
 function loop(values) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += values[i] * values[i];
 	}
 	return total;
@@ -34,14 +34,14 @@ function popping(values) {
 }
 function invariant(values, k) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += values[i] + k * 3;
 	}
 	return total;
 }
 function guarded(values, o) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		if (o !== null) {
 			total += o.x * 2;
 		}
@@ -50,7 +50,7 @@ function guarded(values, o) {
 }
 function clock(values) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += Date.now() * 0;
 	}
 	return total;
@@ -58,7 +58,7 @@ function clock(values) {
 function boxed(values) {
 	const box = { v: 1 };
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += box.v * 2;
 		box.v++;
 	}
@@ -70,7 +70,7 @@ function captured(values) {
 		c++;
 	};
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += c * 2;
 		inc();
 	}
@@ -84,14 +84,14 @@ class Scale {
 }
 function method(values, scale) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += scale.apply(i);
 	}
 	return total;
 }
 function exits(values, k) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		if (i > 3) {
 			break;
 		}

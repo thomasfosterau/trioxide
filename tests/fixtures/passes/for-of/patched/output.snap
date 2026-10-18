@@ -1,0 +1,21 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/for-of/patched
+input_file: tests/fixtures/passes/for-of/patched/input.ts
+---
+//- input.ts
+// Adversarial: a program that assigns the array iterator. Reaching `Array.prototype` turns the
+// builtin models off, so no loop is lowered.
+Array.prototype[Symbol.iterator] = Array.prototype.values;
+function sum() {
+	let total = 0;
+	for (const value of [
+		1,
+		2,
+		3
+	]) total += value;
+	return total;
+}
+export function main() {
+	console.log(sum(), [...[4, 5]]);
+}

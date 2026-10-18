@@ -28,7 +28,8 @@ function blur(src, width, height) {
 }
 function hash(values) {
 	let h = 2166136261;
-	for (const value of values) {
+	for (let i = 0, length = values.length; i < length; i++) {
+		const value = values[i];
 		h ^= value & 255;
 		h = Math.imul(h, 16777619) >>> 0;
 	}
@@ -38,7 +39,7 @@ function stats(values) {
 	let sum = 0;
 	let min = Infinity;
 	let max = -Infinity;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		const v = values[i];
 		sum += v;
 		min = Math.min(min, v);

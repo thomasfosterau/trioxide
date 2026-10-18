@@ -1,0 +1,18 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/for-of-tuple-resized
+input_file: tests/fixtures/passes/review-s5b/for-of-tuple-resized/input.ts
+---
+//- input.ts
+// Review: TypeScript lets code push onto a tuple, so a tuple's spread can't be written out
+// from its type.
+export function count(pair) {
+	pair.push(5);
+	return countArgs(...pair);
+}
+function countArgs(...values) {
+	return values.length;
+}
+export function main() {
+	console.log(count([1, 2]));
+}

@@ -1,0 +1,26 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/hidden-class-escapes
+input_file: tests/fixtures/passes/review-s5b/hidden-class-escapes/input.ts
+---
+//- input.ts
+// Review: instances reach key observers through `arguments`, builtin array results and spread
+// arguments.
+class Q {
+	x = 1;
+}
+function viaArguments(_o) {
+	// eslint-disable-next-line prefer-rest-params
+	return `${Object.keys(arguments[0]).join(",")} ${"late" in arguments[0]}`;
+}
+function run() {
+	const p = new Q();
+	const a = viaArguments(p);
+	const b = Object.keys([0].concat([p])[1]).join(",");
+	const c = Object.keys(...[p]).join(",");
+	p.late = 2;
+	return `${a} | ${b} | ${c} | ${p.late}`;
+}
+export function main() {
+	console.log(run());
+}

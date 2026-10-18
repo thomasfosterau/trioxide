@@ -1,0 +1,22 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/hidden-class/declared
+input_file: tests/fixtures/passes/hidden-class/declared/input.ts
+---
+//- input.ts
+// Negative cases: in the library world exported classes' instances reach unknown code, which
+// could enumerate their keys.
+export class Point {
+	x;
+	constructor(x) {
+		this.x = x;
+	}
+}
+export function make() {
+	const p = new Point(1);
+	p.y = 2;
+	return p;
+}
+export function main() {
+	console.log(make());
+}

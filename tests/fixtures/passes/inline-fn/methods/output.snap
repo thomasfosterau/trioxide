@@ -21,7 +21,7 @@ class Vec2 {
 }
 function energy(points) {
 	let total = 0;
-	for (let i = 0; i < points.length; i++) {
+	for (let i = 0, pointsLength = points.length; i < pointsLength; i++) {
 		const p = points[i];
 		total += p.dot(p);
 	}

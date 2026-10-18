@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/hidden-class-initialisers
+input_file: tests/fixtures/passes/review-s5b/hidden-class-initialisers/input.ts
+---
+//- input.ts
+5:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+3:7 hidden-class applied

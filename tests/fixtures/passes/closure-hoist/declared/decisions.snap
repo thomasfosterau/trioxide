@@ -4,4 +4,5 @@ description: tests/fixtures/passes/closure-hoist/declared
 input_file: tests/fixtures/passes/closure-hoist/declared/input.ts
 ---
 //- input.ts
+4:10 pipelines skipped: the array's type is only Declared (trustTypes is off)
 4:21 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen

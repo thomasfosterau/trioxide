@@ -6,7 +6,10 @@ input_file: tests/fixtures/passes/inline-fn/basics/input.ts
 //- input.ts
 function sum(...xs) {
 	let s = 0;
-	for (const x of xs) s += x;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const x = xs[i];
+		s += x;
+	}
 	return s;
 }
 export function main() {

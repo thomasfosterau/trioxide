@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/licm-await
+input_file: tests/fixtures/passes/review-s5b/licm-await/input.ts
+---
+//- input.ts
+5:23 licm skipped: the loop awaits or yields, and other code may resize the array then

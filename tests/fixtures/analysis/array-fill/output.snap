@@ -8,7 +8,7 @@ input_file: tests/fixtures/analysis/array-fill/input.ts
 function full(n) {
 	const a = new Array(n).fill(1);
 	let total = 0;
-	for (let i = 0; i < a.length; i++) {
+	for (let i = 0, aLength = a.length; i < aLength; i++) {
 		total += a[i];
 	}
 	return total;
@@ -16,7 +16,7 @@ function full(n) {
 function partial(n) {
 	const a = new Array(n).fill(2, 1);
 	let total = 0;
-	for (let i = 0; i < a.length; i++) {
+	for (let i = 0, aLength = a.length; i < aLength; i++) {
 		total += a[i] ?? 100;
 	}
 	return total;

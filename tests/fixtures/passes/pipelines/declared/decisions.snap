@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/declared
+input_file: tests/fixtures/passes/pipelines/declared/input.ts
+---
+//- input.ts
+5:10 pipelines skipped: the array's type is only Declared (trustTypes is off)
+9:10 pipelines skipped: the array's type is only Declared (trustTypes is off)
+5:42 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen
+5:21 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen
+9:21 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen

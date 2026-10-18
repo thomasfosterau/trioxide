@@ -1,0 +1,31 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/holes
+input_file: tests/fixtures/passes/pipelines/holes/input.ts
+---
+//- input.ts
+67:42 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+67:42 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+25:19 pipelines applied
+27:16 pipelines applied
+30:3 pipelines applied
+34:15 pipelines applied
+35:17 pipelines applied
+36:17 pipelines applied
+38:17 pipelines applied
+39:15 pipelines applied
+40:17 pipelines applied
+43:18 pipelines skipped: `find` would see the holes `map` keeps
+46:19 pipelines skipped: an array it may be is not followed by the analysis (it reaches unknown code, or gets properties added)
+47:17 pipelines skipped: an array it may be is not followed by the analysis (it reaches unknown code, or gets properties added)
+50:19 pipelines applied
+51:20 pipelines applied
+43:39 closure-hoist applied
+43:24 closure-hoist applied
+46:25 closure-hoist applied
+47:26 closure-hoist applied
+58:31 closure-hoist applied
+67:28 closure-hoist applied
+1:1 simplify applied
+1:1 simplify applied
+1:1 simplify applied

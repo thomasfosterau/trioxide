@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/licm-const-head
+input_file: tests/fixtures/passes/review-s5b/licm-const-head/input.ts
+---
+//- input.ts
+8:62 inline applied
+7:3 licm skipped: the loop's head declares a `const`, which nothing can join and which its invariants may read
+8:25 licm applied

@@ -234,7 +234,14 @@ induction ranges, invariant expressions), per unit (callers, reachability distin
 `never`), and per declaration: `const` bindings with literal values (`symbol_constant`; the
 type lattice has no string, boolean or bigint literals), enum members (`enum_member`:
 `Proven` when nothing can change the enum object, `Declared` when only TypeScript's read-only
-members say so) and exports no module can use (`export_used`, app world).
+members say so) and exports no module can use (`export_used`, app world). For the speed passes
+it also answers whether the program leaves a builtin and its prototype alone
+(`builtin_intact`), whether an array allocation site never has holes (`may_have_holes`), and
+whether any code can observe which own keys a class's instances have, or in which order
+(`instance_keys_observed`: `Proven` false only for a class the analysis follows entirely, that
+nothing extends, whose prototype gets nothing outside its body, and whose instances never reach
+`for…in`, `in`, object spread or rest, or an `Object.*`/`JSON.*`/`Reflect.*`, `.call`/`.apply`,
+`structuredClone`, `hasOwnProperty` or `propertyIsEnumerable` call).
 
 Implicit calls count wherever the engine makes them: accessors (class ones, those of object
 literals and of a literal's `__proto__`, and getters a spread reads), coercions, `await`,
@@ -431,6 +438,61 @@ fixture corpus at zero). An import guard brackets both groups: when the passes r
 import's last value use, the TypeScript strip would elide the whole declaration and its module
 might not run, so a side-effect `import "…"` is added in its place.
 
+The speed passes join the fact-driven group after dce, so they read the same facts and add no
+refresh: S5b's licm (9), hidden-class (10), for-of (7) and pipelines (6), then S5a's
+partial-eval (11), scalar (8), closure-hoist (12), params and inline-fn (5). Pipelines run
+before closure-hoist, which would otherwise lift a chain's callbacks out of its calls. Each pass
+rebuilds the scoping with `speed::rescope` after rewriting, keeping node ids; a loop a pass
+creates has no facts, so LICM doesn't see the loops `for…of` and pipeline lowering make (they
+read `length` once themselves where the loop facts allow).
+
+**Speed passes** (S5b; each module's doc comment has the full preconditions):
+- *Pipelines (6)*: a chain of `map`/`filter` ending in `map`, `filter`, `forEach`, `reduce`,
+  `some`, `every`, `find`, `findIndex` or `includes` (one call too) that initialises a binding,
+  is returned, or (`forEach`) is a statement becomes one indexed loop with the callbacks
+  written in. The receiver must be a plain array with intact builtins, and each call's site
+  complete with only its callback as callee; callbacks are arrows or function expressions
+  (no `this`/`arguments`/`new.target` of their own, no self-reference, a body that is an
+  expression or ends in its only `return`). Fusing interleaves callbacks, so it needs every
+  callback free of writes, throws and unknown calls, or exactly one effectful callback that is
+  first (the others reading no mutable state) or last (and unable to reach the array); before a
+  short-circuiting terminal (`some`, `every`, `find`, `findIndex`, `includes`) every stage must
+  be free of effects, since the loop stops early. The result goes to a fresh temporary and the
+  original declaration follows the loop (`const total = result;`), keeping its TDZ and
+  all-or-nothing assignment when a callback throws. Hole
+  semantics are kept with an `i in array` guard unless the arrays never have holes and no
+  callback can make one; a `map` stage keeps holes, and a chain that would hand one to `find`,
+  `findIndex` or `includes` stays. The range is fixed at the start and elements are read per
+  step. Deviation: a callback after a `filter` can't use its index, and a callback after the
+  first can't use its array parameter (the chain stays); calls on `Declared` receivers stay
+  even with `trustTypes`, because the analysis doesn't model their callbacks.
+- *`for…of` (7)*: over a plain array with intact builtins it becomes an indexed loop that
+  re-reads `length` each step (once, when the loop facts show no resize), declares the head
+  binding in the body (per-iteration, any pattern), and keeps labels. `[...a]` and
+  `[...a, ...b]` over arrays that never have holes become `slice`/`concat`. When the body
+  declares the array's name the array goes to a temporary in the head. A destructuring head
+  needs elements that are never nullish. Deviation: spread calls (`f(...a)`) stay: engines
+  already compile a spread call of a packed array like `apply`, and tuples can be resized.
+- *LICM (9)*: hoists `LoopFacts::invariant` expressions that read a property or call
+  something into the `for` head (`for (let i = 0, itemsLength = items.length; …)`) or a `const`
+  before the loop. An invariant of a `for`/`while` test is evaluated by the first test anyway;
+  one in the body moves only if it cannot throw (literals, number-typed bindings, arithmetic,
+  unpatched `Math.*`), since a zero-trip loop must not start evaluating it. `a.length` of a
+  binding declared outside the loop that nothing reassigns, holding only arrays the loop
+  doesn't resize (complete only without `resizes_untracked`), is hoisted too, since the
+  analysis leaves it out of `invariant` whenever the loop writes an object; not in loops that
+  `await` or `yield`, where other code can resize the array. Loops with a `const` head are
+  left alone, and names for a `var` head are fresh in the whole function. Deviation: pure
+  arithmetic over locals stays where it is (engines hoist it themselves; naming it costs
+  readability).
+- *Hidden-class stabilisation (10)*: for a base class whose shape is `Proven` and whose
+  instances' keys nobody observes (`instance_keys_observed`; an observer operand with unknown
+  points-to, or a spread argument to one, counts as observing every class), properties instances get late or
+  only on some constructor paths become class fields initialised to `undefined` (unless on the
+  prototype chain, where a field would hide the inherited one), placed before the first own
+  field so no initialiser's write is overwritten, and `delete o.p;` of such an
+  instance becomes `o.p = undefined;`. Deviation: array element kinds aren't touched.
+
 **Speed passes** (S5a). All four only rewrite code in their own module, and leave WASM island
 functions, and code proven never to run, alone. Inlining (`"inline-fn"`) and scalar
 replacement (`"scalar"`) are **off by default**: V8's optimising tiers already inline and
@@ -502,7 +564,7 @@ Rules every pass follows: one helper (`Slot`) decides where a pass may rewrite, 
 parentheses and TypeScript-only wrappers: never a `delete` operand or a whole expression
 statement, never a value fold in a callee, never an identifier under `typeof`, and a member or
 `eval` replacing a callee becomes `(0, x)`; facts inside proven-unreachable code are not used;
-nodes a pass creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await` or `yield`
+nodes a pass creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await`, `yield` or `delete` (optional chain or not; `checks` drops a `delete p?.x`'s `?.` only when `p` is proven non-nullish)
 are never dropped, whatever their purity says (binding `this` and suspending are not effects
 in the facts); `var` and function declarations are never removed with the branch or dead code
 that contains them while referenced; literals are printed as unary minus over a literal, and as

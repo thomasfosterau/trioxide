@@ -4,4 +4,5 @@ description: tests/fixtures/passes/closure-hoist/declared-trusted
 input_file: tests/fixtures/passes/closure-hoist/declared-trusted/input.ts
 ---
 //- input.ts
+4:10 pipelines skipped: `map` may run code the analysis doesn't see
 4:21 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen

@@ -1,0 +1,19 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/for-of/basics
+input_file: tests/fixtures/passes/for-of/basics/input.ts
+---
+//- input.ts
+7:3 for-of applied
+18:3 for-of applied
+19:3 for-of applied
+23:3 for-of applied
+25:3 for-of applied
+36:9 for-of applied
+37:5 for-of applied
+50:3 for-of applied
+56:3 for-of applied
+67:16 for-of applied
+69:18 for-of applied
+51:10 pipelines applied
+50:49 closure-hoist skipped: the closure captures `value`

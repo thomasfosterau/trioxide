@@ -1,0 +1,25 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/licm-await
+input_file: tests/fixtures/passes/review-s5b/licm-await/input.ts
+---
+//- input.ts
+// Review: other code can resize an array while a loop is suspended at an `await`.
+async function sum(a) {
+	let s = 0;
+	for (let i = 0; i < a.length; i++) {
+		s += a[i];
+		await null;
+	}
+	return s;
+}
+export async function main() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const pending = sum(a);
+	a.pop();
+	console.log(await pending);
+}

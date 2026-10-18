@@ -1,0 +1,19 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/licm-const-head
+input_file: tests/fixtures/passes/review-s5b/licm-const-head/input.ts
+---
+//- input.ts
+// Review: a `const` in a loop head (the loop ends some other way).
+function run() {
+	const items = [];
+	for (let k = 4; k <= 6; k++) items.push(k);
+	let sum = 0;
+	for (const step = 2; sum < 100;) {
+		for (let i = 0, itemsLength = items.length; i < itemsLength; i++) sum += items[i] * 2;
+	}
+	return sum;
+}
+export function main() {
+	console.log(run());
+}
