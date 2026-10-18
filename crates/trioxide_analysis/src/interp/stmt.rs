@@ -453,7 +453,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 }
                 if let Some(rest) = &object.rest {
                     let site = self.alloc(rest.node_id.get(), ObjKind::Object);
-                    self.mark(site, |obj| obj.dynamic = true);
+                    self.mark(site, move |obj| obj.dynamic = true);
                     self.escape_value(&value, Escape::Known);
                     self.bind_pattern(&rest.argument, Val::object(Type::empty_object(), site));
                 }
@@ -489,18 +489,22 @@ impl<'a> Cx<'_, '_, 'a> {
     /// Binds a unit's parameters to what its callers pass.
     pub fn params(&mut self, params: &'a FormalParameters<'a>) {
         let open = self.an.is_open(self.unit);
-        self.an.read(super::Dep::Params(self.unit.id));
-        let spread = self.an.state.spread_called.contains(&self.unit.id);
-        let recorded = self
-            .an
-            .state
-            .params
-            .get(&self.unit.id)
-            .cloned()
-            .unwrap_or_default();
+        // Unknown callers may pass anything: only whether a known one passes something
+        // poisoned matters then.
+        let (recorded, spread, poisoned) = if open {
+            (Vec::new(), false, self.an.poisoned_params_of(self.unit.id))
+        } else {
+            let (recorded, spread) = self.an.params_of(self.unit.id);
+            (recorded, spread, Vec::new())
+        };
         let incoming = |index: usize| -> Val {
+            if open {
+                let mut value = Val::unknown();
+                value.poisoned = poisoned.get(index).copied().unwrap_or(false);
+                return value;
+            }
             let known = recorded.get(index).cloned().unwrap_or_else(Val::never);
-            if open || spread {
+            if spread {
                 known.join(&Val::unknown())
             } else {
                 known
@@ -547,7 +551,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 element = element.join(&Val::unknown());
             }
             self.store_elem(site, &element);
-            self.mark(site, |obj| obj.length = None);
+            self.mark(site, move |obj| obj.length = None);
             let value = Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site);
             self.bind_pattern(&rest.rest.argument, value);
         }
@@ -677,7 +681,7 @@ impl<'a> Cx<'_, '_, 'a> {
         self.breaks.extend(kept);
         self.env = exit;
         // What the loop did, for loop facts.
-        let frame = self.frames.pop().expect("the loop's frame");
+        let frame = self.pop_frame();
         let written: Vec<oxc_syntax::symbol::SymbolId> = self
             .loop_writes
             .pop()
@@ -691,7 +695,7 @@ impl<'a> Cx<'_, '_, 'a> {
         let induction = written
             .iter()
             .filter_map(|symbol| {
-                let value = head.vars.get(symbol)?;
+                let value = head.vars.get(*symbol)?;
                 matches!(value.ty, Type::Number(_)).then(|| (*symbol, value.clone()))
             })
             .collect();
@@ -858,12 +862,8 @@ impl<'a> Cx<'_, '_, 'a> {
         let mut thrown = entry.join(after);
         thrown.reachable = entry.reachable;
         for symbol in writes {
-            let all = self
-                .an
-                .symbol_value(self.module.symbol(*symbol))
-                .cloned()
-                .unwrap_or_else(Val::unknown);
-            if let Some(value) = thrown.vars.get_mut(symbol) {
+            let all = self.every_value(*symbol).unwrap_or_else(Val::unknown);
+            if let Some(value) = thrown.vars.get_mut(*symbol) {
                 *value = value.join(&all);
             } else if self.is_tracked_here(*symbol) {
                 thrown.vars.insert(*symbol, all);

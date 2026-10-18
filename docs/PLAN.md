@@ -277,28 +277,56 @@ class shapes, and proven-unreachable code. Escape levels, points-to sets and the
 facts are not checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time. It
-is not met: `benches/analysis.rs` (1820 modules, 4 cores, a noisy machine) measures about
-7.5× (770–800 ms against about 104 ms; before the changes below, 860–890 ms, about 8.2×).
-tsrs parses on all cores, but the analysis parses, interprets and summarises on one: the
-sweeps take about 470 ms (6 rounds, 18,820 runs of 11,200 units, ~140 ms of it tsrs queries)
-and parsing, indexing and the summary most of the rest. Two things keep sweeps short:
+is not met at the moment: `benches/analysis.rs` measures about 2.5–2.8× on 4 cores (255–275
+ms against 95–105 ms for the 1680-module corpus on a noisy machine;
+`TRIOXIDE_BENCH_STATS=1` prints a breakdown). The corpus now includes the review fixtures, on
+which the analysis before the review fixes didn't converge at all, and the review fixes made
+each interpretation dearer (per-expression effect frames, implicit calls, dead zones, more
+escapes). Interpretation runs in parallel:
 
-- *Uncalled functions wait.* In the first round, a function no caller has reached yet (and
+- *Chunks.* Units are split, in `unit_order`, into fixed chunks of `chunk_units` (default
+  128). Each round, every chunk with dirty units interprets them against a read-only
+  snapshot of the whole-program tables, writing into a copy-on-write overlay and logging each
+  write as an operation. Chunks run on the oracle's workers, one tsrs checker each, each
+  worker taking a contiguous run of chunks (so files keep their checker) and stealing from
+  the end of the others' runs.
+- *Merge.* The logs are replayed onto the tables in chunk order; a chunk whose entries no
+  earlier chunk wrote or read installs its overlay directly. A dependency changed by the
+  merge dirties its readers, except in the chunk whose overlay already held that value.
+  The order is fixed by chunk boundaries, so facts depend on `chunk_units` but never on
+  the number of threads (a test checks this). Rounds are monotone joins, as before, with
+  widening after `WIDEN_AFTER`; nothing reads a value it did not register as a dependency.
+- *Rest.* Parsing and indexing run per module on all threads, the oracle's checkers are set
+  up meanwhile, and the summary (node facts per module, the call graph and effects, heap
+  facts) runs on all threads too. Locals no other unit reads stay in their unit's output
+  and never reach the shared tables.
+
+- *Giving up.* Past `SATURATE_AFTER` rounds, the entries a merge changed are given up on
+  the merged tables, in a fixed order, so this too depends on `chunk_units` but not on
+  threads. Sites a replayed join drops into "any object" escape after the merge, as those
+  a unit's own joins drop do at the end of the unit.
+
+- *Fewer and shorter runs.* In the first sweep, a function no caller has reached yet (and
   unknown code can't call) waits for the next: it would only run on `never` arguments, and
-  again once a caller reaches it.
-- *Warm-started loops.* A loop that runs again, inside another loop or in its unit's next
-  run, starts from where it last settled joined with its new entry; it stops at a
-  post-fixpoint above the entry either way, and usually after one pass instead of four.
+  again once a caller reaches it. A loop that runs again, inside another loop or in its
+  unit's next run, starts from where it last settled joined with its new entry; it stops at
+  a post-fixpoint above the entry either way, and usually after one pass instead of four.
 
-Parallel analysis (chunked Jacobi-style sweeps over a read-only snapshot with per-chunk write
-logs, one tsrs checker per worker, and parallel parsing and summary) is parked in #6: it
-measured about 2.6–2.8× on the same bench. It will be revisited together with incremental
-analysis, when analysis time hurts (Vite dev on large projects).
+Of about 270 ms, about 30 ms is parsing and indexing (alongside the checkers' set-up), 7 ms
+setting up the sweeps, about 185 ms the sweeps (of which about 36 ms is tsrs queries, about
+10 µs each on 4 workers, nearly all of it tsrs checking the expression, and 14 ms merging)
+and about 45 ms the summary. Units run 1.6 times each (17,446 runs of 10,680 units). On one
+thread, of the instructions inside `analyze`, tsrs queries are 22%, interpretation 46%,
+parsing and indexing 12% and the summary 11%; allocation is about 14% of everything, spread
+over many small sites. Measured but not taken: widening loops one pass earlier saves 8% but
+loses the bounds of counted loops; mimalloc as the global allocator (a choice for the
+binaries, not this crate) takes about 11% off the analysis and nothing off the parse.
 
 **Embedding constraints.** tsrs checkers take `&mut self` (one per thread, behind a mutex),
-and its arenas are `'static`. The oracle runs every type query on the program's first
-checker and converts each answer before releasing it, so types from different checkers never
-meet and no tsrs handle outlives a query. Programs are built with tsrs's checker and
+and its arenas are `'static`. Serial queries run on the program's first checker;
+parallel ones (`TypeOracle::shared`) on the checker of the worker asking, or the file's own
+checker, held exclusively. Every answer is converted before the checker is released, so
+types from different checkers never meet and no tsrs handle outlives a query. Programs are built with tsrs's checker and
 file-loader regions, so the oracle can free a replaced program (`free_program`, then the
 shared file data and regions, in the order tsrs's own watcher uses). Updates are applied
 lazily with `update_program`; files it reparses still leak, so the adapter rebuilds from

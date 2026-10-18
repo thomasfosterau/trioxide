@@ -354,7 +354,7 @@ fn user_iterators_are_not_summarised_from_declared_types() {
         .into_iter()
         .find(|entry| entry.parent().unwrap().ends_with("protocol-methods"))
         .unwrap();
-    let loaded = common::load_with(&entry, true);
+    let loaded = common::load_trusting_types(&entry);
     let facts = &loaded.analysis.facts;
     let source = loaded.graph.modules()[0].source.to_string();
     let module = &loaded.graph.modules()[0];
