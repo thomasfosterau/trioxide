@@ -205,11 +205,9 @@ back to TS where it knows nothing:
 - *Temporal dead zones.* Reading a `let`/`const`/`class` binding before its declaration
   runs throws: in its own unit when the read comes first in the text (or in a `switch`), in
   another unit when the declaring unit may call out before the declaration, and across an
-  import cycle. A module's own bindings count as not yet declared from its first line when
-  another module of its cycle may run while it waits for its imports, and so call back into
-  it (simulated depth-first in request order from each module the host may load first, with
-  and without TypeScript's elision of type-only imports; from every module when the program
-  has a dynamic `import()`).
+  import cycle: from another unit, any read of a module-level binding of a module in an
+  import cycle may throw, since another module of the cycle may call in before the module's
+  top level has declared it (`tdz-cycle`).
 - *Convergence.* Whole-program entries that still change after 20 rounds are given up (set
   to "any value", their objects escaping, their flags to "anything may happen" for good), so
   the run always reaches a fixed point and only facts depending on those entries are lost,
