@@ -1134,12 +1134,31 @@ process.stdout.write('\n__CHECKS__' + JSON.stringify({ checks, violations }) + '
 
 #[test]
 fn proven_facts_hold_at_run_time() {
+    check_at_run_time(0, 0);
+}
+
+/// One unit per chunk: every fact goes through the parallel interpreter's merging.
+#[test]
+fn proven_facts_hold_at_run_time_with_tiny_chunks() {
+    check_at_run_time(1, 0);
+}
+
+/// Entries that still change after the first round are given up, in tiny chunks and in the
+/// default ones: giving up keeps every fact sound however the units are chunked.
+#[test]
+fn proven_facts_hold_at_run_time_when_entries_are_given_up() {
+    check_at_run_time(1, 1);
+    check_at_run_time(0, 1);
+}
+
+fn check_at_run_time(chunk_units: usize, saturate_after: usize) {
     if Command::new("node").arg("--version").output().is_err() {
         eprintln!("skipping: node is not on PATH");
         return;
     }
     let mut failures = Vec::new();
     let mut total = 0;
+    let mut given_up = 0;
     let out_root = tempfile::tempdir().unwrap();
     // `FIXTURE=name` runs only the fixtures whose directory name contains `name`.
     let filter = std::env::var("FIXTURE").ok();
@@ -1158,7 +1177,8 @@ fn proven_facts_hold_at_run_time() {
         }
         let dir = entry.parent().unwrap();
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
-        let loaded = common::load(&entry);
+        let loaded = common::load_with(&entry, chunk_units, 0, saturate_after);
+        given_up += loaded.analysis.stats.saturated;
         let options = common::options_for(dir);
         let out = out_root.path().join(&name);
         std::fs::create_dir_all(&out).unwrap();
@@ -1233,6 +1253,9 @@ fn proven_facts_hold_at_run_time() {
         }
     }
     assert!(total > 0, "no proven facts were instrumented");
+    if saturate_after > 0 {
+        assert!(given_up > 0, "no entry was given up");
+    }
     assert!(
         failures.is_empty(),
         "proven facts contradicted at run time:\n{}",

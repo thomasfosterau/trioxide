@@ -20,9 +20,10 @@ the tables into `Facts` (`summary.rs` `facts`), then record constants (`constant
 initialiser body, in `World::unit_order` (source order). `run` makes rounds over a
 dirty-unit worklist. `Deps` records what each unit read (`read`), and every table write
 that changes a value calls `touch`, which dirties the `readers` of that `Dep`. `Dep` is
-`Symbol`, `Params`, `This`, `Return`, `Heap`, `Super` or `Default`. In the first round a
-function no caller has reached yet waits (`Cx::uncalled`); warm-started loops resume from
-`entry.join(settled)` via `loop_heads`.
+`Symbol`, `Params`, `This`, `Return`, `Heap`, `Super` or `Default`. A function (or class
+initialiser) no caller has reached yet waits while anything its callers reached may still
+run (`uncalled`, `take_dirty`); warm-started loops resume from `entry.join(settled)` via
+`loop_heads`. With #6 the worklist runs in chunks (see "State of #6").
 
 **Tables** (`State`): `symbols`, `params`, `this`, `returns`, `supers`, `defaults`, `heap`,
 `open_instances`, `may_be_uninit`, `spread_called`. A value is `value.rs` `Val`: `ty`,
@@ -44,11 +45,12 @@ interpreter has nothing (host-supplied parameters, opaque calls). `Unknown` othe
 `trustTypes` makes `Declared` count as usable (`Facts::is_usable`).
 
 **Convergence and give-up** (constants at the top of `interp/mod.rs`):
-- `WIDEN_AFTER = 3`: a table entry that changes more often than this is widened
-  (`numeric::widen` sends a moving bound to ±∞; types join).
-- `SATURATE_AFTER = 20`: the entry gives up (`Cx::give_up`, `Cx::saturate`); for heap
-  entries `Obj::give_up` makes everything unknown, and it is re-applied after every `mark`,
-  so it is sticky.
+- `WIDEN_AFTER = 3`: a table entry that 3 merges changed already is widened from then on
+  (`numeric::widen` sends a moving bound to ±∞; types join). Heap properties and elements
+  count one by one (`tables::SlotChanges`).
+- `SATURATE_AFTER = 20`: an entry more than 20 merges changed gives up (`give_up_changed`,
+  `Op::GiveUp`); for heap entries `Obj::give_up` makes everything unknown, and it is
+  re-applied after every `mark`, so it is sticky.
 - `MAX_ROUNDS = 40`: the backstop. Hitting it drops all facts; `tests/convergence.rs`
   checks that nothing in the corpus does.
 - Loops: `run_loop` (`interp/stmt.rs`) iterates the body, widening after
@@ -120,80 +122,64 @@ facts to new `NodeId`s after a pass rewrites a module, including the `resized` r
   "parse: oxc + tsrs" against "analyze (with tsrs queries)" on 1820 modules. The bar is
   analysis under 2× parse. `target/criterion` is large; delete it when the disk fills.
 
-## State of #6 (parallel analysis): parked, draft
+## State of #6 (parallel analysis): review items addressed
 
 **Design:**
-- Units are swept in chunks of 128 (`interp/sweep.rs`: `run`, `sweep_chunk`, `run_units`,
-  `sweep_shared`).
+- Units are swept in chunks of 128 (`interp/sweep.rs`: `run`, `take_dirty`, `sweep_chunk`,
+  `run_units`, `sweep_shared`).
 - Each chunk reads the round's tables through a copy-on-write overlay (`interp/tables.rs`
   `Tables`) and logs its writes as `Op`s.
-- At the merge, ops are replayed in chunk order (`apply`). `Op::GiveUp` is applied in sorted
-  order. `Op::Mark` closures must be idempotent `Fn + Send` (`move`) closures, and `Mark`
-  re-applies `Obj::give_up`.
-- `Settled` makes `Env` sendable.
-- Workers are tsrs checkers with work stealing (`threads.rs`), and parse and summary are
-  parallel too.
-- Facts depend on `chunk_units` but not on the thread count.
+- At the merge, ops are replayed in chunk order (`apply`). A chunk may install its overlay
+  instead only if no earlier chunk's writes *or replay* touched its entries; that is decided
+  inside the merge loop. `Op::GiveUp` is applied in sorted order. `Op::Mark` closures must
+  be idempotent `Fn + Send` (`move`) closures, and `Mark` re-applies `Obj::give_up`.
+- Widening and giving up count per entry (`changes`, and `SlotChanges` per heap property),
+  never per round.
+- Chunk-independence rules (PLAN §3 "Independent of chunking"): uncalled functions and class
+  initialisers wait while anything their callers reached may run (`take_dirty`'s `busy`);
+  declared instance fields nothing wrote yet read as `never` until the sweeps settle
+  (`Analyzer::optimistic`, `Output::optimistic`), and builtin calls with a `never` argument
+  are skipped until then; afterwards those units run again. (Dead code must keep the
+  builtin's result type: S6 lowers dead branches too and wants a `Number` for `Math.*`.)
+- Private locals keep their last run's values (`Output::symbols`).
+- `Settled` makes `Env` sendable. Workers are tsrs checkers; each sweeps a contiguous run of
+  chunks cut by `cut` from the dirty units (no stealing, so tsrs answers don't depend on
+  timing). Parse and summary are parallel too. Big drops go to `threads::drop_later`.
 
-**Where it stands:** the branch `claude/s2-parallel-analysis` (`1e059cb`) is rebased onto
-`c66e37d` (#14) and green. It has everything on `main` up to then: #10's `constants.rs` and
-cycle TDZ, #12's `sized` and sticky give-up, #14's deferral, warm loops and escaped
-parents.
+**Guarantees and their tests:**
+- Facts never depend on the thread count (`facts_do_not_depend_on_threads`).
+- With one chunk, facts are `main`'s or tighter (checked by hand against `main` at the
+  time; see the PR). A unit per chunk gives the default's facts on the whole corpus, but for
+  TypeScript's own answers (`facts_do_not_depend_on_chunk_size`). Chunks of 2 still differ
+  from the default in two facts (a typed array's stable shape in `islands/errors`, one loop
+  fact in `islands/multi`): sticky flags from a run on stale inputs.
+- The runtime harness runs with tiny chunks and with forced give-ups.
 
-**Still to port** (none of these are on the branch):
-- From #18 (merged):
-  - the named function expression self-binding in `interpret` (through tables/ops there);
-  - `call_with` for tagged templates;
-  - the computed-key array write (`store_elem`, `dynamic`/`holey`/`length = None`), as a
-    `move` closure.
-- From #19:
-  - `delete`/`non_configurable`;
-  - `Obj::frozen` (add it to the flags tuple in `tables.rs`'s `Mark` comparison, and make
-    the freeze mark a `move` closure);
-  - mutating builtins throwing on a frozen (or unknown) receiver (`builtin_mutates`), and
-    `Object.freeze` throwing on typed arrays, namespaces and untracked objects.
-- From #15 and #16, once they merge: their analysis changes (#16's `observe.rs`, the
-  `delete` operand fix, new `Facts` tables in `remap_module`/`forget_module`).
+**Done in the review round (PR #6 lists the commits):**
+- Blocking: the merge fast path (`merge-stale-escape`), the open unit's `this`/parameters and
+  `new C()` without a constructor (`instance-escape-init`).
+- Merged `main` up to #17, with #18's and #19's analysis changes ported.
+- Should fix: the sequential path, chunk-size-independent precision, deterministic tsrs
+  answers (and `None` after a shared panic).
+- Minor: in-bounds trusts take the `min`; `threads::Shared` is crate-private with an unsafe
+  constructor; detached drops go to one thread; `SpanMap::build` is O(1) (it stores the
+  file; the lookup walks down in `get`), so it needs no cache.
+- Found on the way, pre-existing on `main`:
+  - an expression whose part allocates reported `allocates: false`, so `wrap([x])` in a loop
+    was a loop invariant (`nested-allocation`; LICM in #16 could hoist it);
+  - a namespace escaping before its module ran never exposed the exports written later
+    (`namespace-late-export`).
 
-**The #6 review** (owner, on `1e059cb`). Determinism held in their stress test: 188 entries
-× chunk sizes {1, 2, 3, 7, 128, 10⁶} × threads {1, 2, 4} gave byte-identical facts within each
-chunk setting. They measured 2.73× parse in release. Before it can merge:
-- **Blocking:**
-  - **The merge fast path is unsound.** `sweep.rs` decides `fast` for every chunk before any
-    replay. A slow chunk's replay (`Op::JoinSuper` escaping a parent, `escape` following new
-    props) can change an entry that a later `fast` chunk then overwrites with its stale
-    copy. Fix: decide fast-ness inside the merge loop, adding what each replay touched
-    (`global.touched`, `global.reads`) to `merged`. The repro is in the review comment on
-    `sweep.rs`; add it as a fixture and run it with tiny chunks.
-  - **Instance escape regressed.** The `this` of an open unit is plain unknown instead of
-    "recorded values joined with unknown", and `new C()` without a constructor joins `this`
-    into the initialiser without escaping it. The repro (a `Holder` whose field initialiser
-    leaks `[this]`) is in the review; add it as a fixture too.
-- **Should fix:**
-  - a true sequential path (one chunk still differs from `main`, e.g. a stale warm-loop join
-    in `numeric`);
-  - chunk-size-dependent precision: count widening and give-up per entry, not per round,
-    and add a test comparing `chunk_units = 1` with the default;
-  - tsrs answers depend on which worker's checker answers (`BoundQueries`, `ts_cache`), and
-    answer `None` once `shared_panicked` is set (`tsrs_adapter/mod.rs`).
-- **Minor:**
-  - `summary.rs` in-bounds facts should take the `min` of trusts again;
-  - `SpanMap::build` runs on every uncached query;
-  - bound `T` in `threads::Shared<T>`'s `unsafe impl`;
-  - detached drops pile up in long-running hosts;
-  - split out the unrelated churn (Tarjan rewrite, `Sites` small-vector, `Vars` as `Rc`).
-
-**Numbers:** about 2.8–3.0× parse (291–306 ms analysis against 102–105 ms parse). That
-misses the 2× target. About 270 ms of a sequential run is outside the sweeps (single-threaded
-parse, index and summary), so the next win there is parallelising the summary further.
+**Still to port when they merge:** #16's analysis changes (`observe.rs`, the `delete`
+operand unwrapping with #19's throw rule on the unwrapped member, its new `Facts` tables in
+`remap_module`/`forget_module`).
 
 **Risks:**
 - It is a lot of concurrent code for a reviewer to hold.
-- Facts depend on chunking, so a chunk-size change moves snapshots.
 - A non-idempotent `Mark` closure gives thread-dependent facts that only the determinism
   tests catch.
-- Every sequential change has to be ported twice, so it rots quickly. Decide whether to land
-  it before taking on more interpreter work.
+- Every sequential change has to keep working under stale reads; run
+  `facts_do_not_depend_on_chunk_size` and the tiny-chunk runtime harness.
 
 ## Known gaps and requests, most important first
 
@@ -271,6 +257,11 @@ Benchmark: `cargo bench -p trioxide_analysis`, 1820 modules.
 | `main` before #14 | 856–889 ms | ~104 ms | ~8.2× |
 | `main` at `c66e37d` (sequential) | 773–796 ms | ~104 ms | ~7.5× |
 | #6 at `1e059cb` (parallel) | 291–306 ms | 102–105 ms | 2.8–3.0× |
+| `main` at `e4f52cb` (sequential), 2040 modules | 861–905 ms | 116–124 ms | 7.2–7.4× |
+| #6 after the review (parallel), 2040 modules | 359–380 ms | 116–124 ms | 3.0–3.1× |
 
-Of the sequential time, the sweeps take about 470 ms. The rest, about 270 ms, is
-single-threaded parse, index and summary.
+The corpus grew to 2040 modules with #18's, #19's and the review's fixtures; the last two
+rows are on the same corpus. After the review, a parallel run is 29–45 ms parse and index,
+250–325 ms of sweeps (9 rounds, 20,570 runs of 12,040 units) and 45–60 ms of summary. 2×
+needs fewer sweeps (incremental analysis, or scheduling callers before callees) and fewer
+tsrs queries, not tuning.

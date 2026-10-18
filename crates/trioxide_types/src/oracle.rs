@@ -42,7 +42,8 @@ pub struct OracleInput<'a> {
 ///   analysis decides what is `Proven` (PLAN D1). An oracle must not guess: when a span
 ///   matches no checker node, or the type has no faithful trioxide equivalent, answer `None`.
 /// - Queries take `&mut self` because tsrs checkers do. Implementations own their checker
-///   state and must not let types from one checker mix with another's.
+///   state and must not let types from one checker mix with another's. An oracle that can
+///   answer from several threads at once offers that through [`TypeOracle::shared`].
 /// - Every query has a default implementation that knows nothing, so new queries can be
 ///   added without breaking existing oracles.
 ///
@@ -62,6 +63,13 @@ pub trait TypeOracle: Send {
     /// Replaces one module's source after `load`. Implementations may rebuild lazily.
     fn update(&mut self, module: SourceText<'_>) {
         let _ = module;
+    }
+
+    /// A view of the oracle that answers [`SharedTypeQueries`] from several threads at once,
+    /// if it can. Pending updates are applied first; the oracle can't change while the view is
+    /// borrowed. Its answers must equal the `&mut self` queries' answers.
+    fn shared(&mut self) -> Option<&dyn SharedTypeQueries> {
+        None
     }
 
     /// The type of the expression, identifier or declaration at `span` in `module`.
@@ -155,6 +163,51 @@ pub struct NoopTypeOracle;
 impl TypeOracle for NoopTypeOracle {
     fn name(&self) -> &'static str {
         "noop"
+    }
+
+    fn shared(&mut self) -> Option<&dyn SharedTypeQueries> {
+        Some(self)
+    }
+}
+
+impl SharedTypeQueries for NoopTypeOracle {
+    fn type_at(&self, module: ModuleId, span: Span) -> Option<Type> {
+        let _ = (module, span);
+        None
+    }
+}
+
+/// The queries an oracle can answer from several threads at once (see
+/// [`TypeOracle::shared`]).
+pub trait SharedTypeQueries: Sync {
+    /// The same as [`TypeOracle::type_at`].
+    fn type_at(&self, module: ModuleId, span: Span) -> Option<Type>;
+
+    /// How many workers [`run_workers`](Self::run_workers) runs at once.
+    fn workers(&self) -> usize {
+        1
+    }
+
+    /// Calls `work(index, queries)` for each of [`workers`](Self::workers) indices, all at
+    /// once on threads of their own, each with queries that need no lock (a checker of its
+    /// own, for tsrs). Returns when all have.
+    fn run_workers(&self, work: &(dyn Fn(usize, &mut dyn CheckerQueries) + Sync)) {
+        work(0, &mut Locked(self));
+    }
+}
+
+/// Type queries for one worker of [`SharedTypeQueries::run_workers`].
+pub trait CheckerQueries {
+    /// The same as [`TypeOracle::type_at`].
+    fn type_at(&mut self, module: ModuleId, span: Span) -> Option<Type>;
+}
+
+/// A worker that asks the shared view itself.
+struct Locked<'q, Q: ?Sized>(&'q Q);
+
+impl<Q: SharedTypeQueries + ?Sized> CheckerQueries for Locked<'_, Q> {
+    fn type_at(&mut self, module: ModuleId, span: Span) -> Option<Type> {
+        self.0.type_at(module, span)
     }
 }
 

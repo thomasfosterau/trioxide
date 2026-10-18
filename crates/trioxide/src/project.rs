@@ -530,6 +530,7 @@ impl Project {
                 jsx_factory,
                 jsx_fragment_factory,
                 entries: self.graph.entries().to_vec(),
+                ..AnalysisOptions::default()
             },
         }
     }

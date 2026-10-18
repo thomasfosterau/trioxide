@@ -157,8 +157,8 @@ nodes:
   49:48 unary `-point.y`: -2@proven
   49:49 member `point.y`: 2@proven
   49:49 ref `point`: {| x: 1, y: 2 |}@proven
-  50:10 binary `v.length() + point.x`: number[1, inf] nonNegZero@proven
-  50:10 call `v.length()`: number[0, inf]@proven
+  50:10 binary `v.length() + point.x`: number[1, 3.23606797749979] nonNegZero@proven
+  50:10 call `v.length()`: number[0, 2.23606797749979] nonNegZero@proven
   50:10 member `v.length`: function@proven
   50:10 ref `v`: Vec2@proven
   50:23 member `point.x`: 1@proven
@@ -258,7 +258,7 @@ nodes:
   75:3 call `console.log(shape(true), shape(false))`: unknown
   75:3 member `console.log`: unknown
   75:3 ref `console`: unknown
-  75:15 call `shape(true)`: number[1, inf] nonNegZero@proven
+  75:15 call `shape(true)`: number[1, 3.23606797749979] nonNegZero@proven
   75:15 ref `shape`: function@proven
-  75:28 call `shape(false)`: number[1, inf] nonNegZero@proven
+  75:28 call `shape(false)`: number[1, 3.23606797749979] nonNegZero@proven
   75:28 ref `shape`: function@proven

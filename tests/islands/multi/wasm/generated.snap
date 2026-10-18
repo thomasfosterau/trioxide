@@ -185,7 +185,7 @@ fn identity(n: i32) -> &'static mut [f64] {
     let m = abi::alloc_array::<f64>((n * n) as usize);
     let mut i: i32 = 0;
     while i < n {
-        array::set(m, at(f64::from(n), i, f64::from(i)), 1.0);
+        array::set(m, at(f64::from(n), i, i), 1.0);
         i += 1;
     }
     m
@@ -200,12 +200,10 @@ fn multiply(a: &[f64], b: &[f64], n: f64) -> &'static mut [f64] {
             let mut s = 0.0;
             let mut k: i32 = 0;
             while f64::from(k) < n {
-                s
-                    += array::get(a, at(n, i, f64::from(k)))
-                        * array::get(b, at(n, k, f64::from(j)));
+                s += array::get(a, at(n, i, k)) * array::get(b, at(n, k, j));
                 k += 1;
             }
-            array::set(out, at(n, i, f64::from(j)), s);
+            array::set(out, at(n, i, j), s);
             j += 1;
         }
         i += 1;
@@ -230,7 +228,7 @@ fn trace(m: &[f64], n: i32) -> f64 {
     let mut t = 0.0;
     let mut i: i32 = 0;
     while i < n {
-        t += array::get(m, at(f64::from(n), i, f64::from(i)));
+        t += array::get(m, at(f64::from(n), i, i));
         i += 1;
     }
     t
@@ -250,32 +248,30 @@ fn determinant(m: &[f64], n: i32) -> f64 {
         let mut pivot: i32 = col;
         let mut row: i32 = col + 1;
         while row < n {
-            if math::abs(array::get(a, at(f64::from(n), row, f64::from(col))))
-                > math::abs(array::get(a, at(f64::from(n), pivot, f64::from(col))))
+            if math::abs(array::get(a, at(f64::from(n), row, col)))
+                > math::abs(array::get(a, at(f64::from(n), pivot, col)))
             {
                 pivot = row;
             }
             row += 1;
         }
-        if array::get(a, at(f64::from(n), pivot, f64::from(col))) == 0.0 {
+        if array::get(a, at(f64::from(n), pivot, col)) == 0.0 {
             return 0.0;
         }
         if pivot != col {
             swapRows(a, n, pivot, col);
             det = -det;
         }
-        det *= array::get(a, at(f64::from(n), col, f64::from(col)));
+        det *= array::get(a, at(f64::from(n), col, col));
         let mut row_2: i32 = col + 1;
         while row_2 < n {
-            let f = array::get(a, at(f64::from(n), row_2, f64::from(col)))
-                / core::hint::black_box(
-                    array::get(a, at(f64::from(n), col, f64::from(col))),
-                );
+            let f = array::get(a, at(f64::from(n), row_2, col))
+                / core::hint::black_box(array::get(a, at(f64::from(n), col, col)));
             let mut k: i32 = col;
             while k < n {
-                let index = at(f64::from(n), row_2, f64::from(k));
+                let index = at(f64::from(n), row_2, k);
                 let value = array::get(a, index)
-                    - f * array::get(a, at(f64::from(n), col, f64::from(k)));
+                    - f * array::get(a, at(f64::from(n), col, k));
                 array::set(a, index, value);
                 k += 1;
             }
@@ -294,19 +290,19 @@ fn axpy(y: &mut [f64], x: &[f64], alpha: i32) {
     }
 }
 
-fn at(n: f64, row: i32, col: f64) -> f64 {
-    f64::from(row) * n + col
+fn at(n: f64, row: i32, col: i32) -> f64 {
+    f64::from(row) * n + f64::from(col)
 }
 
 fn swapRows(a: &mut [f64], n: i32, r1: i32, r2: i32) {
-    let mut k = 0.0;
-    while k < f64::from(n) {
+    let mut k: i32 = 0;
+    while k < n {
         let t = array::get(a, at(f64::from(n), r1, k));
         let index = at(f64::from(n), r1, k);
         let value = array::get(a, at(f64::from(n), r2, k));
         array::set(a, index, value);
         array::set(a, at(f64::from(n), r2, k), t);
-        k += 1.0;
+        k += 1;
     }
 }
 
