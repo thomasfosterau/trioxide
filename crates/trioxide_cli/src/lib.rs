@@ -8,6 +8,7 @@
 #![expect(clippy::print_stderr, reason = "a CLI reports on stderr")]
 
 mod config;
+mod explain;
 mod render;
 mod watch;
 
@@ -64,10 +65,18 @@ enum Command {
         #[arg(long, short)]
         watch: bool,
     },
-    /// Explain partitioning and optimisation decisions for a file or function (`file[:fn]`).
+    /// Explain partitioning and optimisation decisions for a file or function (`file[:fn]`):
+    /// per function, JS or WASM and why, the failed eligibility rules, the cost-model numbers
+    /// and the JS passes that fired or skipped.
     Explain {
-        /// `file` or `file:function`; everything if omitted.
+        /// `file` or `file:function`; every module of the program if omitted.
         target: Option<String>,
+        /// Entry modules of the program to analyse. Default: the target's file.
+        #[arg(long = "entry", value_name = "FILE")]
+        entries: Vec<PathBuf>,
+        /// Print the decision log as JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Report whether the Rust toolchain needed for WASM islands is installed.
     CheckToolchain {
@@ -213,7 +222,7 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             };
             let file = std::path::absolute(file)
                 .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
-            let mut project = open_project(global, Some(&file), renderer)?;
+            let mut project = open_project(global, Some(&file))?;
             print_stdout(&project.facts(&file)?);
             return Ok(());
         }
@@ -224,7 +233,7 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             };
             let file = std::path::absolute(file)
                 .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
-            let mut project = open_project(global, Some(&file), renderer)?;
+            let mut project = open_project(global, Some(&file))?;
             let islands = project.rust_islands(std::slice::from_ref(&file))?;
             let report = project.explain(&ExplainQuery::default());
             for diagnostic in &report.diagnostics {
@@ -270,7 +279,7 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             // Resolved once, against the working directory (not again against the root).
             let file = std::path::absolute(file)
                 .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
-            let mut project = open_project(global, Some(&file), renderer)?;
+            let mut project = open_project(global, Some(&file))?;
             let out = project.transform(&file)?;
             renderer.module_diagnostics(&out);
             if out.has_errors() {
@@ -280,7 +289,7 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             Ok(())
         }
         Command::Strip { file } => {
-            let (root, options, _) = resolve_config(global, Some(file), renderer)?;
+            let (root, options, _) = resolve_config(global, Some(file))?;
             let source = std::fs::read_to_string(file)
                 .map_err(|error| Failure::Error(format!("{}: {error}", file.display())))?;
             let out = trioxide::strip_types(&root, file, &source, &options)?;
@@ -299,7 +308,7 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             if *watch {
                 return watch::watch(global, entries, out_dir, renderer);
             }
-            let mut project = open_project(global, entries.first(), renderer)?;
+            let mut project = open_project(global, entries.first())?;
             if global.emit == Emit::Rust {
                 let runtime = project.island_runtime_dir()?;
                 for island in project.rust_islands(entries)? {
@@ -309,16 +318,128 @@ fn execute(cli: &Cli, renderer: &Renderer) -> Result<(), Failure> {
             }
             build_once(&mut project, entries, out_dir, global.emit, renderer)
         }
-        Command::Explain { target } => {
-            let _query: ExplainQuery = target
-                .as_deref()
-                .unwrap_or_default()
-                .parse()
-                .unwrap_or_default();
-            Err(not_implemented("trioxide explain"))
-        }
+        Command::Explain {
+            target,
+            entries,
+            json,
+        } => explain(global, target.as_deref(), entries, *json, renderer),
         Command::CheckToolchain { json } => check_toolchain(*json, renderer),
     }
+}
+
+/// `trioxide explain`: plans the program from the entries (or the target's file) and prints
+/// the decision log for the target.
+fn explain(
+    global: &GlobalArgs,
+    target: Option<&str>,
+    entries: &[PathBuf],
+    json: bool,
+    renderer: &Renderer,
+) -> Result<(), Failure> {
+    let mut query: ExplainQuery = target.unwrap_or_default().parse().unwrap_or_default();
+    let cwd = std::env::current_dir().map_err(|error| Failure::Error(error.to_string()))?;
+    if let Some(file) = &query.file {
+        query.file = Some(cwd.join(file));
+    }
+    let mut project = open_project(global, entries.first().or(query.file.as_ref()))?;
+    let entries: Vec<PathBuf> = if entries.is_empty() {
+        // The whole program decides: the page's module scripts, else the target itself.
+        let pages = page_entries(project.root());
+        if pages.is_empty() {
+            let Some(file) = query.file.clone() else {
+                return Err(Failure::Usage(
+                    "trioxide explain needs a file (`trioxide explain src/main.ts[:fn]`), \
+                     --entry, or an index.html with module scripts"
+                        .into(),
+                ));
+            };
+            renderer.info(&format!(
+                "no --entry: analysing {} as the program's entry, so the arguments of its \
+                 exports are unknown (pass --entry <entry module> to explain it in context)",
+                file.display()
+            ));
+            vec![file]
+        } else {
+            pages
+        }
+    } else {
+        entries.iter().map(|entry| cwd.join(entry)).collect()
+    };
+    project.plan(&entries)?;
+    let report = project.explain(&query);
+    for diagnostic in &report.diagnostics {
+        renderer.project_diagnostic(diagnostic);
+    }
+    let wasm = project.options().wasm.enabled;
+    if !wasm {
+        renderer.info("WASM is off (--no-wasm or `wasm.enabled: false`): everything stays JS");
+    } else if project.options().mode == trioxide::Mode::JsOnly {
+        renderer.info("mode is js-only: only directives and overrides create islands");
+    }
+    if wasm
+        && let Some(function) = &query.function
+        && report.modules.iter().all(|m| m.log.functions.is_empty())
+    {
+        let all = project.explain(&ExplainQuery {
+            function: None,
+            ..query.clone()
+        });
+        let mut names: Vec<&str> = all
+            .modules
+            .iter()
+            .flat_map(|m| &m.log.functions)
+            .filter_map(|f| f.name.as_deref())
+            .collect();
+        names.dedup();
+        return Err(Failure::Error(if names.is_empty() {
+            format!("trioxide considered no function `{function}` there")
+        } else {
+            format!(
+                "trioxide considered no function `{function}` there; it considered {}",
+                names.join(", ")
+            )
+        }));
+    }
+    if json {
+        let text = serde_json::to_string_pretty(&report).expect("reports serialise");
+        print_stdout(&format!("{text}\n"));
+    } else {
+        let graph = project.graph();
+        let source = |path: &Path| {
+            graph
+                .get(path)
+                .map(|id| graph.module(id).source.to_string())
+        };
+        print_stdout(&explain::render(&report, project.root(), &source));
+    }
+    Ok(())
+}
+
+/// The module scripts of `root/index.html` (`<script type="module" src="…">`), as Vite
+/// takes them for entries.
+fn page_entries(root: &Path) -> Vec<PathBuf> {
+    let Ok(html) = std::fs::read_to_string(root.join("index.html")) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    for tag in html.split("<script").skip(1) {
+        let tag = &tag[..tag.find('>').unwrap_or(tag.len())];
+        if !tag.contains("type=\"module\"") {
+            continue;
+        }
+        let Some(start) = tag.find("src=\"").map(|i| i + 5) else {
+            continue;
+        };
+        let Some(len) = tag[start..].find('"') else {
+            continue;
+        };
+        let src = tag[start..start + len].trim_start_matches('/');
+        let path = root.join(src);
+        if path.is_file() {
+            entries.push(path);
+        }
+    }
+    entries
 }
 
 /// Builds `entries` and writes every module (unless `emit` is `wasm`) and island under
@@ -390,7 +511,6 @@ fn emit_name(emit: Emit) -> &'static str {
 fn resolve_config(
     global: &GlobalArgs,
     input: Option<&PathBuf>,
-    renderer: &Renderer,
 ) -> Result<(PathBuf, Options, Option<PathBuf>), Failure> {
     let cwd = std::env::current_dir().map_err(|error| Failure::Error(error.to_string()))?;
     let root = match (&global.root, &global.config) {
@@ -412,14 +532,12 @@ fn resolve_config(
         None => Options::default(),
     };
 
-    let mut ignored = Vec::new();
     if let Some(mode) = global.mode {
         options.mode = match mode {
             ModeArg::JsOnly => trioxide::Mode::JsOnly,
             ModeArg::Auto => trioxide::Mode::Auto,
             ModeArg::WasmPreferred => trioxide::Mode::WasmPreferred,
         };
-        ignored.push("--mode");
     }
     if let Some(world) = global.world {
         options.world = Some(match world {
@@ -436,9 +554,6 @@ fn resolve_config(
     if global.require_wasm {
         options.wasm.require = true;
     }
-    for flag in ignored {
-        renderer.warning(&format!("{flag} is not yet implemented and has no effect"));
-    }
     Ok((root, options, config))
 }
 
@@ -450,12 +565,8 @@ fn discover_root(file: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-fn open_project(
-    global: &GlobalArgs,
-    input: Option<&PathBuf>,
-    renderer: &Renderer,
-) -> Result<Project, Failure> {
-    let (root, options, _) = resolve_config(global, input, renderer)?;
+fn open_project(global: &GlobalArgs, input: Option<&PathBuf>) -> Result<Project, Failure> {
+    let (root, options, _) = resolve_config(global, input)?;
     let mut project = Project::new(root, options)?;
     add_debug_islands(global, &mut project)?;
     Ok(project)

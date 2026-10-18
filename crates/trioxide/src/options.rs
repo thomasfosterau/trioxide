@@ -6,6 +6,8 @@ use std::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub use trioxide_partition::CostModel;
+
 use crate::{Error, Result};
 
 /// Names of the config files trioxide looks for, in order of preference.
@@ -71,6 +73,10 @@ pub struct Options {
     /// Per-file overrides, applied in order (later wins).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub overrides: Vec<Override>,
+
+    /// The partitioner's cost model: when moving a cluster of functions to WebAssembly pays
+    /// (`trioxide explain` shows its numbers). Fields not given keep their defaults.
+    pub cost_model: CostModel,
 }
 
 impl Default for Options {
@@ -89,6 +95,7 @@ impl Default for Options {
             dev: DevOptions::default(),
             cache_dir: None,
             overrides: Vec::new(),
+            cost_model: CostModel::default(),
         }
     }
 }
@@ -102,7 +109,8 @@ pub enum Mode {
     /// Create islands the cost model says are profitable.
     #[default]
     Auto,
-    /// Prefer WASM for every eligible function unless the cost model strongly objects.
+    /// Like `auto`, with the cost model's lower `wasmPreferredThreshold`: WASM for every
+    /// eligible function unless the cost model strongly objects.
     WasmPreferred,
 }
 
@@ -163,7 +171,9 @@ pub struct DevOptions {
     pub wasm: bool,
 }
 
-/// Forces files matching `files` to stay JS or to become WASM.
+/// Forces files matching `files` to stay JS or to become WASM: like a `"use js"` or
+/// `"use wasm"` file directive (directives in the file win). Overrides apply even in
+/// `js-only` mode, but not with WASM off.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Override {

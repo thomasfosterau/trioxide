@@ -21,6 +21,11 @@ export declare class Project {
   update(path: string, source?: string | undefined | null): Invalidation
   /** The compiled form of one module. */
   transform(path: string): ModuleOutput
+  /**
+   * Analyses and partitions the program reachable from `entries` and runs the JS passes,
+   * without building islands, and returns the decision log (what `explain` reports).
+   */
+  plan(entries: Array<string>): any
   /** The decision log for `target` (`file` or `file:function`; everything if omitted). */
   explain(target?: string | undefined | null): any
 }
