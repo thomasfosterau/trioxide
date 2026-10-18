@@ -49,7 +49,18 @@ fn main() {
         let options = Options::find_config(dir)
             .map_or_else(Options::default, |path| Options::from_file(&path).unwrap());
         let mut baseline_options = options.clone();
-        for pass in ["imports", "inline", "checks", "fold", "dce", "simplify"] {
+        for pass in [
+            "imports",
+            "inline",
+            "checks",
+            "fold",
+            "dce",
+            "licm",
+            "hidden-class",
+            "for-of",
+            "pipelines",
+            "simplify",
+        ] {
             baseline_options.passes.insert(pass.into(), false);
         }
         let mut baseline = Project::new(dir.to_path_buf(), baseline_options).unwrap();

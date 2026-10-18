@@ -228,7 +228,14 @@ induction ranges, invariant expressions), per unit (callers, reachability distin
 `never`), and per declaration: `const` bindings with literal values (`symbol_constant`; the
 type lattice has no string, boolean or bigint literals), enum members (`enum_member`:
 `Proven` when nothing can change the enum object, `Declared` when only TypeScript's read-only
-members say so) and exports no module can use (`export_used`, app world).
+members say so) and exports no module can use (`export_used`, app world). For the speed passes
+it also answers whether the program leaves a builtin and its prototype alone
+(`builtin_intact`), whether an array allocation site never has holes (`may_have_holes`), and
+whether any code can observe which own keys a class's instances have, or in which order
+(`instance_keys_observed`: `Proven` false only for a class the analysis follows entirely, that
+nothing extends, whose prototype gets nothing outside its body, and whose instances never reach
+`for…in`, `in`, object spread or rest, or an `Object.*`/`JSON.*`/`Reflect.*`, `.call`/`.apply`,
+`structuredClone`, `hasOwnProperty` or `propertyIsEnumerable` call).
 
 Implicit calls count wherever the engine makes them: accessors (class ones, those of object
 literals and of a literal's `__proto__`, and getters a spread reads), coercions, `await`,
@@ -348,10 +355,51 @@ never triggers a refresh): `oxc_ecmascript` constant evaluation (plus exact int3
 folding, which it leaves alone), branches with literal tests, `null?.x`, statements after a
 `return`/`throw`/`break`/`continue`, empty statements, and unused bindings with inert
 initialisers. With these two groups no module is refreshed at all (refreshes happen only
-before a fact-reading group that follows a change); S5's groups pay for refreshes when they
-read facts after a change. An import guard brackets both groups: when the passes remove an
+before a fact-reading group that follows a change). The speed passes 6, 7, 9 and 10 join the
+fact-driven group after dce, in the order licm (9), hidden-class (10), for-of (7), pipelines
+(6), so they read the same facts and add no refresh either; the price is that a loop one of
+them creates has no facts, so LICM doesn't see the loops `for…of` and pipeline lowering make
+(they read `length` once themselves where the loop facts allow). An import guard brackets both groups: when the passes remove an
 import's last value use, the TypeScript strip would elide the whole declaration and its module
 might not run, so a side-effect `import "…"` is added in its place.
+
+**Speed passes** (S5b; each module's doc comment has the full preconditions):
+- *Pipelines (6)*: a chain of `map`/`filter` ending in `map`, `filter`, `forEach`, `reduce`,
+  `some`, `every`, `find`, `findIndex` or `includes` (one call too) that initialises a binding,
+  is returned, or (`forEach`) is a statement becomes one indexed loop with the callbacks
+  written in. The receiver must be a plain array with intact builtins, and each call's site
+  complete with only its callback as callee; callbacks are arrows or function expressions
+  (no `this`/`arguments`/`new.target` of their own, no self-reference, a body that is an
+  expression or ends in its only `return`). Fusing interleaves callbacks, so it needs every
+  callback free of writes, throws and unknown calls, or exactly one effectful callback that is
+  first (the others reading no mutable state) or last (and unable to reach the array). Hole
+  semantics are kept with an `i in array` guard unless the arrays never have holes and no
+  callback can make one; a `map` stage keeps holes, and a chain that would hand one to `find`,
+  `findIndex` or `includes` stays. The range is fixed at the start and elements are read per
+  step. Deviation: a callback after a `filter` can't use its index, and a callback after the
+  first can't use its array parameter (the chain stays); calls on `Declared` receivers stay
+  even with `trustTypes`, because the analysis doesn't model their callbacks.
+- *`for…of` (7)*: over a plain array with intact builtins it becomes an indexed loop that
+  re-reads `length` each step (once, when the loop facts show no resize), declares the head
+  binding in the body (per-iteration, any pattern), and keeps labels. `[...a]` and
+  `[...a, ...b]` over arrays that never have holes become `slice`/`concat`. Deviation: `f(...a)`
+  is only written out for tuples (`Declared`, so with `trustTypes`): engines already compile a
+  spread call of a packed array like `apply`, so there is nothing to gain for arrays.
+- *LICM (9)*: hoists `LoopFacts::invariant` expressions that read a property or call
+  something into the `for` head (`for (let i = 0, itemsLength = items.length; …)`) or a `const`
+  before the loop. An invariant of a `for`/`while` test is evaluated by the first test anyway;
+  one in the body moves only if it reads no binding the test reads (which the test could
+  narrow) and calls no program function (termination isn't proven, so a zero-trip loop mustn't
+  start calling it). `a.length` of a binding nothing reassigns, holding only arrays the loop
+  doesn't resize (complete only without `resizes_untracked`), is hoisted too, since the
+  analysis leaves it out of `invariant` whenever the loop writes an object. Deviation: pure
+  arithmetic over locals stays where it is (engines hoist it themselves; naming it costs
+  readability).
+- *Hidden-class stabilisation (10)*: for a base class whose shape is `Proven` and whose
+  instances' keys nobody observes (`instance_keys_observed`), properties instances get late or
+  only on some constructor paths become class fields initialised to `undefined` (unless on the
+  prototype chain, where a field would hide the inherited one), and `delete o.p;` of such an
+  instance becomes `o.p = undefined;`. Deviation: array element kinds aren't touched.
 
 **Specialisation** is opt-in (`passes: { "specialize": true }`). In a closed world a
 parameter's facts are whatever every caller passes, which can make a function's body constant

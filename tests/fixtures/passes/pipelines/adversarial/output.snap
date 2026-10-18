@@ -13,9 +13,9 @@ function thisArg() {
 	}, scale);
 }
 function selfReference() {
-	// A named function expression that calls itself.
-	return [3, 4].map(function fact(n) {
-		return n <= 1 ? 1 : n * fact(n - 1);
+	// A named function expression that refers to itself (on a path these elements don't take).
+	return [3, 4].map(function again(n) {
+		return n > 100 ? again(0) : n * 2;
 	});
 }
 function usesArguments() {

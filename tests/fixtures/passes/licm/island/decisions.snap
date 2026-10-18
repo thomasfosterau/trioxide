@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/licm/island
+input_file: tests/fixtures/passes/licm/island/input.ts
+---
+//- input.ts
+14:44 licm applied

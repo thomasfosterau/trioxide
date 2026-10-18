@@ -5,7 +5,6 @@ input_file: tests/fixtures/passes/pipelines/adversarial/input.ts
 ---
 //- input.ts
 7:16 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
-14:12 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 14:12 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
 6:10 pipelines skipped: the callback uses its own `this`, `arguments` or `new.target`
 13:10 pipelines skipped: the callback refers to itself by name

@@ -13,6 +13,16 @@
 //! - [`Dce`] (`"dce"`, pass 3): unreachable statements, unused pure bindings and functions,
 //!   unused exports (app world) and pure expression statements.
 //!
+//! The speed passes follow in the same group, so they read the same facts and add no refresh:
+//!
+//! - [`Licm`] (`"licm"`, pass 9): loop invariants and unchanging array lengths move out of
+//!   loops, under readable names.
+//! - [`HiddenClass`] (`"hidden-class"`, pass 10): late or conditional properties of classes
+//!   whose instances' keys nothing observes become fields; `delete` of them an assignment.
+//! - [`ForOf`] (`"for-of"`, pass 7): `for…of` over plain arrays becomes an indexed loop;
+//!   spreads of arrays without holes become `slice`/`concat`.
+//! - [`Pipelines`] (`"pipelines"`, pass 6): `map`/`filter`/… chains become one loop.
+//!
 //! Then a syntactic cleanup group, run to a fixed point without reading facts:
 //! [`Simplify`] (`"simplify"`) folds what the first group left constant with
 //! `oxc_ecmascript`, takes branches with literal tests and drops empty and inert code.
@@ -105,7 +115,8 @@ fn wasm_tags(program: &oxc_ast::ast::Program<'_>) -> rustc_hash::FxHashSet<u32> 
 use crate::PassGroup;
 use util::Query;
 
-/// The default groups: the fact-driven foundation passes, then the syntactic cleanup.
+/// The default groups: the fact-driven foundation and speed passes, then the syntactic
+/// cleanup.
 pub fn default_groups() -> Vec<PassGroup> {
     let imports = Rc::new(RefCell::new(imports::Guard::default()));
     vec![
