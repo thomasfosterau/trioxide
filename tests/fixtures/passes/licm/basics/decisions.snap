@@ -10,7 +10,6 @@ input_file: tests/fixtures/passes/licm/basics/input.ts
 15:36 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 33:23 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 49:29 fold applied
-66:25 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 67:27 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 45:9 dce skipped: unused, but its initialiser has effects
 14:23 licm applied

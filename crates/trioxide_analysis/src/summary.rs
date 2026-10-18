@@ -3,7 +3,7 @@
 use oxc_span::Span;
 use oxc_syntax::symbol::SymbolId;
 use rustc_hash::{FxHashMap, FxHashSet};
-use trioxide_common::{NodeId, NodeRef, SymbolRef};
+use trioxide_common::{ModuleId, NodeId, NodeRef, SymbolRef};
 use trioxide_types::{NumberType, Shape, Type};
 
 use crate::{
@@ -31,40 +31,108 @@ pub fn facts(
             facts.set_import(import, target);
         }
     }
-    for &unit in &world.unit_order {
-        let info = world.unit(unit);
-        facts.set_function(
-            unit,
-            FunctionInfo {
-                name: info.name.clone(),
-                span: info.span,
-                open: interp::unit_open(world, &results.state, info),
-            },
-        );
-    }
     if !results.converged {
         // Nothing the last round computed can be trusted.
+        for (unit, info) in functions(world, results, &world.unit_order) {
+            facts.set_function(unit, info);
+        }
         return facts;
     }
-    let state = &results.state;
-    for (&node, value) in &results.output.nodes {
-        facts.set_ty(node, materialize(value, state));
+    // The rest doesn't need the node facts: work it out alongside.
+    // SAFETY: the world and the results are only read until the scope below ends.
+    let shared = unsafe { crate::threads::Shared::new((world, results)) };
+    let (modules, (graph, effects), (symbols, (allocations, shapes, packed))) =
+        std::thread::scope(|scope| {
+            let calls = scope.spawn(|| {
+                let (world, results) = shared.get();
+                let graph = callgraph::build(world, results);
+                let effects = callgraph::effects(&graph, results, &results.state);
+                (graph, effects)
+            });
+            let heap = scope.spawn(|| {
+                let (world, results) = shared.get();
+                let symbols: Vec<_> = results
+                    .state
+                    .symbols
+                    .iter()
+                    .map(|(&symbol, value)| (symbol, materialize(value, &results.state)))
+                    .collect();
+                (symbols, heap_facts(world, &results.state))
+            });
+            let modules = node_types(world, results, crate::threads::count(options));
+            (
+                modules,
+                calls.join().expect("summarising panicked"),
+                heap.join().expect("summarising panicked"),
+            )
+        });
+    for (module, types, locals, functions) in modules {
+        for (unit, info) in functions {
+            facts.set_function(unit, info);
+        }
+        facts.set_module_types(module, types);
+        for (symbol, fact) in locals {
+            facts.set_symbol_ty(symbol, fact);
+        }
     }
-    for (&symbol, value) in &state.symbols {
-        facts.set_symbol_ty(symbol, materialize(value, state));
+    for (symbol, fact) in symbols {
+        facts.set_symbol_ty(symbol, fact);
     }
-    for (&node, &trust) in &results.output.in_bounds {
+    // An access two units recorded (a nested unit's, say) is only as trusted as the weaker.
+    let mut in_bounds: FxHashMap<NodeRef, Trust> = FxHashMap::default();
+    for output in results.outputs.values() {
+        for (&node, &trust) in &output.in_bounds {
+            in_bounds
+                .entry(node)
+                .and_modify(|old| *old = (*old).min(trust))
+                .or_insert(trust);
+        }
+    }
+    for (node, trust) in in_bounds {
         facts.set_in_bounds(node, trust);
     }
-    let graph = callgraph::build(world, &results.output);
-    let summaries = callgraph::effects(world, &graph, &results.output, state);
+    let summaries: FxHashMap<NodeRef, (Effects, Effects)> = effects.into_iter().collect();
     for (&unit, &(proven, declared)) in &summaries {
         facts.set_effect_summaries(unit, proven, declared);
     }
-    usage_facts(&mut facts, world, results, &graph, &summaries);
+    usage_facts(
+        &mut facts,
+        world,
+        results,
+        &graph,
+        &summaries,
+        crate::threads::count(options),
+    );
     facts.set_call_graph(graph);
 
+    for (site, allocation) in allocations {
+        facts.set_allocation(site, allocation);
+    }
+    for (class, shape) in shapes {
+        facts.set_class_shape(class, shape);
+    }
+    for site in packed {
+        facts.set_packed(site);
+    }
+    facts.set_patched(interp::patched_builtins(world));
+    facts.set_unobserved_classes(crate::observe::unobserved_classes(world, results));
+    facts
+}
+
+/// What the heap says about each allocation site and class, and the arrays that never have
+/// holes.
+type HeapFacts = (
+    Vec<(NodeRef, Allocation)>,
+    Vec<(NodeRef, Fact<ClassShape>)>,
+    Vec<NodeRef>,
+);
+
+/// The allocation facts of every site, the shape of every class and the packed array sites.
+fn heap_facts(world: &World<'_>, state: &State) -> HeapFacts {
+    let mut allocations = Vec::with_capacity(state.heap.len());
+    let mut shapes = Vec::with_capacity(world.classes.len());
     let mut instances: FxHashMap<NodeRef, Vec<&interp::Obj>> = FxHashMap::default();
+    let mut packed = Vec::new();
     for (&site, obj) in &state.heap {
         let kind = match obj.kind {
             ObjKind::Object => AllocKind::Object,
@@ -90,23 +158,21 @@ pub fn facts(
             && !obj.given_up
             && obj.escape != interp::Escape::Unknown
         {
-            facts.set_packed(site);
+            packed.push(site);
         }
         let stable = !obj.dynamic
             && !obj.deleted
             && obj.added.is_empty()
             && obj.escape != interp::Escape::Unknown;
-        facts.set_allocation(
+        allocations.push((
             site,
             Allocation {
                 kind,
                 escape: Fact::proven(escape),
                 stable_shape: Fact::proven(stable),
             },
-        );
+        ));
     }
-    facts.set_patched(interp::patched_builtins(world));
-    facts.set_unobserved_classes(crate::observe::unobserved_classes(world, results));
     for &class in world.classes.keys() {
         let sites = instances.get(&class).cloned().unwrap_or_default();
         let fields = crate::shapes::definite_fields(world, class);
@@ -134,18 +200,104 @@ pub fn facts(
             shape.deletes = true;
             shape.dynamic = true;
         }
-        facts.set_class_shape(
+        shapes.push((
             class,
             Fact {
                 value: shape,
                 trust,
             },
-        );
+        ));
     }
-    facts
+    (allocations, shapes, packed)
 }
 
 /// The fact for a value, with object types filled in from the heap.
+/// What each of `units` is, and whether unknown code may call it.
+fn functions(
+    world: &World<'_>,
+    results: &Results,
+    units: &[NodeRef],
+) -> Vec<(NodeRef, FunctionInfo)> {
+    units
+        .iter()
+        .map(|&unit| {
+            let info = world.unit(unit);
+            (
+                unit,
+                FunctionInfo {
+                    name: info.name.clone(),
+                    span: info.span,
+                    open: interp::unit_open(world, &results.state, info),
+                },
+            )
+        })
+        .collect()
+}
+
+/// What summarising one module found: its node facts, its private locals' facts and its
+/// units.
+type ModuleFacts = (
+    ModuleId,
+    FxHashMap<NodeId, Fact<Type>>,
+    Vec<(SymbolRef, Fact<Type>)>,
+    Vec<(NodeRef, FunctionInfo)>,
+);
+
+/// Every module's node facts, made on up to `threads` threads: the values the module's units
+/// recorded (joined where two units recorded the same node), materialized; the facts of its
+/// private locals; and what its units are.
+fn node_types(world: &World<'_>, results: &Results, threads: usize) -> Vec<ModuleFacts> {
+    // SAFETY: the world and the results are only read until `map_ranges` returns.
+    let shared = unsafe { crate::threads::Shared::new((world, results)) };
+    crate::threads::map_ranges(world.modules.len(), threads, |range| {
+        let (world, results) = shared.get();
+        let mut out = Vec::with_capacity(range.len());
+        for module in &world.modules[range] {
+            let outputs: Vec<&interp::Output> = world
+                .module_units(module.id)
+                .iter()
+                .filter_map(|unit| results.outputs.get(unit))
+                .collect();
+            // Nearly every node is recorded by one unit: materialize its value straight away,
+            // and redo the few recorded more than once from the join of their values.
+            let mut types: FxHashMap<NodeId, Fact<Type>> = FxHashMap::with_capacity_and_hasher(
+                outputs.iter().map(|output| output.nodes.len()).sum(),
+                rustc_hash::FxBuildHasher,
+            );
+            let mut repeated: Vec<NodeRef> = Vec::new();
+            for output in &outputs {
+                for (&node, value) in &output.nodes {
+                    match types.entry(node.node) {
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            entry.insert(materialize(value, &results.state));
+                        }
+                        std::collections::hash_map::Entry::Occupied(_) => repeated.push(node),
+                    }
+                }
+            }
+            repeated.sort_unstable();
+            repeated.dedup();
+            for node in repeated {
+                let mut values = outputs.iter().filter_map(|output| output.nodes.get(&node));
+                let first = values.next().expect("a repeated node was recorded").clone();
+                let joined = values.fold(first, |joined, value| joined.join(value));
+                types.insert(node.node, materialize(&joined, &results.state));
+            }
+            // Private locals' values never reached the shared tables: their units have them.
+            let locals = world
+                .module_units(module.id)
+                .iter()
+                .filter_map(|unit| results.outputs.get(unit))
+                .flat_map(|output| &output.symbols)
+                .map(|(&symbol, value)| (symbol, materialize(value, &results.state)))
+                .collect();
+            let functions = functions(world, results, world.module_units(module.id));
+            out.push((module.id, types, locals, functions));
+        }
+        out
+    })
+}
+
 fn materialize(value: &Val, state: &State) -> Fact<Type> {
     let fact = value.fact();
     if fact.trust == Trust::Unknown {
@@ -183,7 +335,7 @@ fn object_shape(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
     let sites: Vec<&interp::Obj> = pts
         .sites()?
         .iter()
-        .filter_map(|site| state.heap.get(site))
+        .filter_map(|site| state.heap.get(site).map(|obj| &**obj))
         .filter(|obj| obj.kind == ObjKind::Object)
         .collect();
     if sites.is_empty()
@@ -238,7 +390,7 @@ fn array_element(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
     let sites: Vec<&interp::Obj> = pts
         .sites()?
         .iter()
-        .filter_map(|site| state.heap.get(site))
+        .filter_map(|site| state.heap.get(site).map(|obj| &**obj))
         .filter(|obj| obj.kind == ObjKind::Array)
         .collect();
     if sites.is_empty()
@@ -263,6 +415,19 @@ fn array_element(pts: &Pts, state: &State, depth: usize) -> Option<Type> {
     Some(refine(&fact.value, &element.pts, state, depth - 1))
 }
 
+/// What one module's units recorded, summarised.
+struct ModuleUsage {
+    module: ModuleId,
+    expr_effects: FxHashMap<NodeId, (Effects, Effects)>,
+    points_to: FxHashMap<NodeId, Vec<NodeRef>>,
+    volatile: Vec<NodeRef>,
+    /// Loop facts, without their invariants yet.
+    loops: Vec<(NodeRef, LoopFacts)>,
+    open_sites: Vec<NodeRef>,
+    reached: Vec<NodeRef>,
+    skipped: Vec<NodeRef>,
+}
+
 /// Call-site completeness, per-expression and per-loop effects, points-to sets and
 /// reachability.
 fn usage_facts(
@@ -271,139 +436,51 @@ fn usage_facts(
     results: &Results,
     graph: &crate::facts::CallGraph,
     summaries: &FxHashMap<NodeRef, (Effects, Effects)>,
+    threads: usize,
 ) {
-    let with_callees = |proven: Effects, declared: Effects, callees: &[NodeRef]| {
-        callees
+    // SAFETY: these are only read until `map_ranges` returns.
+    let shared = unsafe { crate::threads::Shared::new((world, results, graph, summaries)) };
+    let modules = crate::threads::map_ranges(world.modules.len(), threads, |range| {
+        let (world, results, graph, summaries) = shared.get();
+        world.modules[range]
             .iter()
-            .fold((proven, declared), |(proven, declared), callee| {
-                let (callee_proven, callee_declared) = summaries
-                    .get(callee)
-                    .copied()
-                    .unwrap_or((Effects::ANY, Effects::ANY));
-                (
-                    union(proven, callee_proven),
-                    union(declared, callee_declared),
-                )
-            })
-    };
+            .map(|module| module_usage(world, results, graph, summaries, module.id))
+            .collect()
+    });
     let mut pending_loops = Vec::new();
     let mut open_sites = FxHashSet::default();
     let mut reached = FxHashSet::default();
     let mut skipped = Vec::new();
     let mut volatile = FxHashSet::default();
-    for (&unit, record) in &results.output.units {
-        open_sites.extend(record.open_sites.iter().copied());
-        // Visits of one expression are merged (loops revisit them).
-        let mut visits: Vec<&interp::ExprVisit> = record.expr_effects.iter().collect();
-        visits.sort_unstable_by_key(|visit| visit.node);
-        let mut callees: Vec<NodeRef> = Vec::new();
-        for group in visits.chunk_by(|a, b| a.node == b.node) {
-            let (mut proven, mut declared) = (Effects::PURE, Effects::PURE);
-            let mut is_volatile = false;
-            callees.clear();
-            for visit in group {
-                proven = union(proven, visit.proven);
-                declared = union(declared, visit.declared);
-                // At expression level, writes to locals and reads of mutable locals count.
-                proven.writes |= visit.local_writes;
-                declared.writes |= visit.local_writes;
-                proven.reads |= visit.shared_reads;
-                declared.reads |= visit.shared_reads;
-                is_volatile |= visit.volatile;
-                let (start, end) = (visit.edges.0 as usize, visit.edges.1 as usize);
-                callees.extend(record.edges[start..end].iter().map(|edge| edge.callee));
-            }
-            callees.sort_unstable();
-            callees.dedup();
-            let (proven, declared) = with_callees(proven, declared, &callees);
-            let node = NodeRef {
-                module: unit.module,
-                node: group[0].node,
-            };
-            facts.set_expr_effects(node, proven, declared);
-            if is_volatile {
-                volatile.insert(node);
-            }
-        }
-        let module = world.module(unit.module);
-        for (&node, record) in &record.loops {
-            let (mut proven, mut declared) = (record.proven, record.declared);
-            proven.writes |= record.shared_writes;
-            declared.writes |= record.shared_writes;
-            let effects = with_callees(proven, declared, &record.callees);
-            let symbols = |symbols: &[SymbolId]| -> Vec<SymbolRef> {
-                symbols
-                    .iter()
-                    .map(|&symbol| module.symbol(symbol))
-                    .collect()
-            };
-            let ranges: Vec<(SymbolId, Fact<NumberType>)> = record
-                .induction
-                .iter()
-                .filter_map(|(symbol, value)| {
-                    let fact = value.fact();
-                    let number = fact.value.as_number()?;
-                    Some((
-                        *symbol,
-                        Fact {
-                            value: number,
-                            trust: fact.trust,
-                        },
-                    ))
-                })
-                .collect();
-            let induction = induction_variables(world, node, &ranges);
-            // Arrays resized here or by any unit it calls, transitively.
-            let mut resized: FxHashSet<NodeRef> = record.resized.iter().copied().collect();
-            let mut resizes_untracked = record.resizes_untracked || effects.0.calls_unknown;
-            let mut pending: Vec<NodeRef> = record.callees.clone();
-            let mut seen: FxHashSet<NodeRef> = pending.iter().copied().collect();
-            while let Some(callee) = pending.pop() {
-                match results.output.units.get(&callee) {
-                    Some(callee) => {
-                        resized.extend(callee.resized.iter().copied());
-                        resizes_untracked |= callee.resizes_untracked;
-                    }
-                    None => resizes_untracked = true,
-                }
-                for edge in graph.edges_from(callee) {
-                    if seen.insert(edge.callee) {
-                        pending.push(edge.callee);
-                    }
-                }
-            }
-            let mut resized: Vec<NodeRef> = resized.into_iter().collect();
-            resized.sort_unstable();
-            let written = symbols(&record.written);
-            pending_loops.push((
-                node,
-                LoopFacts {
-                    effects,
-                    written,
-                    length_changed: symbols(&record.length_changed),
-                    resized,
-                    resizes_untracked,
-                    induction,
-                    invariant: Vec::new(),
-                },
-            ));
-        }
-        reached.extend(record.reached.iter().copied());
-        skipped.extend(record.skipped.iter().copied());
+    for usage in modules {
+        facts.set_module_expr_effects(usage.module, usage.expr_effects);
+        facts.set_module_points_to(usage.module, usage.points_to);
+        volatile.extend(usage.volatile);
+        pending_loops.extend(usage.loops);
+        open_sites.extend(usage.open_sites);
+        reached.extend(usage.reached);
+        skipped.extend(usage.skipped);
     }
     // Effects first: invariance needs them.
-    for (node, mut loop_facts) in pending_loops {
-        loop_facts.invariant = invariant_expressions(facts, world, node, &loop_facts, &volatile);
+    let invariants = {
+        // SAFETY: these are only read until `map_ranges` returns.
+        let shared =
+            unsafe { crate::threads::Shared::new((&*facts, world, &volatile, &pending_loops)) };
+        crate::threads::map_ranges(pending_loops.len(), threads, |range| {
+            let (facts, world, volatile, pending_loops) = shared.get();
+            pending_loops[range]
+                .iter()
+                .map(|(node, loop_facts)| {
+                    invariant_expressions(facts, world, *node, loop_facts, volatile)
+                })
+                .collect()
+        })
+    };
+    for ((node, mut loop_facts), invariant) in pending_loops.into_iter().zip(invariants) {
+        loop_facts.invariant = invariant;
         facts.set_loop_facts(node, loop_facts);
     }
     facts.set_open_sites(open_sites);
-    for (&node, value) in &results.output.nodes {
-        if let Some(sites) = value.pts.sites()
-            && !sites.is_empty()
-        {
-            facts.set_points_to(node, sites.to_vec());
-        }
-    }
 
     // Units run if something reachable calls them, or code that doesn't record calls can:
     // module bodies, class initialisers, and any unit whose function object escapes.
@@ -478,6 +555,159 @@ fn union(a: Effects, b: Effects) -> Effects {
 }
 
 /// The largest loop-invariant expressions of the loop `node` (see [`LoopFacts::invariant`]).
+/// [`ModuleUsage`] for `module`.
+fn module_usage(
+    world: &World<'_>,
+    results: &Results,
+    graph: &crate::facts::CallGraph,
+    summaries: &FxHashMap<NodeRef, (Effects, Effects)>,
+    module: ModuleId,
+) -> ModuleUsage {
+    let with_callees = |proven: Effects, declared: Effects, callees: &[NodeRef]| {
+        callees
+            .iter()
+            .fold((proven, declared), |(proven, declared), callee| {
+                let (callee_proven, callee_declared) = summaries
+                    .get(callee)
+                    .copied()
+                    .unwrap_or((Effects::ANY, Effects::ANY));
+                (
+                    union(proven, callee_proven),
+                    union(declared, callee_declared),
+                )
+            })
+    };
+    let mut usage = ModuleUsage {
+        module,
+        expr_effects: FxHashMap::default(),
+        points_to: FxHashMap::default(),
+        volatile: Vec::new(),
+        loops: Vec::new(),
+        open_sites: Vec::new(),
+        reached: Vec::new(),
+        skipped: Vec::new(),
+    };
+    let info = world.module(module);
+    let mut values: FxHashMap<NodeId, Pts> = FxHashMap::default();
+    let mut callees: Vec<NodeRef> = Vec::new();
+    for unit in world.module_units(module) {
+        let Some(output) = results.outputs.get(unit) else {
+            continue;
+        };
+        // A node more than one unit records (rare) may be any of their objects.
+        for (&node, value) in &output.nodes {
+            if value.pts.is_none() {
+                continue;
+            }
+            values
+                .entry(node.node)
+                .and_modify(|pts| *pts = pts.join(&value.pts))
+                .or_insert_with(|| value.pts.clone());
+        }
+        let Some(record) = output.units.get(unit) else {
+            continue;
+        };
+        usage.open_sites.extend(record.open_sites.iter().copied());
+        usage.reached.extend(record.reached.iter().copied());
+        usage.skipped.extend(record.skipped.iter().copied());
+        // Visits of one expression are merged (loops revisit them).
+        let mut visits: Vec<&interp::ExprVisit> = record.expr_effects.iter().collect();
+        visits.sort_unstable_by_key(|visit| visit.node);
+        usage.expr_effects.reserve(visits.len());
+        for group in visits.chunk_by(|a, b| a.node == b.node) {
+            let (mut proven, mut declared) = (Effects::PURE, Effects::PURE);
+            let mut is_volatile = false;
+            callees.clear();
+            for visit in group {
+                proven = union(proven, visit.proven);
+                declared = union(declared, visit.declared);
+                // At expression level, writes to locals and reads of mutable locals count.
+                proven.writes |= visit.local_writes;
+                declared.writes |= visit.local_writes;
+                proven.reads |= visit.shared_reads;
+                declared.reads |= visit.shared_reads;
+                is_volatile |= visit.volatile;
+                let (start, end) = (visit.edges.0 as usize, visit.edges.1 as usize);
+                callees.extend(record.edges[start..end].iter().map(|edge| edge.callee));
+            }
+            callees.sort_unstable();
+            callees.dedup();
+            usage
+                .expr_effects
+                .insert(group[0].node, with_callees(proven, declared, &callees));
+            if is_volatile {
+                usage.volatile.push(info.node(group[0].node));
+            }
+        }
+        for (&node, record) in &record.loops {
+            let (mut proven, mut declared) = (record.proven, record.declared);
+            proven.writes |= record.shared_writes;
+            declared.writes |= record.shared_writes;
+            let effects = with_callees(proven, declared, &record.callees);
+            let symbols = |symbols: &[SymbolId]| -> Vec<SymbolRef> {
+                symbols.iter().map(|&symbol| info.symbol(symbol)).collect()
+            };
+            let ranges: Vec<(SymbolId, Fact<NumberType>)> = record
+                .induction
+                .iter()
+                .filter_map(|(symbol, value)| {
+                    let fact = value.fact();
+                    let number = fact.value.as_number()?;
+                    Some((
+                        *symbol,
+                        Fact {
+                            value: number,
+                            trust: fact.trust,
+                        },
+                    ))
+                })
+                .collect();
+            let induction = induction_variables(world, node, &ranges);
+            // Arrays resized here or by any unit it calls, transitively.
+            let mut resized: FxHashSet<NodeRef> = record.resized.iter().copied().collect();
+            let mut resizes_untracked = record.resizes_untracked || effects.0.calls_unknown;
+            let mut pending: Vec<NodeRef> = record.callees.clone();
+            let mut seen: FxHashSet<NodeRef> = pending.iter().copied().collect();
+            while let Some(callee) = pending.pop() {
+                match results.record(callee) {
+                    Some(callee) => {
+                        resized.extend(callee.resized.iter().copied());
+                        resizes_untracked |= callee.resizes_untracked;
+                    }
+                    None => resizes_untracked = true,
+                }
+                for edge in graph.edges_from(callee) {
+                    if seen.insert(edge.callee) {
+                        pending.push(edge.callee);
+                    }
+                }
+            }
+            let mut resized: Vec<NodeRef> = resized.into_iter().collect();
+            resized.sort_unstable();
+            usage.loops.push((
+                node,
+                LoopFacts {
+                    effects,
+                    written: symbols(&record.written),
+                    length_changed: symbols(&record.length_changed),
+                    resized,
+                    resizes_untracked,
+                    induction,
+                    invariant: Vec::new(),
+                },
+            ));
+        }
+    }
+    usage.points_to = values
+        .into_iter()
+        .filter_map(|(node, pts)| {
+            let sites = pts.sites()?;
+            (!sites.is_empty()).then(|| (node, sites.to_vec()))
+        })
+        .collect();
+    usage
+}
+
 /// The numeric locals of the loop `node` with their head ranges, minus those declared inside
 /// it (a nested loop's, the body's), with their steps.
 fn induction_variables(
@@ -528,11 +758,17 @@ fn induction_variables(
         })
     };
     let loop_unit = unit_of(node.node);
-    let continues = nodes
-        .iter()
-        .filter(|candidate| matches!(candidate.kind(), AstKind::ContinueStatement(_)))
-        .any(|candidate| {
-            within(candidate.kind().span(), body) && unit_of(candidate.id()) == loop_unit
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    // Node ids are preorder: the loop's descendants follow it.
+    let continues = (node.node.index() + 1..nodes.len())
+        .map(NodeId::from_usize)
+        .take_while(|&id| within(nodes.kind(id).span(), loop_span))
+        .any(|id| {
+            matches!(nodes.kind(id), AstKind::ContinueStatement(_))
+                && within(nodes.kind(id).span(), body)
+                && unit_of(id) == loop_unit
         });
     ranges
         .iter()

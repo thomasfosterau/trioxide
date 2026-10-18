@@ -75,7 +75,7 @@ impl<'a> Cx<'_, '_, 'a> {
         self.position = expression.span().start;
         self.frames.push(super::Frame::new(self.record.edges.len()));
         let value = self.expr_inner(expression);
-        let frame = self.frames.pop().expect("the expression's frame");
+        let frame = self.pop_frame();
         // Every evaluation is recorded, pure ones too: an expression with no record (a
         // callee member, a part of a `?.` chain) has unknown effects, not none.
         #[expect(clippy::cast_possible_truncation, reason = "edges of one unit")]
@@ -434,7 +434,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 .heap(site)
                 .is_some_and(|obj| obj.elem.ty == Type::Never && obj.props.is_empty());
             cx.store_elem(site, &Val::proven(element.clone()));
-            cx.mark(site, |obj| {
+            cx.mark(site, move |obj| {
                 obj.length = if (first && !obj.sized && !obj.dynamic) || obj.length == length {
                     length
                 } else {
@@ -525,10 +525,10 @@ impl<'a> Cx<'_, '_, 'a> {
         }
         let first = self
             .an
-            .heap(site)
+            .peek(site)
             .is_some_and(|obj| obj.elem.ty == Type::Never && obj.props.is_empty());
         self.store_elem(site, &elem);
-        self.mark(site, |obj| {
+        self.mark(site, move |obj| {
             obj.holey |= holey;
             obj.length = if (first && !obj.sized && !obj.dynamic) || obj.length == length {
                 length
@@ -658,14 +658,14 @@ impl<'a> Cx<'_, '_, 'a> {
         }
         let first = self
             .an
-            .heap(site)
+            .peek(site)
             // Not after a `delete` emptied it: `present` only shrinks from then on.
             .is_some_and(|obj| obj.present.is_empty() && !obj.dynamic && !obj.deleted);
-        self.mark(site, |obj| {
+        self.mark(site, move |obj| {
             obj.dynamic |= dynamic;
             obj.accessors |= accessors;
             if first {
-                obj.present.extend(keys);
+                obj.present.extend(keys.iter().cloned());
             } else {
                 obj.present.retain(|key| keys.contains(key));
             }
@@ -763,9 +763,12 @@ impl<'a> Cx<'_, '_, 'a> {
                     }
                     let function = self.function_value(method.value.node_id.get());
                     let Some(name) = static_key(&method.key, method.computed) else {
-                        self.mark(if method.r#static { class_site } else { proto }, |obj| {
-                            obj.dynamic = true;
-                        });
+                        self.mark(
+                            if method.r#static { class_site } else { proto },
+                            move |obj| {
+                                obj.dynamic = true;
+                            },
+                        );
                         self.escape_value(&function, Escape::Unknown);
                         continue;
                     };
@@ -774,8 +777,8 @@ impl<'a> Cx<'_, '_, 'a> {
                     }
                     let target = if method.r#static { class_site } else { proto };
                     self.store_prop(target, &name, &function, true);
-                    self.mark(target, |obj| {
-                        obj.present.insert(name);
+                    self.mark(target, move |obj| {
+                        obj.present.insert(name.clone());
                     });
                 }
                 ClassElement::PropertyDefinition(property) => {
@@ -785,7 +788,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         let key = self.expr(key);
                         self.coerce(&key, false);
                         let target = if property.r#static { class_site } else { proto };
-                        self.mark(target, |obj| obj.dynamic = true);
+                        self.mark(target, move |obj| obj.dynamic = true);
                     }
                     if property.r#static {
                         let saved = std::mem::replace(&mut self.this, class_value.clone());
@@ -797,8 +800,8 @@ impl<'a> Cx<'_, '_, 'a> {
                         match static_key(&property.key, property.computed) {
                             Some(name) => {
                                 self.store_prop(class_site, &name, &value, true);
-                                self.mark(class_site, |obj| {
-                                    obj.present.insert(name);
+                                self.mark(class_site, move |obj| {
+                                    obj.present.insert(name.clone());
                                 });
                             }
                             None => self.escape_value(&value, Escape::Unknown),
@@ -808,7 +811,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 ClassElement::AccessorProperty(property) => {
                     // `accessor x`: a getter/setter pair over a private field.
                     let target = if property.r#static { class_site } else { proto };
-                    self.mark(target, |obj| obj.dynamic = true);
+                    self.mark(target, move |obj| obj.dynamic = true);
                 }
                 ClassElement::StaticBlock(block) => {
                     // Static blocks run once, now; they are their own unit.
@@ -1362,7 +1365,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 if let Some(rest) = &array.rest {
                     let site = self.alloc(rest.node_id.get(), ObjKind::Array);
                     self.store_elem(site, &element);
-                    self.mark(site, |obj| obj.length = None);
+                    self.mark(site, move |obj| obj.length = None);
                     self.assign_target(
                         &rest.target,
                         Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site),
@@ -1419,7 +1422,7 @@ impl<'a> Cx<'_, '_, 'a> {
                 if let Some(rest) = &object.rest {
                     // `...rest` copies the remaining own properties into a new object.
                     let site = self.alloc(rest.node_id.get(), ObjKind::Object);
-                    self.mark(site, |obj| obj.dynamic = true);
+                    self.mark(site, move |obj| obj.dynamic = true);
                     self.escape_value(&value, Escape::Known);
                     self.assign_target(&rest.target, Val::object(Type::empty_object(), site), node);
                 }
@@ -1868,6 +1871,19 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             return value.join(&self.inherited(site, &obj, key, receiver, node, depth));
         }
+        // A field the class sets up that nothing wrote yet: its initialiser may run in
+        // another chunk of this sweep. Until the sweeps settle, nothing is known yet.
+        if self.an.optimistic
+            && let ObjKind::Instance(class) = obj.kind
+            && self
+                .an
+                .instance_fields
+                .get(&class)
+                .is_some_and(|fields| fields.contains(name))
+        {
+            self.an.output.optimistic = true;
+            return Val::never();
+        }
         self.inherited(site, &obj, key, receiver, node, depth)
     }
 
@@ -2123,7 +2139,7 @@ impl<'a> Cx<'_, '_, 'a> {
             match obj.kind {
                 ObjKind::Array => {
                     if key.name() == Some("length") {
-                        self.mark(site, |obj| {
+                        self.mark(site, move |obj| {
                             obj.length = None;
                             obj.holey = true;
                         });
@@ -2134,7 +2150,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         self.store_elem(site, value);
                         if !index_in_bounds {
                             let constant = key.name().and_then(|n| n.parse::<f64>().ok());
-                            self.mark(site, |obj| {
+                            self.mark(site, move |obj| {
                                 let within = matches!((constant, obj.length), (Some(i), Some(len)) if i < len);
                                 if !within {
                                     obj.length = None;
@@ -2154,7 +2170,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         self.coerce(value, true);
                         self.escape_value(value, Escape::Known);
                     } else {
-                        self.mark(site, |obj| obj.dynamic = true);
+                        self.mark(site, move |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Known);
                     }
                 }
@@ -2179,7 +2195,7 @@ impl<'a> Cx<'_, '_, 'a> {
                         self.after_call(false);
                     }
                     let Some(name) = key.name() else {
-                        self.mark(site, |obj| obj.dynamic = true);
+                        self.mark(site, move |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Known);
                         continue;
                     };
@@ -2240,7 +2256,7 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             for &site in sites {
                 let name = key.name().map(str::to_string);
-                self.mark(site, |obj| {
+                self.mark(site, move |obj| {
                     obj.deleted = true;
                     match &name {
                         Some(name) => {

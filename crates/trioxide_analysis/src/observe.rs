@@ -50,16 +50,25 @@ pub fn unobserved_classes(world: &World<'_>, results: &Results) -> FxHashSet<Nod
         for operand in find.operands {
             // An operand with no recorded value may be one the interpreter evaluates without
             // recording (or code that never runs): either way, nothing is known.
-            let Some(value) = results.output.nodes.get(&operand) else {
+            let mut recorded = false;
+            for value in world
+                .module_units(module.id)
+                .iter()
+                .filter_map(|unit| results.outputs.get(unit))
+                .filter_map(|output| output.nodes.get(&operand))
+            {
+                recorded = true;
+                // An object the analysis doesn't follow may still hold an instance it does:
+                // through `arguments`, a builtin's result (`concat`, `slice`) or an element
+                // read. So an observer of one sees everything.
+                let Some(sites) = value.pts.sites() else {
+                    return FxHashSet::default();
+                };
+                observed.extend(sites.iter().copied());
+            }
+            if !recorded {
                 return FxHashSet::default();
-            };
-            // An object the analysis doesn't follow may still hold an instance it does: through
-            // `arguments`, a builtin's result (`concat`, `slice`) or an element read. So an
-            // observer of one sees everything.
-            let Some(sites) = value.pts.sites() else {
-                return FxHashSet::default();
-            };
-            observed.extend(sites.iter().copied());
+            }
         }
     }
     let state = &results.state;

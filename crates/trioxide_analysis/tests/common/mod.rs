@@ -94,11 +94,33 @@ fn inputs(graph: &ModuleGraph) -> Vec<ModuleInput<'_>> {
 /// Loads and analyses the fixture at `entry`. A first line `// world: library` selects the
 /// open world; the default is the closed (`app`) world.
 pub fn load(entry: &Path) -> Loaded {
-    load_with(entry, false)
+    load_with(entry, 0, 0, 0)
 }
 
-/// [`load`], with declared types taken as proof when `trust_types`.
-pub fn load_with(entry: &Path, trust_types: bool) -> Loaded {
+/// [`load`], with declared types taken as proof.
+pub fn load_trusting_types(entry: &Path) -> Loaded {
+    load_opts(entry, true, 0, 0, 0)
+}
+
+/// [`load`], with the interpreter's units split into chunks of `chunk_units` and run on
+/// `threads`, and entries that still change given up after `saturate_after` rounds (0: the
+/// defaults), so even small fixtures go through merging and giving up.
+pub fn load_with(
+    entry: &Path,
+    chunk_units: usize,
+    threads: usize,
+    saturate_after: usize,
+) -> Loaded {
+    load_opts(entry, false, chunk_units, threads, saturate_after)
+}
+
+fn load_opts(
+    entry: &Path,
+    trust_types: bool,
+    chunk_units: usize,
+    threads: usize,
+    saturate_after: usize,
+) -> Loaded {
     let dir = entry.parent().unwrap();
     let source = std::fs::read_to_string(entry).unwrap();
     let closed_world = !source.starts_with("// world: library");
@@ -139,6 +161,9 @@ pub fn load_with(entry: &Path, trust_types: bool) -> Loaded {
             jsx_factory,
             jsx_fragment_factory,
             entries: graph.entries().to_vec(),
+            chunk_units,
+            threads,
+            saturate_after,
         },
     );
     let sources = graph

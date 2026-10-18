@@ -1,0 +1,25 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/instance-escape-init
+input_file: tests/fixtures/analysis/instance-escape-init/input.ts
+---
+//- input.ts
+// A class without a constructor, escaped to unknown code, whose field initialiser hands `this`
+// to unknown code: the instance escapes, so unknown code may add properties to it and to
+// what it holds.
+globalThis.sink = (target) => {
+	globalThis.held = target;
+	return 1;
+};
+class Holder {
+	n = globalThis.sink([this]);
+	data = { x: 0 };
+}
+globalThis.escaped = Holder;
+const holder = new Holder();
+holder.data = { x: 1 };
+export function main() {
+	globalThis.held[0].extra = "added";
+	globalThis.held[0].data.y = "added by unknown code";
+	console.log(holder.n, "extra" in holder);
+}

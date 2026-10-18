@@ -21,7 +21,10 @@ mod ty;
 #[cfg(feature = "tsrs")]
 pub use tsrs_adapter::{ProgramStats, RebuildPolicy, SpanStats, TsrsOracle};
 
-pub use oracle::{NoopTypeOracle, OracleInput, SourceText, TsTypeFlags, TypeOracle};
+pub use oracle::{
+    CheckerQueries, NoopTypeOracle, OracleInput, SharedTypeQueries, SourceText, TsTypeFlags,
+    TypeOracle,
+};
 pub use ty::{ClassId, FunctionId, Interval, NumberType, Shape, Signature, Type, TypedArrayKind};
 
 /// Whether this build embeds the tsrs checker (the `tsrs` Cargo feature).

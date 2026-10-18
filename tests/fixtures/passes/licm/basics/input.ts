@@ -70,6 +70,14 @@ class Grid {
   }
 }
 
+function grid(): number {
+  const grid = new Grid();
+  // Leaves the height's range open: with a precise bound, the analysis's loop warm start
+  // makes `fill`'s facts depend on how units are chunked (an S2 issue).
+  grid.height += grid.cells.length;
+  return grid.fill();
+}
+
 export function main(): void {
-  console.log(scale(4), countdown(), atLeastOnce(2), nested(), new Grid().fill());
+  console.log(scale(4), countdown(), atLeastOnce(2), nested(), grid());
 }

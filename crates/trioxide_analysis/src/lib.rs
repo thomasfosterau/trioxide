@@ -20,6 +20,7 @@ mod observe;
 mod render;
 mod shapes;
 mod summary;
+mod threads;
 mod value;
 mod world;
 
@@ -70,6 +71,15 @@ pub struct AnalysisOptions {
     /// The entry modules. Their exports (and what they re-export) are open even in a closed
     /// world: the host calls them. Empty: every module no other module imports.
     pub entries: Vec<ModuleId>,
+    /// Units per chunk of the parallel interpreter (0: the default). Facts depend on this,
+    /// never on `threads`; tests lower it to exercise merging.
+    pub chunk_units: usize,
+    /// Threads to interpret on (0: one per core). Only speed depends on this.
+    pub threads: usize,
+    /// Rounds after which entries that still change are given up (0: the default). Tests
+    /// lower it to exercise giving up.
+    #[doc(hidden)]
+    pub saturate_after: usize,
 }
 
 /// The result of analysing a project.
@@ -114,11 +124,26 @@ pub fn analyze(
     oracle: &mut dyn TypeOracle,
     options: AnalysisOptions,
 ) -> Analysis {
-    let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
-    let world = World::build(&allocators, modules);
+    let started = std::time::Instant::now();
+    let threads = threads::count(&options);
+    let mut allocators: Vec<Allocator> = (0..world::allocators_for(modules.len(), threads))
+        .map(|_| Allocator::default())
+        .collect();
+    let world = {
+        let allocators = &mut allocators;
+        // The oracle's workers are set up on first use: get that done while parsing.
+        let warm_up = if threads > 1 { oracle.shared() } else { None };
+        std::thread::scope(|scope| {
+            if let Some(shared) = warm_up {
+                scope.spawn(move || shared.run_workers(&|_, _| {}));
+            }
+            World::build(allocators, modules)
+        })
+    };
     register_declarations(&world, oracle);
     let links = Links::build(&world);
-    let results = interp::run(&world, &links, oracle, options.clone());
+    let build_time = started.elapsed();
+    let results = interp::run(&world, &links, oracle, &options);
     let mut diagnostics = Vec::new();
     if !results.converged {
         diagnostics.push(
@@ -141,32 +166,26 @@ pub fn analyze(
             .with_code("trioxide(analysis)"),
         );
     }
+    let summarising = std::time::Instant::now();
     let mut facts = summary::facts(&world, &links, &results, &options);
     constants::record(&world, &links, &options, &mut facts);
+    let mut stats = results.stats;
+    stats.build_time = build_time;
+    stats.summary_time = summarising.elapsed();
+    // The tables are large and owe nothing to the caller: free them off its thread.
+    threads::drop_later(results);
+    world.drop_in_parallel(threads);
     Analysis {
         facts,
         diagnostics,
-        stats: results.stats,
+        stats,
     }
 }
 
 /// Tells the oracle which oxc nodes declare classes and functions, keyed by name span (or
 /// node span when anonymous), so its `Instance` and `Function` answers can name them.
 fn register_declarations(world: &World<'_>, oracle: &mut dyn TypeOracle) {
-    use oxc_ast::AstKind;
-    for module in &world.modules {
-        let mut declarations = Vec::new();
-        for node in module.semantic.nodes().iter() {
-            let span = match node.kind() {
-                AstKind::Function(function) => {
-                    function.id.as_ref().map_or(function.span, |id| id.span)
-                }
-                AstKind::ArrowFunctionExpression(arrow) => arrow.span,
-                AstKind::Class(class) => class.id.as_ref().map_or(class.span, |id| id.span),
-                _ => continue,
-            };
-            declarations.push((span, node.id()));
-        }
-        oracle.register_declarations(module.id, &declarations);
+    for (module, declarations) in world.modules.iter().zip(&world.declarations) {
+        oracle.register_declarations(module.id, declarations);
     }
 }

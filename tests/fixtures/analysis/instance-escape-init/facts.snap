@@ -1,0 +1,66 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/instance-escape-init
+input_file: tests/fixtures/analysis/instance-escape-init/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): reads writes allocates throws calls-unknown
+    calls 13:16 -> Holder.<fields>
+  <anonymous> (4:28) open: reads writes throws calls-unknown
+  Holder.<fields> (8:14) open: reads writes allocates throws calls-unknown
+  main (15:8) open: reads writes allocates throws calls-unknown
+classes:
+  Holder (8:1): fields [] shape unknown
+nodes:
+  4:1 assign `(globalThis as any).sink = (target: a...`: function@proven
+  4:1 member `(globalThis as any).sink`: unknown
+  4:2 cast `globalThis as any`: unknown
+  4:2 ref `globalThis`: unknown
+  4:29 bind `target`: unknown
+  5:3 assign `(globalThis as any).held = target`: unknown
+  5:3 member `(globalThis as any).held`: unknown
+  5:4 cast `globalThis as any`: unknown
+  5:4 ref `globalThis`: unknown
+  5:30 ref `target`: unknown
+  8:7 bind `Holder`: function@proven
+  9:7 call `(globalThis as any).sink([this])`: unknown
+  9:7 member `(globalThis as any).sink`: unknown
+  9:8 cast `globalThis as any`: unknown
+  9:8 ref `globalThis`: unknown
+  9:32 array `[this]`: unknown[]@proven escape=unknown
+  9:33 this `this`: Holder@declared
+  10:25 object `{ x: 0 }`: object@proven escape=unknown
+  12:1 assign `(globalThis as any).escaped = Holder`: function@proven
+  12:1 member `(globalThis as any).escaped`: unknown
+  12:2 cast `globalThis as any`: unknown
+  12:2 ref `globalThis`: unknown
+  12:31 ref `Holder`: function@proven
+  13:7 bind `holder`: Holder@proven
+  13:16 new `new Holder()`: Holder@proven escape=unknown
+  13:20 ref `Holder`: function@proven
+  14:1 assign `holder.data = { x: 1 }`: object@proven
+  14:1 member `holder.data`: unknown
+  14:1 ref `holder`: Holder@proven
+  14:15 object `{ x: 1 }`: object@proven escape=unknown
+  15:17 bind `main`: function@proven
+  16:3 assign `(globalThis as any).held[0].extra = "...`: string@proven
+  16:3 member `(globalThis as any).held[0].extra`: unknown
+  16:3 member `(globalThis as any).held[0]`: unknown
+  16:3 member `(globalThis as any).held`: unknown
+  16:4 cast `globalThis as any`: unknown
+  16:4 ref `globalThis`: unknown
+  17:3 assign `(globalThis as any).held[0].data.y = ...`: string@proven
+  17:3 member `(globalThis as any).held[0].data.y`: unknown
+  17:3 member `(globalThis as any).held[0].data`: unknown
+  17:3 member `(globalThis as any).held[0]`: unknown
+  17:3 member `(globalThis as any).held`: unknown
+  17:4 cast `globalThis as any`: unknown
+  17:4 ref `globalThis`: unknown
+  18:3 call `console.log(holder.n, "extra" in holder)`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 member `holder.n`: unknown
+  18:15 ref `holder`: Holder@proven
+  18:25 binary `"extra" in holder`: boolean@proven
+  18:36 ref `holder`: Holder@proven

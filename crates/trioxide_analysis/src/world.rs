@@ -205,7 +205,8 @@ pub struct Module<'a> {
     pub symbols: Vec<SymbolInfo>,
     /// Whether the module had syntax errors (it is then not analysed).
     pub broken: bool,
-    unit_cache: std::cell::RefCell<FxHashMap<NodeId, NodeRef>>,
+    /// `unit_of` answers (filled while the world is built).
+    unit_cache: std::sync::Mutex<FxHashMap<NodeId, NodeRef>>,
 }
 
 impl<'a> Module<'a> {
@@ -270,12 +271,7 @@ impl<'a> Module<'a> {
 
     /// The unit whose code contains `node` (`node` itself if it is a unit and `include_self`).
     pub fn unit_of(&self, node: NodeId, include_self: bool) -> NodeRef {
-        if let Some(&unit) = self
-            .unit_cache
-            .borrow()
-            .get(&node)
-            .filter(|_| !include_self)
-        {
+        if !include_self && let Some(&unit) = self.cache().get(&node) {
             return unit;
         }
         let nodes = self.semantic.nodes();
@@ -324,9 +320,15 @@ impl<'a> Module<'a> {
         let _ = previous;
         let unit = self.node(found.unwrap_or_else(|| self.program.node_id.get()));
         if !include_self {
-            self.unit_cache.borrow_mut().insert(node, unit);
+            self.cache().insert(node, unit);
         }
         unit
+    }
+
+    fn cache(&self) -> std::sync::MutexGuard<'_, FxHashMap<NodeId, NodeRef>> {
+        self.unit_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The unit whose scope is `scope` (or contains it).
@@ -334,6 +336,132 @@ impl<'a> Module<'a> {
         let node = self.semantic.scoping().get_node_id(scope);
         self.unit_of(node, true)
     }
+}
+
+/// Parses and builds semantic data for one module.
+fn parse<'a>(allocator: &'a Allocator, input: &'a ModuleInput<'a>) -> Module<'a> {
+    let parsed = Parser::new(allocator, input.source, input.source_type).parse();
+    let broken = parsed.fatal_error || !parsed.diagnostics.is_empty();
+    let program: &'a Program<'a> = allocator.alloc(parsed.program);
+    let semantic = SemanticBuilder::new()
+        .with_enum_eval(true)
+        .with_build_nodes(true)
+        .build(program)
+        .semantic;
+    let symbols = vec![SymbolInfo::default(); semantic.scoping().symbols_len()];
+    Module {
+        id: input.id,
+        path: input.path,
+        source: input.source,
+        program,
+        semantic,
+        record: parsed.module_record,
+        imports: input
+            .imports
+            .iter()
+            .map(|(specifier, target)| (specifier.clone(), *target))
+            .collect(),
+        symbols,
+        broken,
+        unit_cache: std::sync::Mutex::default(),
+    }
+}
+
+/// The class and function declarations of `module`, keyed by name span (or node span when
+/// anonymous).
+fn declarations(module: &Module<'_>) -> Vec<(Span, NodeId)> {
+    let mut declarations = Vec::new();
+    for node in module.semantic.nodes().iter() {
+        let span = match node.kind() {
+            AstKind::Function(function) => function.id.as_ref().map_or(function.span, |id| id.span),
+            AstKind::ArrowFunctionExpression(arrow) => arrow.span,
+            AstKind::Class(class) => class.id.as_ref().map_or(class.span, |id| id.span),
+            _ => continue,
+        };
+        declarations.push((span, node.id()));
+    }
+    declarations
+}
+
+/// What indexing one module found.
+struct Indexed<'a> {
+    units: Vec<Unit<'a>>,
+    classes: Vec<ClassInfo<'a>>,
+    symbols: Vec<SymbolInfo>,
+    declarations: Vec<(Span, NodeId)>,
+    unit_symbols: FxHashMap<NodeRef, Vec<SymbolId>>,
+}
+
+/// Modules sent to another thread to be freed.
+struct Parsed<'a>(#[expect(dead_code, reason = "held only to be dropped")] Vec<Module<'a>>);
+
+// SAFETY: freeing a module frees only its own heap data (its AST stays in its allocator, which
+// outlives it); oxc's semantic data keeps nothing thread-local.
+unsafe impl Send for Parsed<'_> {}
+
+/// Modules parsed and indexed on another thread.
+struct Built<'a>(Vec<(Module<'a>, Indexed<'a>)>);
+
+// SAFETY: a module's AST lives in an allocator the building thread borrowed exclusively and
+// gives up when it returns the module; oxc's semantic data refers only to that AST and its own
+// arena, and keeps nothing thread-local; an index refers only to its module's AST.
+unsafe impl Send for Built<'_> {}
+
+/// Parses and indexes one module.
+fn build_module<'a>(
+    allocator: &'a Allocator,
+    input: &'a ModuleInput<'a>,
+) -> (Module<'a>, Indexed<'a>) {
+    let module = parse(allocator, input);
+    let indexed = World::index_module(&module);
+    (module, indexed)
+}
+
+/// Parses and indexes every module, in order: the modules split into as many runs as there
+/// are allocators, each run into its allocator, on a thread of its own.
+fn build_all<'a>(
+    allocators: &'a mut [Allocator],
+    inputs: &'a [ModuleInput<'a>],
+) -> Vec<(Module<'a>, Indexed<'a>)> {
+    if allocators.len() <= 1 {
+        let Some(allocator) = allocators.first() else {
+            return Vec::new();
+        };
+        return inputs
+            .iter()
+            .map(|input| build_module(allocator, input))
+            .collect();
+    }
+    let per_thread = inputs.len().div_ceil(allocators.len());
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = allocators
+            .iter_mut()
+            .zip(inputs.chunks(per_thread))
+            .map(|(allocator, inputs)| {
+                scope.spawn(move || {
+                    let allocator: &'a Allocator = allocator;
+                    Built(
+                        inputs
+                            .iter()
+                            .map(|input| build_module(allocator, input))
+                            .collect(),
+                    )
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("parsing panicked").0)
+            .collect()
+    })
+}
+
+/// How many allocators [`World::build`] wants for `modules` modules on `threads` threads: one
+/// per thread it parses on.
+pub fn allocators_for(modules: usize, threads: usize) -> usize {
+    /// Below this many modules a thread costs more than it saves.
+    const MIN_PER_THREAD: usize = 16;
+    threads.min(modules / MIN_PER_THREAD).max(1)
 }
 
 /// Every module, unit and class of the program.
@@ -350,50 +478,54 @@ pub struct World<'a> {
     pub member_of: FxHashMap<NodeRef, NodeRef>,
     /// The symbols each unit's scopes declare.
     pub unit_symbols: FxHashMap<NodeRef, Vec<SymbolId>>,
+    /// Each module's range of `unit_order`, by module index.
+    module_units: Vec<std::ops::Range<usize>>,
+    /// Each module's class and function declarations, by module index: the name span (or
+    /// node span when anonymous) and node, as the type oracle wants them.
+    pub declarations: Vec<Vec<(Span, NodeId)>>,
 }
 
 impl<'a> World<'a> {
-    /// Parses and indexes every module. `allocators[i]` holds module `inputs[i]`.
-    pub fn build(allocators: &'a [Allocator], inputs: &'a [ModuleInput<'a>]) -> Self {
+    /// Parses and indexes every module, a thread per allocator. The modules' ASTs go in
+    /// `allocators`, a run of modules in each (see [`allocators_for`]).
+    pub fn build(allocators: &'a mut [Allocator], inputs: &'a [ModuleInput<'a>]) -> Self {
+        let (modules, indexed): (Vec<_>, Vec<_>) =
+            build_all(allocators, inputs).into_iter().unzip();
         let mut world = Self {
-            modules: Vec::with_capacity(inputs.len()),
+            modules,
             units: FxHashMap::default(),
             unit_order: Vec::new(),
             classes: FxHashMap::default(),
             member_of: FxHashMap::default(),
             unit_symbols: FxHashMap::default(),
+            module_units: Vec::new(),
+            declarations: Vec::new(),
         };
-        for (allocator, input) in allocators.iter().zip(inputs) {
-            let parsed = Parser::new(allocator, input.source, input.source_type).parse();
-            let broken = parsed.fatal_error || !parsed.diagnostics.is_empty();
-            let program: &'a Program<'a> = allocator.alloc(parsed.program);
-            let semantic = SemanticBuilder::new()
-                .with_enum_eval(true)
-                .with_build_nodes(true)
-                .build(program)
-                .semantic;
-            let symbols = vec![SymbolInfo::default(); semantic.scoping().symbols_len()];
-            world.modules.push(Module {
-                id: input.id,
-                path: input.path,
-                source: input.source,
-                program,
-                semantic,
-                record: parsed.module_record,
-                imports: input
-                    .imports
-                    .iter()
-                    .map(|(specifier, target)| (specifier.clone(), *target))
-                    .collect(),
-                symbols,
-                broken,
-                unit_cache: std::cell::RefCell::default(),
-            });
-        }
-        for index in 0..world.modules.len() {
-            world.index_module(index);
+        for (index, indexed) in indexed.into_iter().enumerate() {
+            let start = world.unit_order.len();
+            world.add_index(index, indexed);
+            world.module_units.push(start..world.unit_order.len());
         }
         world
+    }
+
+    /// Frees the world on up to `threads` threads.
+    pub fn drop_in_parallel(self, threads: usize) {
+        let Self {
+            mut modules, units, ..
+        } = self;
+        drop(units);
+        let per_thread = modules.len().div_ceil(threads.max(1)).max(16);
+        let mut parts = Vec::new();
+        while modules.len() > per_thread {
+            parts.push(Parsed(modules.split_off(modules.len() - per_thread)));
+        }
+        std::thread::scope(|scope| {
+            for part in parts {
+                scope.spawn(move || drop(part));
+            }
+            drop(modules);
+        });
     }
 
     /// The module with `id`.
@@ -401,13 +533,20 @@ impl<'a> World<'a> {
         &self.modules[id.index()]
     }
 
+    /// The units of module `id`, in order.
+    pub fn module_units(&self, id: ModuleId) -> &[NodeRef] {
+        self.module_units
+            .get(id.index())
+            .map_or(&[], |range| &self.unit_order[range.clone()])
+    }
+
     /// The unit with `id`.
     pub fn unit(&self, id: NodeRef) -> &Unit<'a> {
         &self.units[&id]
     }
 
-    fn index_module(&mut self, index: usize) {
-        let module = &self.modules[index];
+    /// Finds a module's units, classes and symbol facts.
+    fn index_module(module: &Module<'a>) -> Indexed<'a> {
         let module_id = module.id;
         let nodes = module.semantic.nodes();
         let scoping = module.semantic.scoping();
@@ -611,18 +750,38 @@ impl<'a> World<'a> {
             unit.uses_arguments = uses_arguments.contains(&unit.id);
         }
 
-        let symbols = self.symbol_infos(index, &units);
+        let symbols = Self::symbol_infos(module, &units);
+        let _ = module_id;
+        let mut unit_symbols: FxHashMap<NodeRef, Vec<SymbolId>> = FxHashMap::default();
         for (symbol, info) in symbols.iter().enumerate() {
             if let Some(unit) = info.unit {
-                self.unit_symbols
+                unit_symbols
                     .entry(unit)
                     .or_default()
                     .push(SymbolId::from_usize(symbol));
             }
         }
-        let module = &mut self.modules[index];
-        module.symbols = symbols;
-        let _ = module_id;
+        Indexed {
+            units,
+            classes: class_infos,
+            symbols,
+            declarations: declarations(module),
+            unit_symbols,
+        }
+    }
+
+    /// Adds a module's index to the world's tables.
+    fn add_index(&mut self, index: usize, indexed: Indexed<'a>) {
+        let Indexed {
+            units,
+            classes: class_infos,
+            symbols,
+            declarations,
+            unit_symbols,
+        } = indexed;
+        self.declarations.push(declarations);
+        self.unit_symbols.extend(unit_symbols);
+        self.modules[index].symbols = symbols;
         for info in class_infos {
             for member in &info.members {
                 if let Some(unit) = member.unit {
@@ -640,8 +799,7 @@ impl<'a> World<'a> {
         }
     }
 
-    fn symbol_infos(&self, index: usize, units: &[Unit<'a>]) -> Vec<SymbolInfo> {
-        let module = &self.modules[index];
+    fn symbol_infos(module: &Module<'a>, units: &[Unit<'a>]) -> Vec<SymbolInfo> {
         let scoping = module.semantic.scoping();
         let nodes = module.semantic.nodes();
 

@@ -1,0 +1,52 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/namespace-late-export
+input_file: tests/fixtures/analysis/namespace-late-export/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): reads writes allocates throws calls-unknown
+  <anonymous> (4:35) open: reads writes allocates throws calls-unknown
+  main (6:8) open: reads writes allocates throws calls-unknown
+nodes:
+  4:1 assign `(globalThis as any)["r" + "un"] = (li...`: function@proven
+  4:1 member `(globalThis as any)["r" + "un"]`: unknown
+  4:2 cast `globalThis as any`: unknown
+  4:2 ref `globalThis`: unknown
+  4:21 binary `"r" + "un"`: string@proven
+  4:36 bind `lib`: unknown
+  4:58 call `lib.twice("from unknown code")`: unknown
+  4:58 member `lib.twice`: unknown
+  4:58 ref `lib`: unknown
+  6:23 bind `main`: function@proven
+  6:31 ref `Promise`: unknown
+  7:9 bind `lib`: unknown
+  7:15 await `await import("./lib.js")`: unknown
+  8:9 bind `run`: unknown
+  8:15 member `(globalThis as any)["r" + "un"]`: unknown
+  8:16 cast `globalThis as any`: unknown
+  8:16 ref `globalThis`: unknown
+  8:35 binary `"r" + "un"`: string@proven
+  9:3 call `console.log(run(lib), lib.two)`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 call `run(lib)`: unknown
+  9:15 ref `run`: unknown
+  9:19 ref `lib`: unknown
+  9:25 member `lib.two`: number@declared
+  9:25 ref `lib`: unknown
+
+//- lib.ts
+functions:
+  <module> (1:1): reads writes allocates throws calls-unknown (declared: allocates)
+    calls 5:20 -> twice
+  twice (1:8) open: reads writes throws calls-unknown (declared: pure)
+nodes:
+  1:17 bind `twice`: function@proven
+  1:23 bind `x`: number@declared
+  2:10 binary `x + x`: number@declared
+  2:10 ref `x`: number@declared
+  2:14 ref `x`: number@declared
+  5:14 bind `two`: number@declared
+  5:20 call `twice(1)`: number@declared
+  5:20 ref `twice`: function@proven

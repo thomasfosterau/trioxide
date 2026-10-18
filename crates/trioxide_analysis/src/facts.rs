@@ -208,28 +208,54 @@ pub struct CallGraph {
     units: Vec<FunctionId>,
     edges: Vec<CallEdge>,
     sccs: Vec<Vec<FunctionId>>,
-    by_caller: FxHashMap<FunctionId, Vec<usize>>,
-    by_site: FxHashMap<NodeRef, Vec<usize>>,
-    by_callee: FxHashMap<FunctionId, Vec<usize>>,
+    /// Each caller's run of `edges`.
+    by_caller: FxHashMap<FunctionId, std::ops::Range<usize>>,
+    /// Edge indices sorted by site, and each site's run of them.
+    site_order: Vec<usize>,
+    by_site: FxHashMap<NodeRef, std::ops::Range<usize>>,
+    /// Edge indices sorted by callee, and each callee's run of them.
+    callee_order: Vec<usize>,
+    by_callee: FxHashMap<FunctionId, std::ops::Range<usize>>,
 }
 
 impl CallGraph {
     /// A call graph over `units` with `edges` and their strongly connected components.
-    pub fn new(units: Vec<FunctionId>, edges: Vec<CallEdge>, sccs: Vec<Vec<FunctionId>>) -> Self {
-        let mut by_caller: FxHashMap<FunctionId, Vec<usize>> = FxHashMap::default();
-        let mut by_site: FxHashMap<NodeRef, Vec<usize>> = FxHashMap::default();
-        let mut by_callee: FxHashMap<FunctionId, Vec<usize>> = FxHashMap::default();
+    pub fn new(
+        units: Vec<FunctionId>,
+        mut edges: Vec<CallEdge>,
+        sccs: Vec<Vec<FunctionId>>,
+    ) -> Self {
+        edges.sort_by_key(|edge| (edge.caller, edge.site));
+        let mut by_caller: FxHashMap<FunctionId, std::ops::Range<usize>> = FxHashMap::default();
         for (index, edge) in edges.iter().enumerate() {
-            by_caller.entry(edge.caller).or_default().push(index);
-            by_site.entry(edge.site).or_default().push(index);
-            by_callee.entry(edge.callee).or_default().push(index);
+            by_caller
+                .entry(edge.caller)
+                .and_modify(|run| run.end = index + 1)
+                .or_insert(index..index + 1);
         }
+        let runs = |order: &[usize], key: &dyn Fn(&CallEdge) -> NodeRef| {
+            let mut runs: FxHashMap<NodeRef, std::ops::Range<usize>> = FxHashMap::default();
+            for (at, &index) in order.iter().enumerate() {
+                runs.entry(key(&edges[index]))
+                    .and_modify(|run| run.end = at + 1)
+                    .or_insert(at..at + 1);
+            }
+            runs
+        };
+        let mut site_order: Vec<usize> = (0..edges.len()).collect();
+        site_order.sort_by_key(|&index| edges[index].site);
+        let by_site = runs(&site_order, &|edge| edge.site);
+        let mut callee_order: Vec<usize> = (0..edges.len()).collect();
+        callee_order.sort_by_key(|&index| edges[index].callee);
+        let by_callee = runs(&callee_order, &|edge| edge.callee);
         Self {
             units,
             edges,
             sccs,
             by_caller,
+            site_order,
             by_site,
+            callee_order,
             by_callee,
         }
     }
@@ -248,17 +274,16 @@ impl CallGraph {
     pub fn edges_from(&self, caller: FunctionId) -> impl Iterator<Item = &CallEdge> {
         self.by_caller
             .get(&caller)
-            .into_iter()
-            .flatten()
-            .map(|&index| &self.edges[index])
+            .map_or(&[][..], |run| &self.edges[run.clone()])
+            .iter()
     }
 
     /// The edges into `callee`: every site known to call it.
     pub fn callers(&self, callee: FunctionId) -> impl Iterator<Item = &CallEdge> {
         self.by_callee
             .get(&callee)
-            .into_iter()
-            .flatten()
+            .map_or(&[][..], |run| &self.callee_order[run.clone()])
+            .iter()
             .map(|&index| &self.edges[index])
     }
 
@@ -266,8 +291,8 @@ impl CallGraph {
     pub fn callees(&self, site: NodeRef) -> impl Iterator<Item = &CallEdge> {
         self.by_site
             .get(&site)
-            .into_iter()
-            .flatten()
+            .map_or(&[][..], |run| &self.site_order[run.clone()])
+            .iter()
             .map(|&index| &self.edges[index])
     }
 
@@ -315,12 +340,69 @@ pub struct FunctionInfo {
 /// | [`export_used`](Self::export_used) | whether any module can use an export |
 /// | [`builtin_intact`](Self::builtin_intact), [`may_have_holes`](Self::may_have_holes), [`instance_keys_observed`](Self::instance_keys_observed) | unpatched builtins, packed arrays, classes whose instances' keys nothing observes |
 ///
+/// A node-keyed table kept per module, so a module's entries are built (and replaced) whole.
+#[derive(Debug, Clone)]
+struct PerModule<V>(FxHashMap<ModuleId, FxHashMap<NodeId, V>>);
+
+impl<V> Default for PerModule<V> {
+    fn default() -> Self {
+        Self(FxHashMap::default())
+    }
+}
+
+impl<V> PerModule<V> {
+    fn get(&self, node: NodeRef) -> Option<&V> {
+        self.0.get(&node.module)?.get(&node.node)
+    }
+
+    fn insert(&mut self, node: NodeRef, value: V) {
+        self.0
+            .entry(node.module)
+            .or_default()
+            .insert(node.node, value);
+    }
+
+    fn set_module(&mut self, module: ModuleId, table: FxHashMap<NodeId, V>) {
+        self.0.insert(module, table);
+    }
+
+    fn remove_module(&mut self, module: ModuleId) {
+        self.0.remove(&module);
+    }
+
+    fn retain(&mut self, keep: impl Fn(NodeRef, &V) -> bool) {
+        for (&module, table) in &mut self.0 {
+            table.retain(|&node, value| keep(NodeRef { module, node }, value));
+        }
+    }
+
+    /// Every entry's node through `node`, and its value through `value`; entries either drops
+    /// go.
+    fn remap(
+        &mut self,
+        node: &impl Fn(NodeRef) -> Option<NodeRef>,
+        value: impl Fn(V) -> Option<V>,
+    ) {
+        let mut out = Self::default();
+        for (module, table) in std::mem::take(&mut self.0) {
+            for (id, entry) in table {
+                if let (Some(key), Some(entry)) = (node(NodeRef { module, node: id }), value(entry))
+                {
+                    out.insert(key, entry);
+                }
+            }
+        }
+        *self = out;
+    }
+}
+
 /// Every answer carries a [`Trust`]; escape and shape facts are always `Proven` (see
 /// [`Allocation::escape`]).
 #[derive(Debug, Clone, Default)]
 pub struct Facts {
     trust_types: bool,
-    node_types: FxHashMap<NodeRef, Fact<Type>>,
+    /// By module, then node.
+    node_types: FxHashMap<ModuleId, FxHashMap<NodeId, Fact<Type>>>,
     symbol_types: FxHashMap<SymbolRef, Fact<Type>>,
     effects: FxHashMap<FunctionId, (Effects, Effects)>,
     in_bounds: FxHashMap<NodeRef, Trust>,
@@ -332,9 +414,9 @@ pub struct Facts {
     /// Call sites where unknown code may run as well.
     open_sites: FxHashSet<NodeRef>,
     /// Effects of evaluated expressions that have any (with their callees'): `(proven, declared)`.
-    expr_effects: FxHashMap<NodeRef, (Effects, Effects)>,
+    expr_effects: PerModule<(Effects, Effects)>,
     loops: FxHashMap<NodeRef, LoopFacts>,
-    points_to: FxHashMap<NodeRef, Vec<NodeRef>>,
+    points_to: PerModule<Vec<NodeRef>>,
     /// Nodes no execution reaches.
     unreachable: FxHashSet<NodeRef>,
     /// `const` bindings with literal values.
@@ -442,7 +524,8 @@ impl Facts {
     /// The type of the value an expression or binding node evaluates to.
     pub fn ty(&self, node: NodeRef) -> Fact<&Type> {
         self.node_types
-            .get(&node)
+            .get(&node.module)
+            .and_then(|types| types.get(&node.node))
             .map_or(UNKNOWN_TYPE.as_ref(), Fact::as_ref)
     }
 
@@ -575,7 +658,11 @@ impl Facts {
         let mut callees: Vec<FunctionId> = edges.iter().map(|edge| edge.callee).collect();
         callees.sort_unstable();
         callees.dedup();
-        let complete = if !self.node_types.contains_key(&site) {
+        let evaluated = self
+            .node_types
+            .get(&site.module)
+            .is_some_and(|types| types.contains_key(&site.node));
+        let complete = if !evaluated {
             Fact::unknown()
         } else if self.open_sites.contains(&site) {
             Fact::proven(false)
@@ -597,7 +684,7 @@ impl Facts {
     /// objects too (`i++` writes), and `allocates` every object it makes (`[]` allocates). A node with no recorded evaluation (never evaluated, or a
     /// callee or optional-chain part evaluated as part of its call) is `Unknown`.
     pub fn expr_effects(&self, node: NodeRef) -> Fact<Effects> {
-        let Some(&(proven, declared)) = self.expr_effects.get(&node) else {
+        let Some(&(proven, declared)) = self.expr_effects.get(node) else {
             return Fact::unknown();
         };
         if self.trust_types && declared != proven {
@@ -625,7 +712,7 @@ impl Facts {
     /// The allocation sites the value of `node` may be (`Proven`: if it is an object, it was
     /// made at one of them), or `Unknown` when it may be an object trioxide doesn't track.
     pub fn points_to(&self, node: NodeRef) -> Fact<Option<&[NodeRef]>> {
-        match self.points_to.get(&node) {
+        match self.points_to.get(node) {
             Some(sites) => Fact::proven(Some(sites.as_slice())),
             None => Fact::unknown(),
         }
@@ -756,12 +843,12 @@ impl Facts {
                 self.open_sites.insert(edge.site);
             }
         }
-        self.points_to
-            .retain(|node, sites| other(node) && sites.iter().all(other));
-        self.node_types.retain(|node, _| other(node));
+        self.points_to.remove_module(module);
+        self.points_to.retain(|_, sites| sites.iter().all(other));
+        self.node_types.remove(&module);
         self.in_bounds.retain(|node, _| other(node));
         self.allocations.retain(|node, _| other(node));
-        self.expr_effects.retain(|node, _| other(node));
+        self.expr_effects.remove_module(module);
         self.loops.retain(|node, _| other(node));
         for facts in self.loops.values_mut() {
             let count = facts.resized.len();
@@ -829,7 +916,22 @@ impl Facts {
                 trust: fact.trust,
             })
         };
-        table(&mut self.node_types, &node, ty);
+        self.node_types = std::mem::take(&mut self.node_types)
+            .into_iter()
+            .map(|(types_module, types)| {
+                let types = types
+                    .into_iter()
+                    .filter_map(|(id, fact)| {
+                        let key = node(NodeRef {
+                            module: types_module,
+                            node: id,
+                        })?;
+                        Some((key.node, ty(fact)?))
+                    })
+                    .collect();
+                (types_module, types)
+            })
+            .collect();
         self.symbol_types = std::mem::take(&mut self.symbol_types)
             .into_iter()
             .filter_map(|(symbol, fact)| Some((symbol, ty(fact)?)))
@@ -847,7 +949,7 @@ impl Facts {
         });
         table(&mut self.class_shapes, &node, Some);
         table(&mut self.functions, &node, Some);
-        table(&mut self.expr_effects, &node, Some);
+        self.expr_effects.remap(&node, Some);
         table(&mut self.loops, &node, |mut facts| {
             facts.invariant = facts.invariant.into_iter().filter_map(node).collect();
             // A resized array whose site is gone is one trioxide no longer tracks.
@@ -857,9 +959,8 @@ impl Facts {
             facts.resizes_untracked |= facts.resized.len() != count;
             Some(facts)
         });
-        table(&mut self.points_to, &node, |sites| {
-            sites.into_iter().map(node).collect()
-        });
+        self.points_to
+            .remap(&node, |sites| sites.into_iter().map(node).collect());
         let nodes = |set: FxHashSet<NodeRef>| set.into_iter().filter_map(node).collect();
         self.unreachable = nodes(std::mem::take(&mut self.unreachable));
         self.packed = nodes(std::mem::take(&mut self.packed));
@@ -895,13 +996,18 @@ impl Facts {
     /// Gives `alias` the facts about the value of `node` (a parenthesized expression and its
     /// contents, for example).
     pub fn alias(&mut self, alias: NodeRef, node: NodeRef) {
-        if let Some(fact) = self.node_types.get(&node).cloned() {
-            self.node_types.insert(alias, fact);
+        if let Some(fact) = self
+            .node_types
+            .get(&node.module)
+            .and_then(|types| types.get(&node.node))
+            .cloned()
+        {
+            self.set_ty(alias, fact);
         }
-        if let Some(&effects) = self.expr_effects.get(&node) {
+        if let Some(&effects) = self.expr_effects.get(node) {
             self.expr_effects.insert(alias, effects);
         }
-        if let Some(sites) = self.points_to.get(&node).cloned() {
+        if let Some(sites) = self.points_to.get(node).cloned() {
             self.points_to.insert(alias, sites);
         }
         if self.unreachable.contains(&node) {
@@ -921,16 +1027,24 @@ impl Facts {
         self.open_sites = sites;
     }
 
-    pub(crate) fn set_expr_effects(&mut self, node: NodeRef, proven: Effects, declared: Effects) {
-        self.expr_effects.insert(node, (proven, declared));
+    pub(crate) fn set_module_expr_effects(
+        &mut self,
+        module: ModuleId,
+        effects: FxHashMap<NodeId, (Effects, Effects)>,
+    ) {
+        self.expr_effects.set_module(module, effects);
     }
 
     pub(crate) fn set_loop_facts(&mut self, node: NodeRef, facts: LoopFacts) {
         self.loops.insert(node, facts);
     }
 
-    pub(crate) fn set_points_to(&mut self, node: NodeRef, sites: Vec<NodeRef>) {
-        self.points_to.insert(node, sites);
+    pub(crate) fn set_module_points_to(
+        &mut self,
+        module: ModuleId,
+        points_to: FxHashMap<NodeId, Vec<NodeRef>>,
+    ) {
+        self.points_to.set_module(module, points_to);
     }
 
     pub(crate) fn set_unreachable(&mut self, nodes: FxHashSet<NodeRef>) {
@@ -939,14 +1053,30 @@ impl Facts {
 
     /// Every node with a type fact, sorted.
     pub fn node_types(&self) -> Vec<(NodeRef, &Fact<Type>)> {
-        let mut all: Vec<_> = self.node_types.iter().map(|(k, v)| (*k, v)).collect();
+        let mut all: Vec<_> = self
+            .node_types
+            .iter()
+            .flat_map(|(&module, types)| {
+                types
+                    .iter()
+                    .map(move |(&node, fact)| (NodeRef { module, node }, fact))
+            })
+            .collect();
         all.sort_by_key(|(node, _)| *node);
         all
     }
 
     /// Records the type of a node. Replaces any previous fact.
     pub fn set_ty(&mut self, node: NodeRef, fact: Fact<Type>) {
-        self.node_types.insert(node, fact);
+        self.node_types
+            .entry(node.module)
+            .or_default()
+            .insert(node.node, fact);
+    }
+
+    /// Records the types of a module's nodes, replacing every previous fact about them.
+    pub fn set_module_types(&mut self, module: ModuleId, types: FxHashMap<NodeId, Fact<Type>>) {
+        self.node_types.insert(module, types);
     }
 
     /// Records the type of a symbol. Replaces any previous fact.

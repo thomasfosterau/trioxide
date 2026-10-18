@@ -1,0 +1,38 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/merge-stale-escape
+input_file: tests/fixtures/analysis/merge-stale-escape/input.ts
+---
+//- input.ts
+// A subclass made in one function escapes in another; the parent it gets is only known once
+// a third has run. When those writes are merged from different chunks of a sweep, the
+// parent's escape must survive the merge: unknown code changes `Base1.tag` through it.
+class Base0 {
+	static tag = 0;
+}
+class Base1 {
+	static tag = 1;
+}
+let made;
+function a() {
+	globalThis.leak = made;
+}
+function b(base) {
+	made = class Sub extends base {};
+}
+function d(v) {
+	Base1.tag = v;
+}
+function later() {
+	b(Base1);
+	d(3);
+}
+export function main() {
+	b(Base0);
+	d(2);
+	later();
+	a();
+	const leaked = globalThis["leak"];
+	Object.getPrototypeOf(leaked).tag = "changed by unknown code";
+	console.log(Base1.tag);
+}

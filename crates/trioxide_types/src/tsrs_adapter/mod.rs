@@ -12,9 +12,12 @@
 //!
 //! # Checkers
 //!
-//! tsrs checkers take `&mut self`, and types from different checkers must never meet. The
-//! oracle runs every type query on the program's first checker, behind the program's own lock,
-//! and converts each answer before releasing it, so no tsrs handle outlives a query.
+//! tsrs checkers take `&mut self`, and types from different checkers must never meet. Through
+//! `&mut self` the oracle runs every query on the program's first checker; through its
+//! [`SharedTypeQueries`] view, which several threads may use at once, a query runs on the
+//! checker the program's pool assigns to the queried file, holding that checker's lock. Either
+//! way each answer is converted before the checker is released, so no tsrs handle outlives a
+//! query.
 
 mod convert;
 mod fs;
@@ -23,7 +26,10 @@ mod spanmap;
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     path::Path,
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
 };
 
 use rustc_hash::FxHashMap;
@@ -42,7 +48,10 @@ use self::{
     fs::OverlayFs,
     spanmap::SpanMap,
 };
-use crate::{OracleInput, Signature, SourceText, TsTypeFlags, Type, TypeOracle};
+use crate::{
+    CheckerQueries, OracleInput, SharedTypeQueries, Signature, SourceText, TsTypeFlags, Type,
+    TypeOracle,
+};
 
 /// When the oracle discards its incrementally updated program and builds a fresh one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,9 +140,13 @@ pub struct TsrsOracle {
     dirty: Vec<String>,
     updates_since_build: usize,
     policy: RebuildPolicy,
-    span_maps: FxHashMap<ModuleId, SpanMap>,
     globals: Option<Globals>,
-    span_stats: SpanStats,
+    /// The globals of each checker the shared view used, by checker address.
+    shared_globals: Mutex<FxHashMap<usize, Arc<Globals>>>,
+    matched: AtomicU64,
+    unmatched: AtomicU64,
+    /// A query through the shared view panicked: rebuild before the next use.
+    shared_panicked: AtomicBool,
     program_stats: ProgramStats,
 }
 
@@ -148,8 +161,14 @@ impl std::fmt::Debug for TsrsOracle {
 
 // SAFETY: tsrs declares its handles (`P<T>`) and programs usable from any thread ("by decree",
 // tsrs PORTING.md "Threading"); every checker is reached through the program's pool, which
-// locks it. The oracle itself is only ever used through `&mut self`.
+// locks it.
 unsafe impl Send for TsrsOracle {}
+
+// SAFETY: as for `Send`. The only `&self` methods that touch tsrs are the shared view's
+// queries, which take the queried file's checker exclusively (`get_type_checker_for_file_
+// exclusive`) and otherwise only read the oracle's maps; its mutable bookkeeping is atomics and
+// a mutex. Everything else that changes the oracle takes `&mut self`.
+unsafe impl Sync for TsrsOracle {}
 
 impl Default for TsrsOracle {
     fn default() -> Self {
@@ -176,16 +195,29 @@ impl TsrsOracle {
             dirty: Vec::new(),
             updates_since_build: 0,
             policy,
-            span_maps: FxHashMap::default(),
             globals: None,
-            span_stats: SpanStats::default(),
+            shared_globals: Mutex::default(),
+            matched: AtomicU64::new(0),
+            unmatched: AtomicU64::new(0),
+            shared_panicked: AtomicBool::new(false),
             program_stats: ProgramStats::default(),
         }
     }
 
     /// How many queries found a node for their span.
     pub fn span_stats(&self) -> SpanStats {
-        self.span_stats
+        SpanStats {
+            matched: self.matched.load(Ordering::Relaxed),
+            unmatched: self.unmatched.load(Ordering::Relaxed),
+        }
+    }
+
+    /// How many checkers the current program has (each answers queries for its own files
+    /// through the shared view).
+    pub fn checker_count(&self) -> usize {
+        self.live
+            .as_ref()
+            .map_or(0, |live| live.program.checker_count())
     }
 
     /// How often the program was built and updated.
@@ -272,8 +304,7 @@ impl TsrsOracle {
 
     /// Releases every program. Nothing may hold a tsrs handle when this runs.
     fn release(&mut self) {
-        self.span_maps.clear();
-        self.globals = None;
+        self.forget_globals();
         if let Some(live) = self.live.take() {
             // SAFETY: the oracle is the only owner of these programs. No checker of theirs is
             // held (handles never outlive a query), and the span maps and globals that pointed
@@ -334,8 +365,7 @@ impl TsrsOracle {
             self.build_from_scratch();
             return;
         }
-        self.span_maps.clear();
-        self.globals = None;
+        self.forget_globals();
         let dirty = std::mem::take(&mut self.dirty);
         for path in dirty {
             let live = self.live.as_ref().expect("a live program");
@@ -376,7 +406,31 @@ impl TsrsOracle {
         }
     }
 
+    /// Drops every handle into the current program's checkers.
+    fn forget_globals(&mut self) {
+        self.globals = None;
+        self.shared_globals
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
+
+    /// Forces a rebuild after a checker panicked: it may be inconsistent.
+    fn schedule_rebuild(&mut self) {
+        self.forget_globals();
+        if self.live.is_some()
+            && let Some(entry) = self.modules.values().next()
+        {
+            self.dirty.push(entry.path.clone());
+            self.updates_since_build = self.policy.max_updates.max(1);
+        }
+    }
+
     fn program(&mut self) -> Option<&'static Program> {
+        if self.shared_panicked.swap(false, Ordering::Relaxed) {
+            self.program_stats.panics += 1;
+            self.schedule_rebuild();
+        }
         self.apply_updates();
         self.live.as_ref().map(|live| live.program)
     }
@@ -390,17 +444,32 @@ impl TsrsOracle {
     /// The checker node matching `span`, counted in the span statistics.
     fn node_at(&mut self, module: ModuleId, span: Span) -> Option<P<Node>> {
         let file = self.source_file(module)?;
-        let map = self
-            .span_maps
-            .entry(module)
-            .or_insert_with(|| SpanMap::build(file));
-        let node = map.get(span.start, span.end);
-        if node.is_some() {
-            self.span_stats.matched += 1;
+        self.node_in(file, span)
+    }
+
+    /// The checker node of `file` matching `span`, counted in the span statistics.
+    fn node_in(&self, file: P<SourceFile>, span: Span) -> Option<P<Node>> {
+        let node = SpanMap::build(file).get(span.start, span.end);
+        let counter = if node.is_some() {
+            &self.matched
         } else {
-            self.span_stats.unmatched += 1;
-        }
+            &self.unmatched
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
         node
+    }
+
+    /// The globals of `checker`, made on its first query through the shared view.
+    fn shared_globals_of(&self, checker: &mut Checker) -> Arc<Globals> {
+        let key = std::ptr::from_mut(checker).addr();
+        let mut map = self
+            .shared_globals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Arc::clone(
+            map.entry(key)
+                .or_insert_with(|| Arc::new(Globals::new(checker))),
+        )
     }
 
     /// Runs `query` on the program's first checker. A tsrs panic is caught, answered `None`,
@@ -426,14 +495,7 @@ impl TsrsOracle {
         drop(handle);
         result.unwrap_or_else(|_| {
             self.program_stats.panics += 1;
-            self.span_maps.clear();
-            self.globals = None;
-            if let Some(live) = &self.live {
-                self.dirty.push(self.modules[&module].path.clone());
-                // A panic may leave the checker inconsistent: start again next time.
-                self.updates_since_build = self.policy.max_updates.max(1);
-                let _ = live;
-            }
+            self.schedule_rebuild();
             None
         })
     }
@@ -563,9 +625,106 @@ fn convert_flags(ty: P<tsrs_checker::Type>) -> TsTypeFlags {
     }
 }
 
+impl SharedTypeQueries for TsrsOracle {
+    fn type_at(&self, module: ModuleId, span: Span) -> Option<Type> {
+        // After a panic the checkers may be inconsistent: nothing they say counts until the
+        // rebuild (which the next exclusive use does).
+        if self.shared_panicked.load(Ordering::Relaxed) {
+            return None;
+        }
+        let program = self.live.as_ref()?.program;
+        let file = program.get_source_file(&self.modules.get(&module)?.path)?;
+        let node = self.node_in(file, span)?;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let mut handle = program.get_type_checker_for_file_exclusive(&Context::default(), file);
+            let checker: &mut Checker = &mut handle;
+            let globals = self.shared_globals_of(checker);
+            self.query_type(checker, &globals, node)
+        }));
+        result
+            .inspect_err(|_| self.shared_panicked.store(true, Ordering::Relaxed))
+            .ok()
+    }
+
+    fn workers(&self) -> usize {
+        self.checker_count().max(1)
+    }
+
+    fn run_workers(&self, work: &(dyn Fn(usize, &mut dyn CheckerQueries) + Sync)) {
+        let Some(live) = &self.live else {
+            work(0, &mut NoProgram);
+            return;
+        };
+        live.program.for_each_checker_parallel(|index, checker| {
+            let globals = Globals::new(checker);
+            let mut queries = BoundQueries {
+                oracle: self,
+                checker,
+                globals,
+            };
+            work(index, &mut queries);
+        });
+    }
+}
+
+impl TsrsOracle {
+    /// The converted type at `node`, asked of `checker`.
+    fn query_type(&self, checker: &mut Checker, globals: &Globals, node: P<Node>) -> Type {
+        let cx = QueryCx {
+            modules: &self.modules,
+            by_path: &self.by_path,
+            globals,
+            case_sensitive: self.fs.use_case_sensitive_file_names(),
+        };
+        let ty = checker.get_type_at_location(node);
+        let resolve = |declaration| cx.resolve(declaration);
+        cx.converter(checker, &resolve).convert(ty)
+    }
+}
+
+/// A worker's queries, all on the checker it holds.
+struct BoundQueries<'q> {
+    oracle: &'q TsrsOracle,
+    checker: &'q mut Checker,
+    globals: Globals,
+}
+
+impl CheckerQueries for BoundQueries<'_> {
+    fn type_at(&mut self, module: ModuleId, span: Span) -> Option<Type> {
+        let oracle = self.oracle;
+        // As for the shared view: a panic on any worker leaves nothing to trust.
+        if oracle.shared_panicked.load(Ordering::Relaxed) {
+            return None;
+        }
+        let program = oracle.live.as_ref()?.program;
+        let file = program.get_source_file(&oracle.modules.get(&module)?.path)?;
+        let node = oracle.node_in(file, span)?;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            oracle.query_type(self.checker, &self.globals, node)
+        }));
+        result
+            .inspect_err(|_| oracle.shared_panicked.store(true, Ordering::Relaxed))
+            .ok()
+    }
+}
+
+/// The queries of an oracle without a program: nothing is known.
+struct NoProgram;
+
+impl CheckerQueries for NoProgram {
+    fn type_at(&mut self, _: ModuleId, _: Span) -> Option<Type> {
+        None
+    }
+}
+
 impl TypeOracle for TsrsOracle {
     fn name(&self) -> &'static str {
         "tsrs"
+    }
+
+    fn shared(&mut self) -> Option<&dyn SharedTypeQueries> {
+        self.program()?;
+        Some(self)
     }
 
     fn load(&mut self, input: &OracleInput<'_>) -> Vec<Diagnostic> {

@@ -1,0 +1,81 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/merge-stale-escape
+input_file: tests/fixtures/analysis/merge-stale-escape/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Base0.<fields> (4:13) open: pure
+  Base1.<fields> (7:13) open: pure
+  a (11:1): reads writes throws calls-unknown
+  b (14:1): writes allocates
+  Sub.<fields> (15:33) open: pure
+  d (17:1): reads writes throws calls-unknown
+  later (20:1): reads writes allocates throws calls-unknown
+    calls 21:3 -> b
+    calls 22:3 -> d
+  main (24:8) open: reads writes allocates throws calls-unknown
+    calls 25:3 -> b
+    calls 26:3 -> d
+    calls 27:3 -> later
+    calls 28:3 -> a
+classes:
+  Base0 (4:1): fields [] shape unknown
+  Base1 (7:1): fields [] shape unknown
+  Sub (15:10): fields [] shape unknown
+nodes:
+  4:7 bind `Base0`: function@proven
+  7:7 bind `Base1`: function@proven
+  10:5 bind `made`: undefined@proven
+  11:10 bind `a`: function@proven
+  12:3 assign `(globalThis as any).leak = made`: undefined | function@proven
+  12:3 member `(globalThis as any).leak`: unknown
+  12:4 cast `globalThis as any`: unknown
+  12:4 ref `globalThis`: unknown
+  12:30 ref `made`: undefined | function@proven
+  14:10 bind `b`: function@proven
+  14:12 bind `base`: function | function@proven
+  14:25 ref `Base0`: unknown
+  15:3 assign `made = class Sub extends base {}`: function@proven
+  15:3 ref `made`: function@proven
+  15:16 bind `Sub`: function@proven
+  15:28 ref `base`: function | function@proven
+  17:10 bind `d`: function@proven
+  17:12 bind `v`: number[2, 3] int nonNaN nonNegZero@proven
+  18:3 assign `Base1.tag = v`: number[2, 3] int nonNaN nonNegZero@proven
+  18:3 member `Base1.tag`: unknown
+  18:3 ref `Base1`: function@proven
+  18:15 ref `v`: number[2, 3] int nonNaN nonNegZero@proven
+  20:10 bind `later`: function@proven
+  21:3 call `b(Base1)`: undefined@proven
+  21:3 ref `b`: function@proven
+  21:5 ref `Base1`: function@proven
+  22:3 call `d(3)`: undefined@proven
+  22:3 ref `d`: function@proven
+  24:17 bind `main`: function@proven
+  25:3 call `b(Base0)`: undefined@proven
+  25:3 ref `b`: function@proven
+  25:5 ref `Base0`: function@proven
+  26:3 call `d(2)`: undefined@proven
+  26:3 ref `d`: function@proven
+  27:3 call `later()`: undefined@proven
+  27:3 ref `later`: function@proven
+  28:3 call `a()`: undefined@proven
+  28:3 ref `a`: function@proven
+  29:9 bind `leaked`: unknown
+  29:18 member `(globalThis as any)["le" + "ak"]`: unknown
+  29:19 cast `globalThis as any`: unknown
+  29:19 ref `globalThis`: unknown
+  29:38 binary `"le" + "ak"`: string@proven
+  30:3 assign `Object.getPrototypeOf(leaked).tag = "...`: string@proven
+  30:3 member `Object.getPrototypeOf(leaked).tag`: unknown
+  30:3 call `Object.getPrototypeOf(leaked)`: unknown
+  30:3 member `Object.getPrototypeOf`: unknown
+  30:3 ref `Object`: unknown
+  30:25 ref `leaked`: unknown
+  31:3 call `console.log(Base1.tag)`: unknown
+  31:3 member `console.log`: unknown
+  31:3 ref `console`: unknown
+  31:15 member `Base1.tag`: number@declared
+  31:15 ref `Base1`: function@proven

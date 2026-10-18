@@ -22,12 +22,16 @@ mod call;
 mod expr;
 mod narrow;
 mod stmt;
+mod sweep;
+mod tables;
+
+pub use sweep::run;
 
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::symbol::SymbolId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_common::{ModuleId, NodeId, NodeRef, SymbolRef};
-use trioxide_types::{Type, TypeOracle, TypedArrayKind};
+use trioxide_types::{CheckerQueries, SharedTypeQueries, Type, TypeOracle, TypedArrayKind};
 
 use crate::{
     AnalysisOptions,
@@ -59,15 +63,24 @@ const LIB_OBJECTS: [&str; 16] = [
     "Error",
 ];
 
-/// Rounds after which numeric facts in the whole-program tables are widened.
-const WIDEN_AFTER: usize = 3;
+/// Merges an entry of the whole-program tables may change in before its numbers are widened.
+const WIDEN_AFTER: u32 = 3;
 /// Rounds after which the analysis gives up and reports nothing.
 const MAX_ROUNDS: usize = 40;
 
-/// After this many rounds, a whole-program entry that still changes is given up: set to "any
+/// A whole-program entry that changes in more merges than this is given up: set to "any
 /// value" (and its objects to "anything may happen to them"), which nothing can change
-/// further, so the run reaches a (less precise) fixed point.
-const SATURATE_AFTER: usize = 20;
+/// further, so the run reaches a (less precise) fixed point. Counted per entry, like
+/// [`WIDEN_AFTER`], so neither depends on how many sweeps the chunking takes.
+const SATURATE_AFTER: u32 = 20;
+/// [`SATURATE_AFTER`], or what the options say instead.
+fn saturate_after(options: &AnalysisOptions) -> u32 {
+    match options.saturate_after {
+        0 => SATURATE_AFTER,
+        merges => u32::try_from(merges).unwrap_or(u32::MAX),
+    }
+}
+
 /// Loop iterations after which loop-carried numbers are widened.
 const LOOP_WIDEN_AFTER: usize = 2;
 /// Loop iterations after which the loop's environment is abandoned to `Unknown`.
@@ -86,17 +99,40 @@ pub enum Dep {
     Default(NodeRef),
 }
 
-/// Who read what, and which units must run again.
-#[derive(Default)]
-struct Deps {
+/// Who read what in a chunk, and which of its units must run (again).
+struct ChunkDeps<'w> {
     current: Option<NodeRef>,
     /// What the current unit has read in this run.
     current_reads: FxHashSet<Dep>,
-    readers: FxHashMap<Dep, Vec<NodeRef>>,
+    /// Readers recorded in earlier sweeps.
+    readers: &'w FxHashMap<Dep, Vec<NodeRef>>,
+    /// Readers in this sweep.
+    reads: FxHashMap<Dep, Vec<NodeRef>>,
     seen: FxHashSet<(Dep, NodeRef)>,
+    /// The chunk's units.
+    members: &'w FxHashSet<NodeRef>,
     dirty: FxHashSet<NodeRef>,
-    /// Past [`SATURATE_AFTER`] rounds: the entries that changed since the last saturation.
-    saturating: Option<Vec<Dep>>,
+}
+
+/// The type oracle as a chunk reaches it.
+pub(crate) enum Types<'w> {
+    /// The only user of the oracle (chunks run one after another).
+    Exclusive(&'w mut dyn TypeOracle),
+    /// A view several chunks query at once.
+    Shared(&'w dyn SharedTypeQueries),
+    /// A worker's own queries (a checker it holds).
+    Worker(&'w mut dyn CheckerQueries),
+}
+
+impl Types<'_> {
+    /// The same oracle, borrowed for less long.
+    fn reborrow(&mut self) -> Types<'_> {
+        match self {
+            Types::Exclusive(oracle) => Types::Exclusive(&mut **oracle),
+            Types::Shared(oracle) => Types::Shared(*oracle),
+            Types::Worker(oracle) => Types::Worker(&mut **oracle),
+        }
+    }
 }
 
 /// How far an object may be seen by code other than the unit that created it.
@@ -135,7 +171,7 @@ pub enum ObjKind {
 }
 
 /// The heap entry of an allocation site: everything ever stored in objects made there.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Obj {
     /// What it is.
     pub kind: ObjKind,
@@ -229,7 +265,7 @@ impl Obj {
 }
 
 /// The whole-program tables, which only grow.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct State {
     /// Every value each symbol ever holds.
     pub symbols: FxHashMap<SymbolRef, Val>,
@@ -241,8 +277,8 @@ pub struct State {
     pub this: FxHashMap<NodeRef, Val>,
     /// Return values of each unit.
     pub returns: FxHashMap<NodeRef, Val>,
-    /// Allocation sites.
-    pub heap: FxHashMap<AllocId, Obj>,
+    /// Allocation sites, boxed so the merges move pointers rather than whole entries.
+    pub heap: FxHashMap<AllocId, Box<Obj>>,
     /// The value each class extends.
     pub supers: FxHashMap<NodeRef, Val>,
     /// The value of each `export default <expression>`, by expression node.
@@ -428,28 +464,34 @@ pub struct Output {
     pub in_bounds: FxHashMap<NodeRef, Trust>,
     /// Per-unit effects and edges.
     pub units: FxHashMap<NodeRef, UnitRecord>,
+    /// Every value the unit's private locals held in its last run (they never reach the
+    /// shared tables). That run saw the final tables, so it is all they can hold; earlier runs
+    /// on less complete tables don't count.
+    pub symbols: FxHashMap<SymbolRef, Val>,
+    /// The last run read a declared instance field before anything wrote it, as `never`, or
+    /// skipped a builtin call with a `never` argument: another chunk may write the field, or
+    /// reach the argument, in the same sweep. If nothing does, the unit runs again once the
+    /// sweeps settle, reading the field as missing and calling the builtin.
+    pub optimistic: bool,
+    /// Where each of the unit's loops settled in its last run, by loop node: the next run
+    /// starts them there.
+    loop_heads: FxHashMap<NodeId, Settled>,
 }
 
 impl Output {
-    fn merge(&mut self, other: Self) {
-        for (node, value) in other.nodes {
-            match self.nodes.entry(node) {
-                std::collections::hash_map::Entry::Occupied(mut entry) => {
-                    let joined = entry.get().join(&value);
-                    entry.insert(joined);
-                }
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    entry.insert(value);
-                }
-            }
-        }
-        for (node, trust) in other.in_bounds {
-            self.in_bounds
-                .entry(node)
-                .and_modify(|old| *old = (*old).min(trust))
-                .or_insert(trust);
-        }
-        self.units.extend(other.units);
+    fn clear(&mut self) {
+        self.nodes.clear();
+        self.in_bounds.clear();
+        self.units.clear();
+        self.symbols.clear();
+        self.optimistic = false;
+    }
+}
+
+impl Results {
+    /// What `unit` does itself, from its last run.
+    pub fn record(&self, unit: NodeRef) -> Option<&UnitRecord> {
+        self.outputs.get(&unit)?.units.get(&unit)
     }
 }
 
@@ -457,8 +499,8 @@ impl Output {
 pub struct Results {
     /// The stable tables.
     pub state: State,
-    /// Every unit's last recordings, merged.
-    pub output: Output,
+    /// Every unit's last recordings, by unit.
+    pub outputs: FxHashMap<NodeRef, Output>,
     /// Whether a fixed point was reached (if not, nothing may be trusted).
     pub converged: bool,
     /// How the run went.
@@ -474,96 +516,22 @@ pub struct Stats {
     pub units: usize,
     /// Unit interpretations, over all sweeps.
     pub interpretations: usize,
+    /// Chunks the units were split into (each sweep runs those with work in parallel).
+    pub chunks: usize,
     /// Type oracle queries (cache misses).
     pub oracle_queries: usize,
     /// Time spent in the oracle.
     pub oracle_time: std::time::Duration,
+    /// Time spent merging sweeps (single-threaded).
+    pub merge_time: std::time::Duration,
     /// Total interpretation time.
     pub total_time: std::time::Duration,
+    /// Parsing and indexing the modules, registering declarations and linking.
+    pub build_time: std::time::Duration,
+    /// Summarising the tables as facts.
+    pub summary_time: std::time::Duration,
     /// Whole-program entries given up (set to "any value") because they kept changing.
     pub saturated: usize,
-}
-
-/// Runs the interpreter to a fixed point.
-pub fn run(
-    world: &World<'_>,
-    links: &Links,
-    oracle: &mut dyn TypeOracle,
-    options: AnalysisOptions,
-) -> Results {
-    let open_modules = open_modules(world, &options);
-    let lexicals = lexicals(world);
-    let import_cycles = import_cycles(world);
-    let mut analyzer = Analyzer {
-        world,
-        links,
-        oracle,
-        options,
-        state: State::default(),
-        output: Output::default(),
-        round: 0,
-        deps: std::cell::RefCell::default(),
-        outputs: FxHashMap::default(),
-        ts_cache: FxHashMap::default(),
-        patched: patched_builtins(world),
-        open_modules,
-        lexicals,
-        import_cycles,
-        saturated: 0,
-        loop_heads: FxHashMap::default(),
-        stats: Stats::default(),
-    };
-    let started = std::time::Instant::now();
-    let mut converged = false;
-    analyzer
-        .deps
-        .get_mut()
-        .dirty
-        .extend(world.unit_order.iter().copied());
-    analyzer.stats.units = world.unit_order.len();
-    while analyzer.round < MAX_ROUNDS {
-        if analyzer.round == SATURATE_AFTER {
-            analyzer.deps.get_mut().saturating = Some(Vec::new());
-        }
-        let mut deferred = Vec::new();
-        for &unit in &world.unit_order {
-            if !analyzer.deps.get_mut().dirty.remove(&unit) {
-                continue;
-            }
-            let unit = world.unit(unit);
-            if world.module(unit.id.module).broken {
-                continue;
-            }
-            // In the first round, a function no caller has reached yet would only run on
-            // `never` arguments, and again once one does: it waits a round for its callers.
-            if analyzer.round == 0 && analyzer.uncalled(unit) {
-                deferred.push(unit.id);
-                continue;
-            }
-            analyzer.stats.interpretations += 1;
-            analyzer.interpret(unit);
-            analyzer.saturate();
-        }
-        analyzer.deps.get_mut().dirty.extend(deferred);
-        analyzer.round += 1;
-        if analyzer.deps.get_mut().dirty.is_empty() {
-            converged = true;
-            break;
-        }
-    }
-    analyzer.stats.rounds = analyzer.round;
-    analyzer.stats.saturated = analyzer.saturated;
-    analyzer.stats.total_time = started.elapsed();
-    let mut output = Output::default();
-    for unit_output in analyzer.outputs.into_values() {
-        output.merge(unit_output);
-    }
-    Results {
-        state: analyzer.state,
-        output,
-        converged,
-        stats: analyzer.stats,
-    }
 }
 
 /// Builtin namespaces (`Math`, …) whose models can't be trusted: the program shadows them,
@@ -685,6 +653,34 @@ pub(crate) fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
 }
 
 /// Every unit's own lexical bindings.
+/// The instance fields of each class: its own (non-`declare`) field declarations, its
+/// parameter properties and what its constructor assigns.
+fn instance_fields(world: &World<'_>) -> FxHashMap<NodeRef, FxHashSet<String>> {
+    world
+        .classes
+        .iter()
+        .map(|(&class, info)| {
+            let mut fields: FxHashSet<String> = info
+                .class
+                .body
+                .body
+                .iter()
+                .filter_map(|element| match element {
+                    oxc_ast::ast::ClassElement::PropertyDefinition(property)
+                        if !property.r#static && !property.declare =>
+                    {
+                        crate::world::static_key(&property.key, property.computed)
+                    }
+                    _ => None,
+                })
+                .collect();
+            fields.extend(crate::shapes::definite_fields(world, class));
+            fields.extend(crate::shapes::constructor_assigned(world, class));
+            (class, fields)
+        })
+        .collect()
+}
+
 fn lexicals(world: &World<'_>) -> FxHashMap<NodeRef, Vec<SymbolId>> {
     let mut lexicals: FxHashMap<NodeRef, Vec<SymbolId>> = FxHashMap::default();
     for module in &world.modules {
@@ -908,29 +904,45 @@ fn safe_namespace_use(
     }
 }
 
+/// One chunk's interpreter for one sweep.
 pub(crate) struct Analyzer<'w, 'a> {
     pub world: &'w World<'a>,
     pub links: &'w Links,
-    pub oracle: &'w mut dyn TypeOracle,
-    pub options: AnalysisOptions,
-    pub state: State,
+    pub options: &'w AnalysisOptions,
+    /// Builtin namespaces whose models are off.
+    pub patched: &'w FxHashSet<String>,
+    /// How many merges changed each entry so far.
+    changes: &'w FxHashMap<Dep, u32>,
+    /// How many merges changed each heap property so far.
+    slot_changes: &'w tables::SlotChanges,
+    tables: tables::Tables<'w>,
+    log: Vec<tables::Op>,
+    /// Entries the logged writes read (other than the ones they wrote).
+    op_reads: FxHashSet<Dep>,
+    /// Entries the logged writes changed.
+    changed: FxHashSet<Dep>,
+    /// Heap properties they changed.
+    changed_slots: FxHashSet<tables::Slot>,
+    /// The current unit's recordings.
     pub output: Output,
-    pub round: usize,
-    deps: std::cell::RefCell<Deps>,
-    outputs: FxHashMap<NodeRef, Output>,
-    ts_cache: FxHashMap<NodeRef, Option<Type>>,
-    pub patched: FxHashSet<String>,
+    /// Each of the chunk's units' last recordings.
+    outputs: &'w mut FxHashMap<NodeRef, Output>,
+    deps: std::cell::RefCell<ChunkDeps<'w>>,
+    /// TypeScript's answers so far, for this chunk's nodes.
+    ts_cache: &'w mut FxHashMap<NodeRef, Option<Type>>,
+    types: Types<'w>,
     /// Modules whose exports code outside the program may use (see [`open_modules`]).
-    pub open_modules: FxHashSet<ModuleId>,
+    pub open_modules: &'w FxHashSet<ModuleId>,
     /// Each unit's own `let`, `const` and `class` bindings.
-    pub lexicals: FxHashMap<NodeRef, Vec<SymbolId>>,
+    pub lexicals: &'w FxHashMap<NodeRef, Vec<SymbolId>>,
     /// Each module's strongly connected component of the import graph (by module index).
-    pub import_cycles: Vec<usize>,
-    /// How many entries were given up (see [`SATURATE_AFTER`]).
-    saturated: usize,
-    /// Where each unit's loops settled in its last run, by loop node: its next run starts
-    /// them there.
-    loop_heads: FxHashMap<NodeRef, FxHashMap<NodeId, Env>>,
+    pub import_cycles: &'w [usize],
+    /// The instance fields each class declares or its constructor assigns.
+    pub instance_fields: &'w FxHashMap<NodeRef, FxHashSet<String>>,
+    /// Whether a declared instance field nobody has written yet reads as `never`, not as
+    /// missing, and builtin calls with a `never` argument are skipped: true until the sweeps
+    /// first settle (see [`Output::optimistic`]).
+    pub optimistic: bool,
     stats: Stats,
 }
 
@@ -940,7 +952,7 @@ pub struct Env {
     /// Whether this point is reachable.
     pub reachable: bool,
     /// Values of tracked locals.
-    pub vars: FxHashMap<SymbolId, Val>,
+    pub vars: Vars,
     /// `(index, array)`: the local `index` is below `array.length`.
     pub bounds: Vec<(SymbolId, SymbolId)>,
     /// `(n, array)`: the local `n` holds `array.length`.
@@ -969,14 +981,17 @@ impl Env {
             return self.clone();
         }
         let mut vars = self.vars.clone();
-        for (symbol, value) in &other.vars {
-            vars.entry(*symbol)
-                .and_modify(|existing| {
-                    if existing != value {
-                        *existing = existing.join(value);
+        if !vars.shares(&other.vars) {
+            for (symbol, value) in other.vars.iter() {
+                match vars.get(*symbol) {
+                    Some(existing) if existing == value => {}
+                    Some(existing) => {
+                        let joined = existing.join(value);
+                        vars.insert(*symbol, joined);
                     }
-                })
-                .or_insert_with(|| value.clone());
+                    None => vars.insert(*symbol, value.clone()),
+                }
+            }
         }
         Self {
             reachable: true,
@@ -999,9 +1014,18 @@ impl Env {
     /// `next` widened against `self` (loop heads).
     fn widen(&self, next: &Self) -> Self {
         let mut joined = self.join(next);
-        for (symbol, value) in &mut joined.vars {
-            if let Some(old) = self.vars.get(symbol) {
-                value.ty = numeric::widen_type(&old.ty, &value.ty);
+        let widened: Vec<(SymbolId, Type)> = joined
+            .vars
+            .iter()
+            .filter_map(|(&symbol, value)| {
+                let old = self.vars.get(symbol)?;
+                let ty = numeric::widen_type(&old.ty, &value.ty);
+                (ty != value.ty).then_some((symbol, ty))
+            })
+            .collect();
+        for (symbol, ty) in widened {
+            if let Some(value) = joined.vars.get_mut(symbol) {
+                value.ty = ty;
             }
         }
         joined
@@ -1012,6 +1036,81 @@ impl Env {
             .retain(|(index, array)| *index != symbol && *array != symbol);
         self.lengths
             .retain(|(n, array)| *n != symbol && *array != symbol);
+    }
+}
+
+/// An [`Env`] kept between runs (its values not shared, so it can move between threads).
+#[derive(Debug)]
+struct Settled {
+    reachable: bool,
+    vars: FxHashMap<SymbolId, Val>,
+    bounds: Vec<(SymbolId, SymbolId)>,
+    lengths: Vec<(SymbolId, SymbolId)>,
+}
+
+impl Settled {
+    fn from_env(env: Env) -> Self {
+        Self {
+            reachable: env.reachable,
+            vars: std::rc::Rc::unwrap_or_clone(env.vars.0),
+            bounds: env.bounds,
+            lengths: env.lengths,
+        }
+    }
+
+    fn into_env(self) -> Env {
+        Env {
+            reachable: self.reachable,
+            vars: Vars(std::rc::Rc::new(self.vars)),
+            bounds: self.bounds,
+            lengths: self.lengths,
+        }
+    }
+}
+
+/// The values of a unit's tracked locals: shared between copies of an environment until one
+/// of them changes (branches copy environments far more often than they change them).
+#[derive(Debug, Clone, Default)]
+pub struct Vars(std::rc::Rc<FxHashMap<SymbolId, Val>>);
+
+impl PartialEq for Vars {
+    fn eq(&self, other: &Self) -> bool {
+        self.shares(other) || *self.0 == *other.0
+    }
+}
+
+impl Vars {
+    /// Whether both are the same copy.
+    fn shares(&self, other: &Self) -> bool {
+        std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// The value of `symbol`.
+    pub fn get(&self, symbol: SymbolId) -> Option<&Val> {
+        self.0.get(&symbol)
+    }
+
+    /// Sets `symbol`'s value (copying the table if another environment shares it and the
+    /// value changes).
+    pub fn insert(&mut self, symbol: SymbolId, value: Val) {
+        if self.0.get(&symbol) != Some(&value) {
+            std::rc::Rc::make_mut(&mut self.0).insert(symbol, value);
+        }
+    }
+
+    /// `symbol`'s value, to change in place.
+    pub fn get_mut(&mut self, symbol: SymbolId) -> Option<&mut Val> {
+        std::rc::Rc::make_mut(&mut self.0).get_mut(&symbol)
+    }
+
+    /// Every value, to change in place.
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Val> {
+        std::rc::Rc::make_mut(&mut self.0).values_mut()
+    }
+
+    /// Every local and its value.
+    pub fn iter(&self) -> impl Iterator<Item = (&SymbolId, &Val)> {
+        self.0.iter()
     }
 }
 
@@ -1047,39 +1146,29 @@ pub(crate) struct Cx<'c, 'w, 'a> {
     /// For each loop being interpreted: the arrays it resizes, and whether it resizes one
     /// trioxide doesn't track.
     pub loop_resized: Vec<(FxHashSet<AllocId>, bool)>,
-    /// Arrays whose length relations were dropped, in order.
-    pub dropped: Vec<SymbolId>,
     /// Where each loop settled when it last ran, in this run or the unit's last: a loop that
     /// runs again starts from there.
     pub loop_heads: FxHashMap<NodeId, Env>,
+    /// Arrays whose length relations were dropped, in order.
+    pub dropped: Vec<SymbolId>,
 }
 
 impl<'w, 'a> Analyzer<'w, 'a> {
-    /// Whether `unit` is a function that no known caller has called yet and that unknown
-    /// code can't call.
-    fn uncalled(&self, unit: &Unit<'a>) -> bool {
-        matches!(unit.body, Body::Function(_) | Body::Arrow(_))
-            && !self.state.this.contains_key(&unit.id)
-            && !self.state.params.contains_key(&unit.id)
-            && !self.state.spread_called.contains(&unit.id)
-            && !unit_open(self.world, &self.state, unit)
-    }
-
     fn interpret(&mut self, unit: &'w Unit<'a>) {
         let deps = self.deps.get_mut();
         deps.current = Some(unit.id);
         deps.current_reads.clear();
-        // Losses from outside an interpretation (summaries, merges) don't concern this unit.
+        // Reuse the last run's tables: they are about the right size.
+        self.output = self.outputs.remove(&unit.id).unwrap_or_default();
+        self.output.clear();
+        let loop_heads = std::mem::take(&mut self.output.loop_heads)
+            .into_iter()
+            .map(|(node, settled)| (node, settled.into_env()))
+            .collect();
+        // Losses from outside an interpretation (merges) don't concern this unit.
         let _ = crate::value::take_lost();
-        let capacity = self
-            .outputs
-            .get(&unit.id)
-            .map_or(0, |output| output.nodes.len());
-        self.output = Output::default();
-        self.output.nodes.reserve(capacity);
         let module = self.world.module(unit.id.module);
         let this = self.this_for(unit);
-        let loop_heads = self.loop_heads.remove(&unit.id).unwrap_or_default();
         let mut cx = Cx {
             an: self,
             unit,
@@ -1098,8 +1187,8 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             frames: Vec::new(),
             loop_writes: Vec::new(),
             loop_resized: Vec::new(),
-            dropped: Vec::new(),
             loop_heads,
+            dropped: Vec::new(),
         };
         cx.enter();
         match unit.body {
@@ -1154,10 +1243,10 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
         let returned = std::mem::replace(&mut cx.returned, Val::never());
         let record = std::mem::take(&mut cx.record);
-        let loop_heads = std::mem::take(&mut cx.loop_heads);
-        if !loop_heads.is_empty() {
-            self.loop_heads.insert(unit.id, loop_heads);
-        }
+        let loop_heads = std::mem::take(&mut cx.loop_heads)
+            .into_iter()
+            .map(|(node, env)| (node, Settled::from_env(env)))
+            .collect();
         self.join_return(unit.id, &returned);
         // A site joined with an unknown object is no longer followed: anything may happen to
         // it from here, so it escapes.
@@ -1173,6 +1262,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             }
         }
         self.output.units.insert(unit.id, record);
+        self.output.loop_heads = loop_heads;
         let output = std::mem::take(&mut self.output);
         self.outputs.insert(unit.id, output);
         self.deps.get_mut().current = None;
@@ -1183,138 +1273,121 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let mut deps = self.deps.borrow_mut();
         let Some(unit) = deps.current else { return };
         if deps.current_reads.insert(dep) && deps.seen.insert((dep, unit)) {
-            deps.readers.entry(dep).or_default().push(unit);
+            deps.reads.entry(dep).or_default().push(unit);
         }
     }
 
-    /// Gives up the entries that changed while saturating (see [`SATURATE_AFTER`]).
-    fn saturate(&mut self) {
-        loop {
-            let Some(changed) = self.deps.get_mut().saturating.as_mut() else {
-                return;
-            };
-            if changed.is_empty() {
-                return;
-            }
-            let mut changed = std::mem::take(changed);
-            changed.sort_unstable();
-            changed.dedup();
-            for dep in changed {
-                self.give_up(dep);
-            }
-        }
-    }
-
-    /// Sets the entry `dep` to the top of the lattice (its old objects escape).
-    fn give_up(&mut self, dep: Dep) {
-        let top = |slot: &mut Val, lost: &mut Vec<Pts>| {
-            if slot.trust != Trust::Unknown || slot.pts.sites().is_some() {
-                lost.push(std::mem::take(&mut slot.pts));
-                *slot = Val::unknown();
-                true
-            } else {
-                false
-            }
-        };
-        let mut lost = Vec::new();
-        let changed = match dep {
-            Dep::Symbol(symbol) => self
-                .state
-                .symbols
-                .get_mut(&symbol)
-                .is_some_and(|slot| top(slot, &mut lost)),
-            Dep::Params(unit) => {
-                let mut changed = self.state.spread_called.insert(unit);
-                if let Some(params) = self.state.params.get_mut(&unit) {
-                    for slot in params {
-                        changed |= top(slot, &mut lost);
-                    }
-                }
-                changed
-            }
-            Dep::This(unit) => self
-                .state
-                .this
-                .get_mut(&unit)
-                .is_some_and(|slot| top(slot, &mut lost)),
-            Dep::Return(unit) => self
-                .state
-                .returns
-                .get_mut(&unit)
-                .is_some_and(|slot| top(slot, &mut lost)),
-            Dep::Super(class) => self
-                .state
-                .supers
-                .get_mut(&class)
-                .is_some_and(|slot| top(slot, &mut lost)),
-            Dep::Default(node) => self
-                .state
-                .defaults
-                .get_mut(&node)
-                .is_some_and(|slot| top(slot, &mut lost)),
-            Dep::Heap(site) => {
-                lost.push(Pts::site(site));
-                self.state.heap.get_mut(&site).is_some_and(Obj::give_up)
-            }
-        };
-        if changed {
-            self.saturated += 1;
-            self.touch(dep);
-        }
-        for pts in lost {
-            self.escape(&pts, Escape::Unknown);
-        }
-    }
-
-    /// Notes that `dep` changed: every unit that read it runs again.
-    pub fn touch(&self, dep: Dep) {
+    /// Notes that `dep` changed: this chunk's units that read it run (again). Units of other
+    /// chunks are found when the sweep is merged.
+    fn touch(&self, dep: Dep) {
         let mut deps = self.deps.borrow_mut();
-        let Deps {
+        let ChunkDeps {
             current,
             current_reads,
             readers,
+            reads,
+            members,
             dirty,
-            saturating,
             ..
         } = &mut *deps;
-        if let Some(changed) = saturating {
-            changed.push(dep);
+        // The current unit's result depends only on what this run read so far.
+        let skip = current.filter(|_| !current_reads.contains(&dep));
+        let earlier = readers.get(&dep).into_iter().flatten();
+        let now = reads.get(&dep).into_iter().flatten();
+        for &unit in earlier.chain(now) {
+            if Some(unit) != skip && members.contains(&unit) {
+                dirty.insert(unit);
+            }
         }
-        if let Some(units) = readers.get(&dep) {
-            // The current unit's result depends only on what this run read so far.
-            let skip = current.filter(|_| !current_reads.contains(&dep));
-            dirty.extend(units.iter().copied().filter(|&unit| Some(unit) != skip));
+    }
+
+    /// Applies a write to this chunk's view and logs it for the merge.
+    fn write(&mut self, op: tables::Op) {
+        let cx = tables::OpCx {
+            world: self.world,
+            links: self.links,
+            changes: self.changes,
+            slot_changes: self.slot_changes,
+        };
+        self.tables.apply(cx, &op);
+        self.changed_slots
+            .extend(self.tables.touched_slots.drain(..));
+        // A write that changed nothing here changes nothing in the merged tables either: they
+        // hold at least what this chunk saw. Flag updates depend on the entry, so they always
+        // replay.
+        if !self.tables.touched.is_empty() || matches!(op, tables::Op::Mark(..)) {
+            self.log.push(op);
         }
+        if !self.tables.reads.is_empty() {
+            let reads = std::mem::take(&mut self.tables.reads);
+            for &dep in &reads {
+                self.read(dep);
+                self.op_reads.insert(dep);
+            }
+            self.tables.reads = reads;
+            self.tables.reads.clear();
+        }
+        if !self.tables.touched.is_empty() {
+            let touched = std::mem::take(&mut self.tables.touched);
+            for &dep in &touched {
+                self.touch(dep);
+                self.changed.insert(dep);
+            }
+            self.tables.touched = touched;
+            self.tables.touched.clear();
+        }
+    }
+
+    /// The heap entry of `site`, *not* as a dependency: only for asking whether the creating
+    /// code is making the object for the first time, which decides how a [`Cx::mark`] update
+    /// initialises it. Once initialised, the update's other branch leaves the entry as it is,
+    /// so a later answer can't change anything.
+    pub fn peek(&self, site: AllocId) -> Option<&Obj> {
+        self.tables.obj(site)
     }
 
     /// The heap entry of `site`, as a dependency of the current unit.
     pub fn heap(&self, site: AllocId) -> Option<&Obj> {
         self.read(Dep::Heap(site));
-        self.state.heap.get(&site)
+        self.tables.obj(site)
     }
 
     /// Every value `symbol` holds, as a dependency of the current unit.
     pub fn symbol_value(&self, symbol: SymbolRef) -> Option<&Val> {
         self.read(Dep::Symbol(symbol));
-        self.state.symbols.get(&symbol)
+        self.tables.symbol(symbol)
     }
 
     /// What `unit` returns, as a dependency of the current unit.
     pub fn returned(&self, unit: NodeRef) -> Option<&Val> {
         self.read(Dep::Return(unit));
-        self.state.returns.get(&unit)
+        self.tables.returned(unit)
     }
 
     /// What `class` extends, as a dependency of the current unit.
     pub fn super_of(&self, class: NodeRef) -> Option<&Val> {
         self.read(Dep::Super(class));
-        self.state.supers.get(&class)
+        self.tables.super_of(class)
     }
 
     /// The value of an `export default` expression, as a dependency of the current unit.
     pub fn default_value(&self, node: NodeRef) -> Option<&Val> {
         self.read(Dep::Default(node));
-        self.state.defaults.get(&node)
+        self.tables.default_value(node)
+    }
+
+    /// The arguments known callers pass `unit`, by position, and whether one passes a spread.
+    pub fn params_of(&self, unit: NodeRef) -> (Vec<Val>, bool) {
+        self.read(Dep::Params(unit));
+        (
+            self.tables.params(unit).cloned().unwrap_or_default(),
+            self.tables.spread_called(unit),
+        )
+    }
+
+    /// Notes a call of `unit` with a spread (so positions say nothing).
+    pub fn called_with_spread(&mut self, unit: NodeRef) {
+        self.write(tables::Op::SpreadCalled(unit));
     }
 
     /// `this` for a unit: what known callers passed, or what TypeScript says if unknown code
@@ -1348,11 +1421,12 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     fn recorded_this(&mut self, unit: &Unit<'a>) -> Val {
         self.read(Dep::This(unit.id));
         let recorded = self
-            .state
-            .this
-            .get(&unit.id)
+            .tables
+            .this(unit.id)
             .cloned()
             .unwrap_or_else(Val::never);
+        // Joining with unknown drops the recorded sites, which escapes them: unknown code
+        // may call the unit on them.
         if self.is_open(unit) {
             recorded.join(&Val::unknown())
         } else {
@@ -1368,6 +1442,12 @@ impl<'w, 'a> Analyzer<'w, 'a> {
 
     /// Whether code trioxide does not see may call `unit` (so its parameters and `this` are
     /// whatever TypeScript declares).
+    /// Whether `unit` is a function that no known caller has called yet and that unknown
+    /// code can't call.
+    fn uncalled(&self, unit: &Unit<'a>) -> bool {
+        uncalled(self.world, &self.tables, unit)
+    }
+
     pub fn is_open(&self, unit: &Unit<'a>) -> bool {
         self.read(Dep::Heap(unit.id));
         if let Some(class) = unit
@@ -1379,221 +1459,83 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 self.read(Dep::Heap(info.init));
             }
         }
-        unit_open(self.world, &self.state, unit)
-    }
-
-    /// Joins into a whole-program table entry, noting whether it changed.
-    fn join_into(round: usize, slot: &mut Val, value: &Val) -> bool {
-        if slot == value || (value.ty == Type::Never && value.pts.is_none()) {
-            return false;
-        }
-        let mut joined = slot.join(value);
-        if round >= WIDEN_AFTER {
-            joined.ty = numeric::widen_type(&slot.ty, &joined.ty);
-        }
-        if joined == *slot {
-            return false;
-        }
-        *slot = joined;
-        true
+        unit_open(self.world, &self.tables, unit)
     }
 
     fn join_symbol(&mut self, symbol: SymbolRef, value: &Val) {
-        let slot = self.state.symbols.entry(symbol).or_insert_with(Val::never);
-        if Self::join_into(self.round, slot, value) {
-            self.touch(Dep::Symbol(symbol));
+        if unchanged(self.tables.symbol(symbol), value) {
+            return;
         }
+        self.write(tables::Op::JoinSymbol(symbol, value.clone()));
     }
 
     fn join_return(&mut self, unit: NodeRef, value: &Val) {
-        let slot = self.state.returns.entry(unit).or_insert_with(Val::never);
-        if Self::join_into(self.round, slot, value) {
-            self.touch(Dep::Return(unit));
+        if unchanged(self.tables.returned(unit), value) {
+            return;
         }
+        self.write(tables::Op::JoinReturn(unit, value.clone()));
     }
 
     fn join_this(&mut self, unit: NodeRef, value: &Val) {
-        let slot = self.state.this.entry(unit).or_insert_with(Val::never);
-        if Self::join_into(self.round, slot, value) {
-            self.touch(Dep::This(unit));
+        if unchanged(self.tables.this(unit), value) {
+            return;
         }
+        self.write(tables::Op::JoinThis(unit, value.clone()));
     }
 
     fn join_param(&mut self, unit: NodeRef, index: usize, value: &Val) {
-        let params = self.state.params.entry(unit).or_default();
-        let mut changed = false;
-        if params.len() <= index {
-            params.resize_with(index + 1, Val::never);
-            changed = true;
+        let slot = self
+            .tables
+            .params(unit)
+            .and_then(|params| params.get(index));
+        if slot.is_some() && unchanged(slot, value) {
+            return;
         }
-        if Self::join_into(self.round, &mut params[index], value) || changed {
-            self.touch(Dep::Params(unit));
-        }
+        self.write(tables::Op::JoinParam(unit, index, value.clone()));
     }
 
     fn join_super(&mut self, class: NodeRef, value: &Val) {
-        let slot = self.state.supers.entry(class).or_insert_with(Val::never);
-        if Self::join_into(self.round, slot, value) {
-            self.touch(Dep::Super(class));
-            // A class (or instance) other code already reaches exposes its new parent too.
-            let level = if self.state.open_instances.contains(&class) {
-                Escape::Unknown
-            } else {
-                self.state
-                    .heap
-                    .get(&class)
-                    .map_or(Escape::None, |obj| obj.escape)
-            };
-            if level > Escape::None {
-                self.escape(&value.pts, level);
-            }
+        if unchanged(self.tables.super_of(class), value) {
+            return;
         }
+        self.write(tables::Op::JoinSuper(class, value.clone()));
     }
 
     /// Joins into the value of an `export default` expression.
     pub fn join_default(&mut self, node: NodeRef, value: &Val) {
-        let slot = self.state.defaults.entry(node).or_insert_with(Val::never);
-        if Self::join_into(self.round, slot, value) {
-            self.touch(Dep::Default(node));
+        if unchanged(self.tables.default_value(node), value) {
+            return;
         }
+        self.write(tables::Op::JoinDefault(node, value.clone()));
     }
 
-    /// The heap entry of `site`, created (empty) on first use.
-    fn obj(&mut self, site: AllocId, kind: ObjKind, unit: NodeRef) -> &mut Obj {
-        if !self.state.heap.contains_key(&site) {
-            self.touch(Dep::Heap(site));
+    /// Creates the (empty) heap entry of `site` on first use.
+    fn obj(&mut self, site: AllocId, kind: ObjKind, unit: NodeRef) {
+        if self.tables.obj(site).is_none() {
+            self.write(tables::Op::Create(site, kind, unit));
         }
-        self.state
-            .heap
-            .entry(site)
-            .or_insert_with(|| Obj::new(kind, unit))
     }
 
     /// Marks every site in `pts` (and what it reaches) as reaching code that may redefine its
     /// properties arbitrarily.
     pub fn poison(&mut self, pts: &Pts) {
-        self.escape(pts, Escape::Unknown);
-        for &site in pts.sites().unwrap_or_default() {
-            if let Some(obj) = self.state.heap.get_mut(&site)
-                && !obj.poisoned
-            {
-                obj.poisoned = true;
-                self.touch(Dep::Heap(site));
-            }
+        if pts.sites().is_some_and(|sites| !sites.is_empty()) {
+            self.write(tables::Op::Poison(pts.clone()));
         }
     }
 
     /// Marks every site in `pts` (and what it reaches) as escaping at least to `level`.
     pub fn escape(&mut self, pts: &Pts, level: Escape) {
-        let Some(sites) = pts.sites() else {
-            return;
-        };
-        let mut pending: Vec<AllocId> = sites.to_vec();
-        while let Some(site) = pending.pop() {
-            let Some(obj) = self.state.heap.get_mut(&site) else {
-                continue;
-            };
-            if obj.escape >= level {
-                continue;
-            }
-            obj.escape = level;
-            let kind = obj.kind;
-            for value in obj.props.values().chain([&obj.elem]) {
-                if let Some(inner) = value.pts.sites() {
-                    pending.extend_from_slice(inner);
-                }
-            }
-            if level == Escape::Unknown {
-                pending.extend_from_slice(&obj.shares_buffer);
-            }
-            self.touch(Dep::Heap(site));
-            if level == Escape::Unknown
-                && let ObjKind::Instance(class) = kind
-                && self.state.open_instances.insert(class)
-            {
-                self.touch(Dep::Heap(class));
-            }
-            // A namespace object reaches every export.
-            if let ObjKind::Namespace(module) = kind {
-                let mut exported = Vec::new();
-                self.exported_values(module, &mut exported, &mut FxHashSet::default());
-                pending.extend(exported);
-                continue;
-            }
-            // A class's prototype, constructor and methods go with it, and so do an
-            // instance's (`instance.constructor` reaches the class).
-            if let ObjKind::Class(class) | ObjKind::Instance(class) | ObjKind::Prototype(class) =
-                kind
-                && let Some(info) = self.world.classes.get(&class)
-            {
-                pending.push(class);
-                pending.push(info.init);
-                pending.extend(info.members.iter().filter_map(|member| member.unit));
-                pending.extend(info.constructor);
-                // Inherited members are reachable through it too (a parent joined later
-                // escapes in `join_super`).
-                if let Some(sites) = self
-                    .state
-                    .supers
-                    .get(&class)
-                    .and_then(|parent| parent.pts.sites())
-                {
-                    pending.extend_from_slice(sites);
-                }
-            }
-        }
-    }
-
-    /// The allocation sites every export of `module` (and of what it re-exports) may hold.
-    fn exported_values(
-        &self,
-        module: ModuleId,
-        out: &mut Vec<AllocId>,
-        seen: &mut FxHashSet<ModuleId>,
-    ) {
-        if !seen.insert(module) {
-            return;
-        }
-        let info = self.world.module(module);
-        for (index, symbol) in info.symbols.iter().enumerate() {
-            if symbol.exported
-                && let Some(value) = self.symbol_value(info.symbol(SymbolId::from_usize(index)))
-                && let Some(sites) = value.pts.sites()
-            {
-                out.extend_from_slice(sites);
-            }
-        }
-        for entry in info
-            .record
-            .star_export_entries
-            .iter()
-            .chain(&info.record.indirect_export_entries)
-        {
-            if let Some(target) = entry
-                .module_request
-                .as_ref()
-                .and_then(|request| info.imports.get(request.name.as_str()).copied().flatten())
-            {
-                self.exported_values(target, out, seen);
-            }
-        }
-        // `export default <expression>` values and re-exported imports.
-        for (import, target) in self.links.imports() {
-            if import.module == module
-                && info.info(import.symbol).exported
-                && let crate::link::Target::Symbol(target) = target
-                && let Some(sites) = self
-                    .symbol_value(target)
-                    .and_then(|value| value.pts.sites())
-            {
-                out.extend_from_slice(sites);
-            }
-        }
-        if let crate::link::Target::Expression(node) =
-            crate::link::resolve_export(self.world, info, "default", &mut FxHashSet::default())
-            && let Some(sites) = self.default_value(node).and_then(|value| value.pts.sites())
-        {
-            out.extend_from_slice(sites);
+        // A namespace that escaped already still takes the exports written since.
+        let needed = pts.sites().is_some_and(|sites| {
+            sites.iter().any(|&site| {
+                self.tables.obj(site).is_some_and(|obj| {
+                    obj.escape < level || matches!(obj.kind, ObjKind::Namespace(_))
+                })
+            })
+        });
+        if needed {
+            self.write(tables::Op::Escape(pts.clone(), level));
         }
     }
 
@@ -1614,7 +1556,11 @@ impl<'w, 'a> Analyzer<'w, 'a> {
             return cached.clone();
         }
         let started = std::time::Instant::now();
-        let ty = self.oracle.type_at(node.module, span);
+        let ty = match &mut self.types {
+            Types::Exclusive(oracle) => oracle.type_at(node.module, span),
+            Types::Shared(oracle) => oracle.type_at(node.module, span),
+            Types::Worker(oracle) => oracle.type_at(node.module, span),
+        };
         self.stats.oracle_queries += 1;
         self.stats.oracle_time += started.elapsed();
         self.ts_cache.insert(node, ty.clone());
@@ -1708,8 +1654,9 @@ impl Cx<'_, '_, '_> {
             }
             EffectKind::Allocates => effects.allocates = true,
         };
-        // An expression's own effects count whether or not a `try` catches them.
-        for frame in &mut self.frames {
+        // An expression's own effects count whether or not a `try` catches them. Only the
+        // innermost frame is marked: frames pass theirs on as they close ([`Cx::pop_frame`]).
+        if let Some(frame) = self.frames.last_mut() {
             if !proven_free {
                 set(&mut frame.proven);
             }
@@ -1731,7 +1678,7 @@ impl Cx<'_, '_, '_> {
     /// Notes a write for the expressions and loops being interpreted: `shared` when it is
     /// to an object or a local other code can see.
     pub fn note_write(&mut self, shared: bool) {
-        for frame in &mut self.frames {
+        if let Some(frame) = self.frames.last_mut() {
             frame.local_writes = true;
             frame.shared_writes |= shared;
         }
@@ -1754,16 +1701,30 @@ impl Cx<'_, '_, '_> {
 
     /// Notes a read of an object, or of a local other code can write.
     pub fn note_shared_read(&mut self) {
-        for frame in &mut self.frames {
+        if let Some(frame) = self.frames.last_mut() {
             frame.shared_reads = true;
         }
     }
 
     /// Notes that a clock or a random number was read.
     pub fn note_volatile(&mut self) {
-        for frame in &mut self.frames {
+        if let Some(frame) = self.frames.last_mut() {
             frame.volatile = true;
         }
+    }
+
+    /// Closes the innermost frame, passing what it saw on to the enclosing one.
+    pub fn pop_frame(&mut self) -> Frame {
+        let frame = self.frames.pop().expect("a frame is open");
+        if let Some(parent) = self.frames.last_mut() {
+            parent.proven = union(parent.proven, frame.proven);
+            parent.declared = union(parent.declared, frame.declared);
+            parent.local_writes |= frame.local_writes;
+            parent.shared_writes |= frame.shared_writes;
+            parent.volatile |= frame.volatile;
+            parent.shared_reads |= frame.shared_reads;
+        }
+        frame
     }
 
     /// The units called since edge `start` of this unit's record.
@@ -1826,7 +1787,7 @@ impl Cx<'_, '_, '_> {
             self.note_tdz_read(symbol);
         }
         if info.tracked && info.unit == Some(self.unit.id) {
-            if let Some(value) = self.env.vars.get(&symbol) {
+            if let Some(value) = self.env.vars.get(symbol) {
                 return value.clone();
             }
             // Not yet initialised on any path that got here.
@@ -1911,7 +1872,7 @@ impl Cx<'_, '_, '_> {
             };
             let symbol = self.module.symbol(symbol);
             self.an.read(Dep::Symbol(symbol));
-            cyclic || self.an.state.may_be_uninit.contains(&symbol)
+            cyclic || self.an.tables.may_be_uninit(symbol)
         };
         if throws {
             self.always(EffectKind::Throws);
@@ -1934,8 +1895,8 @@ impl Cx<'_, '_, '_> {
             .map(|&symbol| self.module.symbol(symbol))
             .collect();
         for symbol in pending {
-            if self.an.state.may_be_uninit.insert(symbol) {
-                self.an.touch(Dep::Symbol(symbol));
+            if !self.an.tables.may_be_uninit(symbol) {
+                self.an.write(tables::Op::MayBeUninit(symbol));
             }
         }
     }
@@ -1986,7 +1947,32 @@ impl Cx<'_, '_, '_> {
             // Importers outside the program can read it.
             self.escape_value(&value, Escape::Unknown);
         }
-        self.an.join_symbol(self.module.symbol(symbol), &value);
+        let symbol = self.module.symbol(symbol);
+        if private_local(&info, self.unit.id) {
+            // Only this unit (and the facts) ever read it.
+            let slot = self
+                .an
+                .output
+                .symbols
+                .entry(symbol)
+                .or_insert_with(Val::never);
+            if slot != &value {
+                *slot = slot.join(&value);
+            }
+        } else {
+            self.an.join_symbol(symbol, &value);
+        }
+    }
+
+    /// Every value `symbol` (of this module) holds: what this run wrote to it if it is a
+    /// private local, else what the shared tables say.
+    pub fn every_value(&self, symbol: SymbolId) -> Option<Val> {
+        let info = self.module.info(symbol);
+        let symbol = self.module.symbol(symbol);
+        if private_local(info, self.unit.id) {
+            return self.an.output.symbols.get(&symbol).cloned();
+        }
+        self.an.symbol_value(symbol).cloned()
     }
 
     /// Whether code outside the program may use this module's exports: in an open world, for
@@ -2016,81 +2002,31 @@ impl Cx<'_, '_, '_> {
 
     /// Writes `value` to property `key` of every object in `site`'s heap entry.
     pub fn store_prop(&mut self, site: AllocId, key: &str, value: &Val, creating: bool) {
-        let round = self.an.round;
-        let Some(obj) = self.an.state.heap.get_mut(&site) else {
-            return;
-        };
-        let mut changed = false;
-        if !obj.props.contains_key(key) {
-            obj.order.push(key.to_string());
-            changed = true;
-        }
-        let slot = obj.props.entry(key.to_string()).or_insert_with(Val::never);
-        changed |= Analyzer::join_into(round, slot, value);
-        // A key the object didn't have when it was made (even if the code that made it adds
-        // it, it does so later): its shape changes.
-        if !creating && !obj.present.contains(key) && obj.added.insert(key.to_string()) {
-            changed = true;
-        }
-        let level = obj.escape.max(Escape::Known);
-        if changed {
-            self.an.touch(Dep::Heap(site));
-        }
-        self.an.escape(&value.pts, level);
+        self.an.write(tables::Op::StoreProp {
+            site,
+            key: key.to_string(),
+            value: value.clone(),
+            creating,
+        });
     }
 
     /// Joins `value` into the elements of the array at `site`.
     pub fn store_elem(&mut self, site: AllocId, value: &Val) {
-        let round = self.an.round;
-        let Some(obj) = self.an.state.heap.get_mut(&site) else {
-            return;
-        };
-        let changed = Analyzer::join_into(round, &mut obj.elem, value);
-        let level = obj.escape.max(Escape::Known);
-        if changed {
-            self.an.touch(Dep::Heap(site));
-        }
-        self.an.escape(&value.pts, level);
+        self.an.write(tables::Op::StoreElem(site, value.clone()));
     }
 
-    /// Updates a heap entry's flags.
-    pub fn mark(&mut self, site: AllocId, update: impl FnOnce(&mut Obj)) {
+    /// Updates a heap entry's flags. `update` runs again when the sweep is merged, on the
+    /// merged entry, so it must be idempotent. The update depends on the entry, so a change
+    /// to it (the unit's own included) runs the unit again.
+    pub fn mark(&mut self, site: AllocId, update: impl Fn(&mut Obj) + Send + 'static) {
         self.an.read(Dep::Heap(site));
-        if let Some(obj) = self.an.state.heap.get_mut(&site) {
-            let before = (
-                obj.dynamic,
-                obj.deleted,
-                obj.holey,
-                obj.length,
-                obj.sized,
-                obj.present.len(),
-                obj.shares_buffer.len(),
-                obj.accessors,
-                obj.frozen,
-            );
-            update(obj);
-            // A given-up entry stays at the top, so an update that would lower a flag again
-            // (and then be given up again, round after round) changes nothing.
-            if obj.given_up {
-                obj.give_up();
-            }
-            if before
-                != (
-                    obj.dynamic,
-                    obj.deleted,
-                    obj.holey,
-                    obj.length,
-                    obj.sized,
-                    obj.present.len(),
-                    obj.shares_buffer.len(),
-                    obj.accessors,
-                    obj.frozen,
-                )
-            {
-                self.an.touch(Dep::Heap(site));
-            }
-        }
+        self.an.write(tables::Op::Mark(site, Box::new(update)));
     }
+}
+
+/// Whether joining `value` into `slot` can't change it.
+fn unchanged(slot: Option<&Val>, value: &Val) -> bool {
+    (value.ty == Type::Never && value.pts.is_none()) || slot == Some(value)
 }
 
 /// Kinds of effect, for [`Cx::effect`].
@@ -2101,6 +2037,12 @@ pub enum EffectKind {
     Throws,
     CallsUnknown,
     Allocates,
+}
+
+/// Whether only `unit` reads the symbol: its own flow-sensitive local, not read by nested
+/// units or importers.
+fn private_local(info: &crate::world::SymbolInfo, unit: NodeRef) -> bool {
+    info.tracked && info.unit == Some(unit) && !info.nested_reads && !info.exported
 }
 
 /// Whether `symbol` is a parameter (bound by the call, not hoisted as `undefined`).
@@ -2119,41 +2061,72 @@ fn is_parameter(module: &Module<'_>, symbol: SymbolId) -> bool {
         })
 }
 
-/// Whether code trioxide does not see may call `unit`.
-pub fn unit_open(world: &World<'_>, state: &State, unit: &Unit<'_>) -> bool {
-    let escaped = |site: AllocId| {
-        state
-            .heap
+/// The escape facts openness depends on.
+pub trait EscapeView {
+    /// Whether code trioxide does not see may reach the object made at `site`.
+    fn escaped(&self, site: AllocId) -> bool;
+    /// Whether an instance of `class` may reach code trioxide does not see.
+    fn instance_open(&self, class: NodeRef) -> bool;
+}
+
+impl EscapeView for State {
+    fn escaped(&self, site: AllocId) -> bool {
+        self.heap
             .get(&site)
             .is_some_and(|obj| obj.escape == Escape::Unknown)
-    };
+    }
+
+    fn instance_open(&self, class: NodeRef) -> bool {
+        self.open_instances.contains(&class)
+    }
+}
+
+impl EscapeView for tables::Tables<'_> {
+    fn escaped(&self, site: AllocId) -> bool {
+        self.obj(site)
+            .is_some_and(|obj| obj.escape == Escape::Unknown)
+    }
+
+    fn instance_open(&self, class: NodeRef) -> bool {
+        self.open_instance(class)
+    }
+}
+
+/// Whether code trioxide does not see may call `unit`.
+pub fn unit_open(world: &World<'_>, view: &impl EscapeView, unit: &Unit<'_>) -> bool {
     match unit.body {
         Body::Module(_) | Body::StaticBlock(_) => false,
         Body::ClassInit(_) => unit
             .class
-            .is_none_or(|class| class_open(world, state, class)),
+            .is_none_or(|class| class_open(world, view, class)),
         Body::Function(_) | Body::Arrow(_) => {
-            if escaped(unit.id) {
+            if view.escaped(unit.id) {
                 return true;
             }
             if let Some(&class) = world.member_of.get(&unit.id) {
-                return class_open(world, state, class);
+                return class_open(world, view, class);
             }
             false
         }
     }
 }
 
+/// Whether `unit` is a function (or a class's field initialisers) that no known caller (or
+/// `new`) has reached yet and that unknown code can't call, as `tables` say.
+fn uncalled(world: &World<'_>, tables: &tables::Tables<'_>, unit: &Unit<'_>) -> bool {
+    matches!(
+        unit.body,
+        Body::Function(_) | Body::Arrow(_) | Body::ClassInit(_)
+    ) && tables.this(unit.id).is_none()
+        && tables.params(unit.id).is_none()
+        && !tables.spread_called(unit.id)
+        && !unit_open(world, tables, unit)
+}
+
 /// Whether unknown code may construct the class or reach its instances or prototype.
-pub fn class_open(world: &World<'_>, state: &State, class: NodeRef) -> bool {
+pub fn class_open(world: &World<'_>, view: &impl EscapeView, class: NodeRef) -> bool {
     let Some(info) = world.classes.get(&class) else {
         return true;
     };
-    let escaped = |site: &AllocId| {
-        state
-            .heap
-            .get(site)
-            .is_some_and(|obj| obj.escape == Escape::Unknown)
-    };
-    escaped(&class) || escaped(&info.init) || state.open_instances.contains(&class)
+    view.escaped(class) || view.escaped(info.init) || view.instance_open(class)
 }

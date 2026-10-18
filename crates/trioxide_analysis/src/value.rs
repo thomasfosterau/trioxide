@@ -20,19 +20,41 @@ const MAX_SITES: usize = 8;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Pts {
     /// One of these sites, or not an object.
-    Sites(Vec<AllocId>),
+    Sites(Sites),
     /// Possibly any object.
     #[default]
     Any,
 }
 
+/// A sorted set of sites, stored without allocating when it has fewer than two (most do), and
+/// shared when it has more, so values clone cheaply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sites {
+    /// No site.
+    None,
+    /// One site.
+    One(AllocId),
+    /// Two or more, sorted.
+    Many(std::sync::Arc<[AllocId]>),
+}
+
+impl Sites {
+    fn as_slice(&self) -> &[AllocId] {
+        match self {
+            Self::None => &[],
+            Self::One(site) => std::slice::from_ref(site),
+            Self::Many(sites) => sites,
+        }
+    }
+}
+
 impl Pts {
     /// Not an object.
-    pub const NONE: Self = Self::Sites(Vec::new());
+    pub const NONE: Self = Self::Sites(Sites::None);
 
     /// Exactly `site`.
     pub fn site(site: AllocId) -> Self {
-        Self::Sites(vec![site])
+        Self::Sites(Sites::One(site))
     }
 
     /// Either. Sites that the join can no longer name (it gives `Any`) are noted in
@@ -42,7 +64,14 @@ impl Pts {
     pub fn join(&self, other: &Self) -> Self {
         match (self, other) {
             (Self::Sites(a), Self::Sites(b)) => {
-                let mut sites = a.clone();
+                let (a, b) = (a.as_slice(), b.as_slice());
+                if b.iter().all(|site| a.binary_search(site).is_ok()) {
+                    return self.clone();
+                }
+                if a.iter().all(|site| b.binary_search(site).is_ok()) {
+                    return other.clone();
+                }
+                let mut sites = a.to_vec();
                 for site in b {
                     if let Err(at) = sites.binary_search(site) {
                         sites.insert(at, *site);
@@ -52,11 +81,11 @@ impl Pts {
                     lose(&sites);
                     Self::Any
                 } else {
-                    Self::Sites(sites)
+                    Self::Sites(Sites::Many(sites.into()))
                 }
             }
             (Self::Sites(sites), Self::Any) | (Self::Any, Self::Sites(sites)) => {
-                lose(sites);
+                lose(sites.as_slice());
                 Self::Any
             }
             (Self::Any, Self::Any) => Self::Any,
@@ -66,14 +95,14 @@ impl Pts {
     /// The sites, if the set is known.
     pub fn sites(&self) -> Option<&[AllocId]> {
         match self {
-            Self::Sites(sites) => Some(sites),
+            Self::Sites(sites) => Some(sites.as_slice()),
             Self::Any => None,
         }
     }
 
     /// Whether the value is known not to be any object.
     pub fn is_none(&self) -> bool {
-        matches!(self, Self::Sites(sites) if sites.is_empty())
+        matches!(self, Self::Sites(Sites::None))
     }
 }
 

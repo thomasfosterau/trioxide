@@ -410,3 +410,78 @@ fn unknown_modules_and_spans_answer_none() {
     assert_eq!(stats.matched, 0);
     assert_eq!(stats.unmatched, 2);
 }
+
+#[test]
+fn the_shared_view_answers_like_the_oracle_from_many_threads() {
+    let files: Vec<(String, String)> = (0..12)
+        .map(|index| {
+            (
+                format!("m{index}.ts"),
+                format!(
+                    "export class C{index} {{ x = {index}; }}\n\
+                     export const c = new C{index}();\n\
+                     export const n = c.x + {index};\n\
+                     export const xs = [c.x, n];\n\
+                     export function f(v: number): string {{ return String(v + n); }}\n\
+                     export const s = f(n);\n"
+                ),
+            )
+        })
+        .collect();
+    let named: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(name, source)| (name.as_str(), source.as_str()))
+        .collect();
+    let mut f = Fixture::new(&named);
+    let mut queries = Vec::new();
+    for index in 0..files.len() {
+        let class = f.span(index, &format!("C{index}"), 0);
+        f.oracle
+            .register_declarations(module(index), &[(class, NodeId::from_usize(index))]);
+        for needle in ["c", "n", "xs", "f", "s", "c.x"] {
+            queries.push((module(index), f.span(index, needle, 0)));
+        }
+    }
+    let expected: Vec<Option<Type>> = queries
+        .iter()
+        .map(|&(module, span)| f.oracle.type_at(module, span))
+        .collect();
+    assert!(expected.iter().all(Option::is_some));
+    let shared = f
+        .oracle
+        .shared()
+        .expect("tsrs answers from several threads");
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|offset| {
+                let queries = &queries;
+                scope.spawn(move || {
+                    // Each thread walks the queries in a different order.
+                    (0..queries.len())
+                        .map(|step| (step * 5 + offset) % queries.len())
+                        .map(|at| (at, shared.type_at(queries[at].0, queries[at].1)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        for handle in handles {
+            for (at, answer) in handle.join().unwrap() {
+                assert_eq!(answer, expected[at], "query {at}");
+            }
+        }
+    });
+    // Workers with a checker each: every worker answers every query the same way.
+    assert!(shared.workers() >= 1);
+    let answers = std::sync::Mutex::new(Vec::new());
+    shared.run_workers(&|worker, checker| {
+        for (at, &(module, span)) in queries.iter().enumerate() {
+            let answer = checker.type_at(module, span);
+            answers.lock().unwrap().push((worker, at, answer));
+        }
+    });
+    let answers = answers.into_inner().unwrap();
+    assert_eq!(answers.len(), queries.len() * shared.workers());
+    for (worker, at, answer) in answers {
+        assert_eq!(answer, expected[at], "worker {worker}, query {at}");
+    }
+}

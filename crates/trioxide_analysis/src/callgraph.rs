@@ -6,15 +6,15 @@ use trioxide_common::NodeRef;
 
 use crate::{
     facts::{CallEdge, CallGraph, Effects, Trust},
-    interp::{Escape, Output, State},
+    interp::{Escape, Results, State},
     world::World,
 };
 
 /// Builds the call graph from the recorded edges.
-pub fn build(world: &World<'_>, output: &Output) -> CallGraph {
+pub fn build(world: &World<'_>, results: &Results) -> CallGraph {
     let mut edges = Vec::new();
     for &unit in &world.unit_order {
-        if let Some(record) = output.units.get(&unit) {
+        if let Some(record) = results.record(unit) {
             for edge in &record.edges {
                 edges.push(CallEdge {
                     site: edge.site,
@@ -34,66 +34,95 @@ pub fn build(world: &World<'_>, output: &Output) -> CallGraph {
 /// Tarjan's algorithm. Components come out callees first (reverse topological order).
 fn tarjan(nodes: &[NodeRef], edges: &[CallEdge]) -> Vec<Vec<NodeRef>> {
     struct Frame {
-        node: NodeRef,
+        node: usize,
         next: usize,
     }
-    let mut successors: FxHashMap<NodeRef, Vec<NodeRef>> = FxHashMap::default();
-    for edge in edges {
-        successors.entry(edge.caller).or_default().push(edge.callee);
+    const UNVISITED: usize = usize::MAX;
+    // Dense ids: the nodes, then any callee that isn't one, in order of appearance.
+    let mut ids: FxHashMap<NodeRef, usize> =
+        FxHashMap::with_capacity_and_hasher(nodes.len(), rustc_hash::FxBuildHasher);
+    let mut names: Vec<NodeRef> = Vec::with_capacity(nodes.len());
+    let mut id_of = |node: NodeRef, names: &mut Vec<NodeRef>| {
+        *ids.entry(node).or_insert_with(|| {
+            names.push(node);
+            names.len() - 1
+        })
+    };
+    for &node in nodes {
+        id_of(node, &mut names);
     }
-    let mut index: FxHashMap<NodeRef, usize> = FxHashMap::default();
-    let mut low: FxHashMap<NodeRef, usize> = FxHashMap::default();
-    let mut on_stack: FxHashSet<NodeRef> = FxHashSet::default();
-    let mut stack: Vec<NodeRef> = Vec::new();
+    let pairs: Vec<(usize, usize)> = edges
+        .iter()
+        .map(|edge| {
+            (
+                id_of(edge.caller, &mut names),
+                id_of(edge.callee, &mut names),
+            )
+        })
+        .collect();
+    // Successors in edge order, as compressed rows.
+    let mut starts = vec![0usize; names.len() + 1];
+    for &(caller, _) in &pairs {
+        starts[caller + 1] += 1;
+    }
+    for at in 1..starts.len() {
+        starts[at] += starts[at - 1];
+    }
+    let mut filled = starts.clone();
+    let mut successors = vec![0usize; pairs.len()];
+    for &(caller, callee) in &pairs {
+        successors[filled[caller]] = callee;
+        filled[caller] += 1;
+    }
+    let mut index = vec![UNVISITED; names.len()];
+    let mut low = vec![0usize; names.len()];
+    let mut on_stack = vec![false; names.len()];
+    let mut stack: Vec<usize> = Vec::new();
     let mut components = Vec::new();
     let mut counter = 0;
-    for &root in nodes {
-        if index.contains_key(&root) {
+    for root in 0..nodes.len() {
+        if index[root] != UNVISITED {
             continue;
         }
         let mut frames = vec![Frame {
             node: root,
             next: 0,
         }];
-        index.insert(root, counter);
-        low.insert(root, counter);
+        index[root] = counter;
+        low[root] = counter;
         counter += 1;
         stack.push(root);
-        on_stack.insert(root);
+        on_stack[root] = true;
         while let Some(frame) = frames.last_mut() {
             let node = frame.node;
-            let next = successors
-                .get(&node)
-                .and_then(|list| list.get(frame.next))
-                .copied();
-            if let Some(successor) = next {
+            let at = starts[node] + frame.next;
+            if at < starts[node + 1] {
+                let successor = successors[at];
                 frame.next += 1;
-                if let std::collections::hash_map::Entry::Vacant(entry) = index.entry(successor) {
-                    entry.insert(counter);
-                    low.insert(successor, counter);
+                if index[successor] == UNVISITED {
+                    index[successor] = counter;
+                    low[successor] = counter;
                     counter += 1;
                     stack.push(successor);
-                    on_stack.insert(successor);
+                    on_stack[successor] = true;
                     frames.push(Frame {
                         node: successor,
                         next: 0,
                     });
-                } else if on_stack.contains(&successor) {
-                    let value = low[&node].min(index[&successor]);
-                    low.insert(node, value);
+                } else if on_stack[successor] {
+                    low[node] = low[node].min(index[successor]);
                 }
                 continue;
             }
             frames.pop();
             if let Some(parent) = frames.last() {
-                let value = low[&parent.node].min(low[&node]);
-                low.insert(parent.node, value);
+                low[parent.node] = low[parent.node].min(low[node]);
             }
-            if low[&node] == index[&node] {
+            if low[node] == index[node] {
                 let mut component = Vec::new();
                 while let Some(member) = stack.pop() {
-                    on_stack.remove(&member);
-                    component.push(member);
+                    on_stack[member] = false;
+                    component.push(names[member]);
                     if member == node {
                         break;
                     }
@@ -108,14 +137,13 @@ fn tarjan(nodes: &[NodeRef], edges: &[CallEdge]) -> Vec<Vec<NodeRef>> {
 
 /// Effect summaries per unit: `(proven, declared)`, each including what callees do.
 pub fn effects(
-    world: &World<'_>,
     graph: &CallGraph,
-    output: &Output,
+    results: &Results,
     state: &State,
 ) -> FxHashMap<NodeRef, (Effects, Effects)> {
     let mut summaries: FxHashMap<NodeRef, (Effects, Effects)> = FxHashMap::default();
     let local = |unit: NodeRef| -> (Effects, Effects) {
-        let Some(record) = output.units.get(&unit) else {
+        let Some(record) = results.record(unit) else {
             return (Effects::ANY, Effects::ANY);
         };
         let allocates = record.allocations.iter().any(|site| {
@@ -130,8 +158,13 @@ pub fn effects(
         declared.allocates |= allocates;
         (proven, declared)
     };
+    summaries.reserve(graph.units().len());
     for component in graph.sccs() {
-        let members: FxHashSet<NodeRef> = component.iter().copied().collect();
+        let members: FxHashSet<NodeRef> = if component.len() > 1 {
+            component.iter().copied().collect()
+        } else {
+            FxHashSet::default()
+        };
         let mut proven = Effects::PURE;
         let mut declared = Effects::PURE;
         for &unit in component {
@@ -139,7 +172,7 @@ pub fn effects(
             proven = union(proven, p);
             declared = union(declared, d);
             for edge in graph.edges_from(unit) {
-                if members.contains(&edge.callee) {
+                if *component == [edge.callee] || members.contains(&edge.callee) {
                     continue;
                 }
                 let (callee_proven, callee_declared) = summaries
@@ -153,7 +186,6 @@ pub fn effects(
             }
         }
         for &unit in component {
-            let _ = world;
             summaries.insert(unit, (proven, declared));
         }
     }
