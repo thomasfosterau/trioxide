@@ -2126,6 +2126,17 @@ impl<'a> Cx<'_, '_, 'a> {
                                 }
                             });
                         }
+                    } else if matches!(key, Key::Unknown) {
+                        // May be `length` or any index: the length is no longer known, and
+                        // the value may be an element.
+                        self.store_elem(site, value);
+                        self.mark(site, |obj| {
+                            obj.dynamic = true;
+                            obj.length = None;
+                            obj.holey = true;
+                        });
+                        self.coerce(value, true);
+                        self.escape_value(value, Escape::Known);
                     } else {
                         self.mark(site, |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Known);

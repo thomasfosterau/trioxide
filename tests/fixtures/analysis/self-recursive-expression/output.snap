@@ -1,0 +1,13 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/self-recursive-expression
+input_file: tests/fixtures/analysis/self-recursive-expression/input.ts
+---
+//- input.ts
+// A named function expression calls itself through its own name: `self(3)` is 6, not 1.
+const fact = function self(n) {
+	return n <= 1 ? 1 : n * self(n - 1);
+};
+export function main() {
+	console.log(fact(3));
+}
