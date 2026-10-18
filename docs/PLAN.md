@@ -277,9 +277,9 @@ class shapes, and proven-unreachable code. Escape levels, points-to sets and the
 facts are not checked at run time.
 
 **Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time. It
-is not met at the moment: `benches/analysis.rs` measures about 2.6–2.8× on 4 cores (270–290
-ms against 100–106 ms for the 1780-module corpus on a noisy machine;
-`TRIOXIDE_BENCH_STATS=1` prints a breakdown). The corpus now includes the review fixtures, on
+is not met at the moment: `benches/analysis.rs` measures about 2.8–3.0× on 4 cores (290–305
+ms against 102–105 ms for the 1820-module corpus on a noisy machine, against about 7.5× for
+the same analysis on one thread; `TRIOXIDE_BENCH_STATS=1` prints a breakdown). The corpus now includes the review fixtures, on
 which the analysis before the review fixes didn't converge at all, and the review fixes made
 each interpretation dearer (per-expression effect frames, implicit calls, dead zones, more
 escapes). Interpretation runs in parallel:
@@ -312,10 +312,10 @@ escapes). Interpretation runs in parallel:
   unit's next run, starts from where it last settled joined with its new entry; it stops at
   a post-fixpoint above the entry either way, and usually after one pass instead of four.
 
-Of about 270 ms, about 30 ms is parsing and indexing (alongside the checkers' set-up), 7 ms
-setting up the sweeps, about 185 ms the sweeps (of which about 36 ms is tsrs queries, about
+Of about 300 ms, about 40 ms is parsing and indexing (alongside the checkers' set-up), 7 ms
+setting up the sweeps, about 200 ms the sweeps (of which about 36 ms is tsrs queries, about
 10 µs each on 4 workers, nearly all of it tsrs checking the expression, and 14 ms merging)
-and about 45 ms the summary. Units run 1.6 times each (17,580 runs of 10,880 units). On one
+and about 50 ms the summary. Units run 1.6 times each (18,330 runs of 11,200 units). On one
 thread, of the instructions inside `analyze`, tsrs queries are 22%, interpretation 46%,
 parsing and indexing 12% and the summary 11%; allocation is about 14% of everything, spread
 over many small sites. Measured but not taken: widening loops one pass earlier saves 8% but
