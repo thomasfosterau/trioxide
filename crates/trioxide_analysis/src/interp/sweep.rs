@@ -300,7 +300,7 @@ pub fn run(
             changed: &changed,
             round,
         };
-        let mut swept: Vec<Swept> = if shared_types {
+        let swept: Vec<Swept> = if shared_types {
             let shared = oracle
                 .shared()
                 .expect("the oracle answered from threads before");
@@ -323,7 +323,8 @@ pub fn run(
         }
 
         // Replay the writes, in chunk order. A chunk whose entries (written, or read by its
-        // writes) no earlier chunk touched would replay to exactly its overlay: install that.
+        // writes) no earlier chunk's writes or replay touched would replay to exactly its
+        // overlay: install that.
         let merging = std::time::Instant::now();
         let mut global = Tables::global(std::mem::take(&mut state));
         let cx = OpCx {
@@ -336,14 +337,13 @@ pub fn run(
             rustc_hash::FxBuildHasher,
         );
         let mut next_changed: FxHashSet<Dep> = FxHashSet::default();
-        let mut fast: Vec<bool> = Vec::with_capacity(swept.len());
-        for swept in &mut swept {
-            let entries = std::mem::take(&mut swept.entries);
-            fast.push(entries.iter().all(|dep| !merged.contains(dep)));
-            merged.extend(entries);
+        // When no two chunks share an entry, no chunk replays, so every chunk is fast.
+        let mut all_fast = true;
+        for swept in &swept {
+            all_fast &= swept.entries.iter().all(|dep| !merged.contains(dep));
+            merged.extend(swept.entries.iter().copied());
         }
         let mut spent = Vec::with_capacity(swept.len());
-        let all_fast = fast.iter().all(|&fast| fast);
         if all_fast {
             // No chunk saw another's writes: install them all, a table per thread.
             let mut owns = Vec::with_capacity(swept.len());
@@ -363,16 +363,23 @@ pub fn run(
                 install_all(owns, &mut global.own);
             });
         } else {
-            for (swept, fast) in swept.into_iter().zip(fast) {
-                if fast {
+            // A replay can change entries outside the chunk's own (escaping a parent class,
+            // following new props), so whether a chunk is fast is only known once every
+            // chunk before it is merged.
+            merged.clear();
+            for swept in swept {
+                if swept.entries.iter().all(|dep| !merged.contains(dep)) {
                     install(swept.own, &mut global.own);
                     next_changed.extend(swept.changed);
                 } else {
                     for op in &swept.log {
                         global.apply(cx, op);
                     }
+                    merged.extend(global.touched.iter().copied());
+                    merged.extend(global.reads.drain(..));
                     next_changed.extend(global.touched.drain(..));
                 }
+                merged.extend(swept.entries);
                 spent.push(swept.log);
             }
         }

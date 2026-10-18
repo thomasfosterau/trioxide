@@ -500,7 +500,7 @@ impl<'a> Cx<'_, '_, 'a> {
             let _ = self.call_unit(site, constructor, this, &args.values, args.spread);
             // `call_unit` treats a direct constructor call as a throw; this one is fine.
             if !heritage {
-                self.an.join_this(init, this);
+                self.run_init(init, this);
                 self.record.edges.push(Edge {
                     site: self.node(site),
                     callee: init,
@@ -534,13 +534,22 @@ impl<'a> Cx<'_, '_, 'a> {
                 }
             }
         }
-        self.an.join_this(init, this);
+        self.run_init(init, this);
         self.record.edges.push(Edge {
             site: self.node(site),
             callee: init,
             trust: Trust::Proven,
         });
         replaced
+    }
+
+    /// Passes `this` to the class's field initialisers. When unknown code may run them too,
+    /// it escapes to unknown code, as with a call to any open unit.
+    fn run_init(&mut self, init: NodeRef, this: &Val) {
+        if self.an.is_open(self.an.world.unit(init)) {
+            self.escape_value(this, Escape::Unknown);
+        }
+        self.an.join_this(init, this);
     }
 
     /// What `constructor` may return instead of `this`: anything it returns but `undefined`

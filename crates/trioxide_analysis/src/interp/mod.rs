@@ -83,11 +83,7 @@ const MAX_LOOP_ITERATIONS: usize = 12;
 pub enum Dep {
     Symbol(SymbolRef),
     Params(NodeRef),
-    /// Whether any argument passed to the unit is poisoned (all an open unit needs).
-    ParamsPoison(NodeRef),
     This(NodeRef),
-    /// Whether any `this` passed to the unit is poisoned.
-    ThisPoison(NodeRef),
     Return(NodeRef),
     Heap(AllocId),
     Super(NodeRef),
@@ -1315,15 +1311,6 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         self.tables.default_value(node)
     }
 
-    /// Which of the arguments known callers pass `unit` are poisoned, by position: all an open
-    /// unit needs to know about them.
-    pub fn poisoned_params_of(&self, unit: NodeRef) -> Vec<bool> {
-        self.read(Dep::ParamsPoison(unit));
-        self.tables.params(unit).map_or_else(Vec::new, |params| {
-            params.iter().map(|value| value.poisoned).collect()
-        })
-    }
-
     /// The arguments known callers pass `unit`, by position, and whether one passes a spread.
     pub fn params_of(&self, unit: NodeRef) -> (Vec<Val>, bool) {
         self.read(Dep::Params(unit));
@@ -1367,21 +1354,19 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     }
 
     fn recorded_this(&mut self, unit: &Unit<'a>) -> Val {
-        if self.is_open(unit) {
-            // Anything, poisoned if a known caller passed something poisoned.
-            self.read(Dep::ThisPoison(unit.id));
-            let mut value = Val::unknown();
-            value.poisoned = self
-                .tables
-                .this(unit.id)
-                .is_some_and(|recorded| recorded.poisoned);
-            return value;
-        }
         self.read(Dep::This(unit.id));
-        self.tables
+        let recorded = self
+            .tables
             .this(unit.id)
             .cloned()
-            .unwrap_or_else(Val::never)
+            .unwrap_or_else(Val::never);
+        // Joining with unknown drops the recorded sites, which escapes them: unknown code
+        // may call the unit on them.
+        if self.is_open(unit) {
+            recorded.join(&Val::unknown())
+        } else {
+            recorded
+        }
     }
 
     /// The value of the class object for `class`.

@@ -489,22 +489,11 @@ impl<'a> Cx<'_, '_, 'a> {
     /// Binds a unit's parameters to what its callers pass.
     pub fn params(&mut self, params: &'a FormalParameters<'a>) {
         let open = self.an.is_open(self.unit);
-        // Unknown callers may pass anything: only whether a known one passes something
-        // poisoned matters then.
-        let (recorded, spread, poisoned) = if open {
-            (Vec::new(), false, self.an.poisoned_params_of(self.unit.id))
-        } else {
-            let (recorded, spread) = self.an.params_of(self.unit.id);
-            (recorded, spread, Vec::new())
-        };
+        let (recorded, spread) = self.an.params_of(self.unit.id);
+        // Joining what known callers pass with unknown drops their sites, which escapes them.
         let incoming = |index: usize| -> Val {
-            if open {
-                let mut value = Val::unknown();
-                value.poisoned = poisoned.get(index).copied().unwrap_or(false);
-                return value;
-            }
             let known = recorded.get(index).cloned().unwrap_or_else(Val::never);
-            if spread {
+            if open || spread {
                 known.join(&Val::unknown())
             } else {
                 known

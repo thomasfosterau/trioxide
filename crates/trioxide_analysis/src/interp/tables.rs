@@ -191,12 +191,8 @@ impl<'s> Tables<'s> {
                     base.and_then(|base| base.this.get(unit).cloned())
                         .unwrap_or_else(Val::never)
                 });
-                let was_poisoned = slot.poisoned;
                 if join_into(cx.round, slot, value) {
                     self.touched.push(Dep::This(*unit));
-                    if slot.poisoned != was_poisoned {
-                        self.touched.push(Dep::ThisPoison(*unit));
-                    }
                 }
             }
             Op::JoinParam(unit, index, value) => {
@@ -210,12 +206,8 @@ impl<'s> Tables<'s> {
                     params.resize_with(index + 1, Val::never);
                     changed = true;
                 }
-                let was_poisoned = params[*index].poisoned;
                 if join_into(cx.round, &mut params[*index], value) || changed {
                     self.touched.push(Dep::Params(*unit));
-                }
-                if params[*index].poisoned != was_poisoned {
-                    self.touched.push(Dep::ParamsPoison(*unit));
                 }
             }
             Op::JoinSuper(class, value) => {
@@ -381,7 +373,7 @@ impl<'s> Tables<'s> {
                 }
                 None => false,
             },
-            Dep::Params(unit) | Dep::ParamsPoison(unit) => {
+            Dep::Params(unit) => {
                 let mut changed = !self.spread_called(unit);
                 self.own.spread_called.insert(unit);
                 if let Some(params) = self.params(unit).cloned() {
@@ -393,7 +385,7 @@ impl<'s> Tables<'s> {
                 }
                 changed
             }
-            Dep::This(unit) | Dep::ThisPoison(unit) => match self.this(unit).cloned() {
+            Dep::This(unit) => match self.this(unit).cloned() {
                 Some(mut slot) => {
                     let changed = top(&mut slot, &mut lost);
                     self.own.this.insert(unit, slot);
@@ -644,13 +636,11 @@ pub fn agrees(own: &State, dep: Dep, global: &State) -> bool {
                 && own.symbols.get(&symbol) == global.symbols.get(&symbol)
                 && own.may_be_uninit.contains(&symbol) == global.may_be_uninit.contains(&symbol)
         }
-        Dep::Params(unit) | Dep::ParamsPoison(unit) => {
+        Dep::Params(unit) => {
             same(own.params.get(&unit), global.params.get(&unit))
                 && own.spread_called.contains(&unit) == global.spread_called.contains(&unit)
         }
-        Dep::This(unit) | Dep::ThisPoison(unit) => {
-            same(own.this.get(&unit), global.this.get(&unit))
-        }
+        Dep::This(unit) => same(own.this.get(&unit), global.this.get(&unit)),
         Dep::Return(unit) => same(own.returns.get(&unit), global.returns.get(&unit)),
         Dep::Heap(site) => {
             same(own.heap.get(&site), global.heap.get(&site))
