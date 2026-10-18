@@ -1,6 +1,6 @@
 // The timing harness every benchmark uses (docs/PLAN.md §8): each variant of a program runs
-// in processes of its own (worker.mjs), over several rounds whose order alternates (round r
-// starts at variant r mod n, and odd rounds go backwards), under each engine configuration.
+// in processes of its own (worker.mjs), over several rounds whose order alternates (see
+// `order`), under each engine configuration.
 // It reports, per variant, the median time per call and, against the first variant, the
 // median and range of the per-round speedups.
 
@@ -34,10 +34,14 @@ export function timeOnce(flags, variant, budget) {
   return JSON.parse(output);
 }
 
-/** The order of the variants in round `round`. */
+/**
+ * The order of the variants in round `round`: rotated by one each round, and reversed every
+ * other cycle of `count` rounds, so each variant takes every position (with two variants:
+ * first, second, second, first, …).
+ */
 export function order(count, round) {
   const indices = Array.from({ length: count }, (_, i) => (i + round) % count);
-  return round % 2 ? indices.reverse() : indices;
+  return Math.floor(round / count) % 2 ? indices.reverse() : indices;
 }
 
 /**

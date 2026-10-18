@@ -8,12 +8,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { binary } from '../lib/trioxide.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
-const trioxide =
-  process.env.TRIOXIDE_BIN ??
-  ['release', 'debug'].map((p) => path.join(repo, 'target', p, 'trioxide')).find((p) => existsSync(p));
+const trioxide = binary();
 const out = path.join(here, '..', '.out', 'reach');
 mkdirSync(out, { recursive: true });
 

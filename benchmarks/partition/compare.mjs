@@ -4,7 +4,7 @@
 // use it.
 //
 // Usage (from a project directory): node <repo>/benchmarks/partition/compare.mjs src/main.ts
-// TRIOXIDE_BIN picks the trioxide binary (default: target/release, else target/debug).
+// TRIOXIDE_BIN picks the trioxide binary (default: target/release, rebuilt first if stale).
 
 import path from 'node:path';
 import { compare, ENGINES, formatTime } from '../lib/harness.mjs';

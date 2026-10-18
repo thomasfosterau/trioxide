@@ -12,7 +12,7 @@
 // (`--no-opt --no-maglev`; partition uses the defaults only).
 //
 // Usage: pnpm --filter trioxide-benchmarks bench [suite…] [--filter text] [--quick]
-// Environment: TRIOXIDE_BIN (default target/release, else target/debug, else built),
+// Environment: TRIOXIDE_BIN (default target/release, which cargo brings up to date first),
 // ROUNDS (default 5; 3 for partition and throughput), BENCH_TIME (milliseconds per process,
 // default 1000), BENCH_OUT (report path, default .out/results.md).
 

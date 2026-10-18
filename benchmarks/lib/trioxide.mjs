@@ -11,13 +11,11 @@ export const out = path.join(benchmarks, '.out');
 export const cacheDir = path.join(out, '.cache');
 
 /**
- * The trioxide binary: TRIOXIDE_BIN, else target/release, else target/debug (built first
- * when neither exists).
+ * The trioxide binary: TRIOXIDE_BIN, else target/release, which `cargo build --release` brings
+ * up to date first (so a stale binary is never measured).
  */
 export function binary() {
   if (process.env.TRIOXIDE_BIN) return process.env.TRIOXIDE_BIN;
-  const found = ['release', 'debug'].map((p) => path.join(repo, 'target', p, 'trioxide')).find((p) => existsSync(p));
-  if (found) return found;
   execFileSync('cargo', ['build', '--quiet', '--release', '-p', 'trioxide_cli'], { cwd: repo, stdio: 'inherit' });
   return path.join(repo, 'target', 'release', 'trioxide');
 }

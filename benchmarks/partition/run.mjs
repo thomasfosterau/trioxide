@@ -14,7 +14,7 @@
 //      results.json for fit.mjs.
 //
 // Usage: node run.mjs [--filter name] [--weights file.json] [--quick]
-// TRIOXIDE_BIN picks the trioxide binary (default: target/release, else target/debug).
+// TRIOXIDE_BIN picks the trioxide binary (default: target/release, rebuilt first if stale).
 // `pnpm --filter trioxide-benchmarks bench` runs it too (lib/bench.mjs's `partition` suite).
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -129,7 +129,8 @@ export function measure(options = {}) {
     results.push({ name, js: row.variants[0].ns, wasm: row.variants[1]?.ns ?? null, model });
     process.stderr.write(`partition/${name}: done\n`);
   }
-  if (!options.filter) writeFileSync(path.join(here, 'results.json'), JSON.stringify(results, null, 2) + '\n');
+  // results.json is the calibration fit.mjs reads: only complete, full-length runs replace it.
+  if (!options.filter && !options.quick) writeFileSync(path.join(here, 'results.json'), JSON.stringify(results, null, 2) + '\n');
   return { results, markdown: tables(results) };
 }
 
