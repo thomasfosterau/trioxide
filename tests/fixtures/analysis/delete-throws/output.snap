@@ -1,0 +1,45 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/delete-throws
+input_file: tests/fixtures/analysis/delete-throws/input.ts
+---
+//- input.ts
+// In strict code, deleting a non-configurable property throws: an array's `length`, a typed
+// array's elements, any property of a frozen object (writing one throws too).
+export function main() {
+	const xs = [
+		1,
+		2,
+		3
+	];
+	for (const k of ["0", "length"]) {
+		try {
+			delete xs[k];
+			console.log("deleted", k);
+		} catch (error) {
+			console.log("threw", k, error.name);
+		}
+	}
+	const frozen = Object.freeze({ a: 1 });
+	try {
+		delete frozen.a;
+		console.log("deleted a");
+	} catch (error) {
+		console.log("threw a", error.name);
+	}
+	try {
+		frozen.a = 2;
+		console.log("wrote a");
+	} catch (error) {
+		console.log("threw writing a", error.name);
+	}
+	const bytes = new Uint8Array(2);
+	for (const k of ["1", "length"]) {
+		try {
+			delete bytes[k];
+			console.log("deleted byte", k);
+		} catch (error) {
+			console.log("threw byte", k, error.name);
+		}
+	}
+}
