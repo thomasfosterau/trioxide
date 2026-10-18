@@ -162,12 +162,21 @@ size and copies the argument with `TypedArray.prototype.set`:
   ToNumber. The analysis must prove the elements are numbers. An element that is `undefined`
   (a hole) is written as the signalling NaN `array::HOLE`
   (`0x7ff4_7472_696f_7869`), which arithmetic turns into an ordinary NaN, as `undefined`
-  does; the island must not observe `undefined` other than through arithmetic, and never
-  stores a possibly-`undefined` value in a `number[]` (`array::store_number` turns the hole
-  bits into NaN, which is what `+undefined` gives). See
-  [`array`](../crates/trioxide_rt/src/array.rs).
+  does. The island must not observe `undefined` other than through arithmetic, and never
+  stores a value that may be `undefined` in a `number[]`: TypeScript's `number[]` doesn't
+  rule out holes, so a read counts as defined only when the analysis *proves* it in bounds
+  or proves its type, even with `trustTypes` (`xs[i] = xs[i]` is ineligible). Every
+  `number[]` store goes through `array::store_number`, which turns the hole bits into NaN
+  (what `+undefined` gives): `x * 1`, `x - 0` and `x / 1` fold to `x`, `-x` and `Math.abs`
+  only change the sign, and a typed array can hold the pattern, so arithmetic may carry it.
+  See [`array`](../crates/trioxide_rt/src/array.rs).
 - A detached typed array has length 0 and is passed as an empty array (`set` would throw on
   it), as a JS loop over it sees no elements.
+- The island sees a typed array's intrinsic length (`TypedArray.prototype.length`, which
+  also follows a resizable buffer). If the argument's `length` property says otherwise (an
+  own or shadowing property), JS loops would follow it, so the wrapper calls the JS version
+  from the `fallback` (generated islands with typed array parameters always have one), or
+  throws a `TypeError` without one.
 
 Empty arrays pass `len = 0` with some aligned pointer; `abi::slice` returns `&[]` without
 touching it.
@@ -411,7 +420,9 @@ subnormals, 2^31 and 2^32 boundaries, rounding ties and pseudo-random values.
 **NaN payloads** are not preserved: a NaN an island computes (`x * 1`, `Math.max(NaN, 1)`,
 `Math.sqrt` of a signalling NaN, …) may carry different payload bits than V8's. ECMAScript
 leaves them implementation-defined and every NaN behaves the same; only storing one in a
-`Float64Array` and reading the bits back through another view can tell.
+`Float64Array` and reading the bits back through another view can tell. The same function
+can produce different NaN bits before and after its island is instantiated: in `ready()`
+mode early calls run the JS version (V8's `0 / 0` is `0x7ff8…`, WASM's `0xfff8…`).
 
 | JS | Rust |
 |----|------|
@@ -480,6 +491,12 @@ both cases (a WebAssembly stack overflow is not a `RuntimeError`), but an island
 recurses deeper first, so a call JS rejects can succeed. JS's own limit depends on the engine,
 its flags and the stack already in use, so programs can't rely on it; the backend still
 compiles recursion.
+
+**Allocation size.** Island memory is 32-bit linear memory, at most 4 GiB, shared by the
+argument copies and the island's own arrays. An allocation JS can make may not fit (Node
+allocates `new Float64Array(2 ** 29 + 1)`, 4 GiB + 8 bytes), so the island throws
+`RangeError: trioxide: island "<id>" ran out of memory in <name>()` where JS would continue.
+The backend doesn't prove allocation sizes small.
 
 `$alloc` failing during copy-in throws a `RangeError` before the call. Errors thrown while
 reading arguments (say, a struct argument that is `undefined`) propagate unchanged. The

@@ -45,6 +45,18 @@ function $trap(error, name) {
   return new Error(`trioxide: island "array-reduce" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
+// The intrinsic length of a typed array: the island sees that many elements, so an argument
+// whose `length` property says otherwise (an own or inherited override) runs the JS version.
+const $typedLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), 'length').get;
+
+function $plainView(array) {
+  try {
+    return $typedLength.call(array) === array.length;
+  } catch {
+    return false;
+  }
+}
+
 // Copies a typed array into the arena as View elements. (A detached one has no elements,
 // and `set` would throw.)
 function $copyIn(array, View) {
@@ -165,6 +177,9 @@ export function prefixSums(values) {
 }
 
 export function weightedMean(values, weights) {
+  if (!$plainView(weights)) {
+    throw new TypeError('trioxide: weightedMean() got an argument with a `length` or fields that aren\'t plain data properties, which island "array-reduce" cannot handle');
+  }
   try {
     const $0 = $copyInNumbers(values);
     const $1 = $copyIn(weights, Float64Array);

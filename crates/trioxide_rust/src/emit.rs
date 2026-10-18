@@ -408,10 +408,10 @@ impl Printer<'_> {
             } => {
                 let array = self.expr(array, cx).0;
                 let value = match value {
-                    // Arithmetic never produces a hole (`array::HOLE`); copies may.
-                    Expr::Lit(_) | Expr::Binary(..) | Expr::Unary(..) | Expr::Math(..) => {
-                        self.expr(value, cx).0
-                    }
+                    // Only constants and integers can't carry the bits of a hole
+                    // (`array::HOLE`): `x * 1` folds to `x`, `-x` and `Math.abs` only touch the
+                    // sign, and a typed array may hold the pattern itself.
+                    Expr::Lit(_) => self.expr(value, cx).0,
                     Expr::Convert { from, .. } if *from != Ty::F64 => self.expr(value, cx).0,
                     _ if *elem == Elem::Number => {
                         format!("array::store_number({})", self.expr(value, cx).0)

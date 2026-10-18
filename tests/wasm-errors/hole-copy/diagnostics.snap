@@ -1,0 +1,13 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm-errors/hole-copy
+input_file: tests/wasm-errors/hole-copy/input.ts
+---
+error[trioxide(wasm-ineligible)]: `self` is forced into WASM but can't be compiled: may store undefined in a `number[]` (a value read from a hole or past the end, which the analysis can't rule out)
+  --> input.ts:6:39 `xs[i] = xs[i]`
+      may store undefined in a `number[]` (a value read from a hole or past the end, which the analysis can't rule out)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain
+error[trioxide(wasm-ineligible)]: `pick` is forced into WASM but can't be compiled: may store undefined in a `number[]` (a value read from a hole or past the end, which the analysis can't rule out)
+  --> input.ts:11:39 `xs[i] = i > 0 ? xs[i] : 0`
+      may store undefined in a `number[]` (a value read from a hole or past the end, which the analysis can't rule out)
+  help: remove the directive to keep it in JS; docs/PLAN.md §5 lists what islands can contain

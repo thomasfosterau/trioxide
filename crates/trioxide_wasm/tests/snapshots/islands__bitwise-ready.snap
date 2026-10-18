@@ -61,6 +61,18 @@ function $trap(error, name) {
   return new Error(`trioxide: island "bitwise" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
+// The intrinsic length of a typed array: the island sees that many elements, so an argument
+// whose `length` property says otherwise (an own or inherited override) runs the JS version.
+const $typedLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), 'length').get;
+
+function $plainView(array) {
+  try {
+    return $typedLength.call(array) === array.length;
+  } catch {
+    return false;
+  }
+}
+
 // Copies a typed array into the arena as View elements. (A detached one has no elements,
 // and `set` would throw.)
 function $copyIn(array, View) {
@@ -75,6 +87,9 @@ function $copyBack(array, View, ptr) {
 
 export function fnv1a(bytes) {
   $check();
+  if (!$plainView(bytes)) {
+    throw new TypeError('trioxide: fnv1a() got an argument with a `length` or fields that aren\'t plain data properties, which island "bitwise" cannot handle');
+  }
   try {
     const $0 = $copyIn(bytes, Uint8Array);
     const $ret = $wasm.fnv1a($0, bytes.length);
@@ -88,6 +103,9 @@ export function fnv1a(bytes) {
 
 export function crc32(bytes) {
   $check();
+  if (!$plainView(bytes)) {
+    throw new TypeError('trioxide: crc32() got an argument with a `length` or fields that aren\'t plain data properties, which island "bitwise" cannot handle');
+  }
   try {
     const $0 = $copyIn(bytes, Uint8Array);
     const $ret = $wasm.crc32($0, bytes.length);
@@ -112,6 +130,9 @@ export function popcount(x) {
 
 export function xorshift(seed, out) {
   $check();
+  if (!$plainView(out)) {
+    throw new TypeError('trioxide: xorshift() got an argument with a `length` or fields that aren\'t plain data properties, which island "bitwise" cannot handle');
+  }
   let $1;
   let $called = false;
   try {

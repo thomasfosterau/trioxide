@@ -46,6 +46,18 @@ function $trap(error, name) {
   return new Error(`trioxide: island "particles" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
+// The intrinsic length of a typed array: the island sees that many elements, so an argument
+// whose `length` property says otherwise (an own or inherited override) runs the JS version.
+const $typedLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), 'length').get;
+
+function $plainView(array) {
+  try {
+    return $typedLength.call(array) === array.length;
+  } catch {
+    return false;
+  }
+}
+
 // Copies a typed array into the arena as View elements. (A detached one has no elements,
 // and `set` would throw.)
 function $copyIn(array, View) {
@@ -101,6 +113,9 @@ function $readPoint(view, ptr) {
 }
 
 export function centroid(xs, ys) {
+  if (!$plainView(xs) || !$plainView(ys)) {
+    return $fallback.centroid(xs, ys);
+  }
   try {
     const $0 = $copyIn(xs, Float64Array);
     const $1 = $copyIn(ys, Float64Array);
@@ -114,6 +129,9 @@ export function centroid(xs, ys) {
 }
 
 export function spread(xs, ys) {
+  if (!$plainView(xs) || !$plainView(ys)) {
+    return $fallback.spread(xs, ys);
+  }
   try {
     const $0 = $copyIn(xs, Float64Array);
     const $1 = $copyIn(ys, Float64Array);

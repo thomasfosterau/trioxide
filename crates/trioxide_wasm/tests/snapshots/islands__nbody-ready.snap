@@ -58,6 +58,18 @@ function $trap(error, name) {
   return new Error(`trioxide: island "nbody" trapped in ${name}(); this is a trioxide bug`, { cause: error });
 }
 
+// The intrinsic length of a typed array: the island sees that many elements, so an argument
+// whose `length` property says otherwise (an own or inherited override) runs the JS version.
+const $typedLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Int8Array.prototype), 'length').get;
+
+function $plainView(array) {
+  try {
+    return $typedLength.call(array) === array.length;
+  } catch {
+    return false;
+  }
+}
+
 // Copies a typed array into the arena as View elements. (A detached one has no elements,
 // and `set` would throw.)
 function $copyIn(array, View) {
@@ -72,6 +84,9 @@ function $copyBack(array, View, ptr) {
 
 export function advance(bodies, dt, steps) {
   $check();
+  if (!$plainView(bodies)) {
+    throw new TypeError('trioxide: advance() got an argument with a `length` or fields that aren\'t plain data properties, which island "nbody" cannot handle');
+  }
   let $0;
   let $called = false;
   try {
@@ -90,6 +105,9 @@ export function advance(bodies, dt, steps) {
 
 export function energy(bodies) {
   $check();
+  if (!$plainView(bodies)) {
+    throw new TypeError('trioxide: energy() got an argument with a `length` or fields that aren\'t plain data properties, which island "nbody" cannot handle');
+  }
   try {
     const $0 = $copyIn(bodies, Float64Array);
     return $wasm.energy($0, bodies.length);
