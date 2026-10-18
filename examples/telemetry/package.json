@@ -1,0 +1,14 @@
+{
+  "name": "trioxide-example-telemetry",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "trioxide build src/main.ts --out-dir dist",
+    "start": "trioxide build src/main.ts --out-dir dist && node -e \"import('./dist/src/main.js').then((m) => m.main())\"",
+    "explain": "trioxide explain --entry src/main.ts",
+    "bench": "node ../../benchmarks/bench.mjs programs --filter telemetry"
+  },
+  "devDependencies": {
+    "trioxide": "workspace:*"
+  }
+}

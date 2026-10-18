@@ -84,13 +84,13 @@ src/view.ts
 
 The differential suite runs this example's `main()` types-stripped, as trioxide's JS, and with
 the islands `auto` picks (`tests/differential`, legs a, b and d); all print the same. `pnpm
-compare` times `run()` three ways (Node 22):
+compare` times `run()` three ways (Node 22, the median of three alternating rounds):
 
 | build | islands | `run()` |
 |---|---|---|
-| JS only | — | 2.09 ms |
-| auto | kernel | 0.90 ms |
-| every cluster | ease, kernel | 1.47 ms |
+| JS only | — | 1.30 ms |
+| auto | kernel | 0.82 ms |
+| every cluster | ease, kernel | 1.41 ms |
 
-Moving the kernel makes `run()` about twice as fast; moving `ease` too gives part of that
+Moving the kernel makes `run()` about 1.6× as fast; moving `ease` too gives part of that
 back, as the model predicts.

@@ -1,0 +1,4 @@
+{
+  "$schema": "../../schema/trioxide.schema.json",
+  "passes": { "inline-fn": true, "scalar": true }
+}

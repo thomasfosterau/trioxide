@@ -107,7 +107,7 @@ before(() => {
 
 // Examples whose entry exports `main()` run too (legs a, b and d): they must behave the same
 // JS-only and with the islands the partitioner picks.
-const exampleEntries = ['examples/mixed/src/main.ts', 'examples/image-filters/src/main.ts'].map((entry) =>
+const exampleEntries = ['examples/mixed/src/main.ts', 'examples/image-filters/src/main.ts', 'examples/telemetry/src/main.ts'].map((entry) =>
   path.join(repo, entry),
 );
 const entries = [...fixtureRoots.flatMap((root) => discover(root)), ...exampleEntries].filter(

@@ -62,6 +62,10 @@ jobs:
         run: pnpm --filter trioxide test
       - name: dom-app with and without trioxide
         run: pnpm --filter trioxide-example-dom-app test
+      - name: Examples through the Vite plugin, production and dev, against the CLI build
+        env:
+          TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
+        run: pnpm --filter trioxide-example-mixed test
       - name: Differential suite
         env:
           TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
