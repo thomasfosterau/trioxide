@@ -3,18 +3,18 @@
 One package, `trioxide-benchmarks`, with one entry point and one timing harness:
 
 ```sh
-cargo build -p trioxide_cli --release            # optional; else target/debug, else built
+cargo build -p trioxide_cli --release            # optional: bench builds it if stale
 pnpm --filter trioxide-benchmarks bench          # every suite; writes .out/results.md (+ .json)
 pnpm --filter trioxide-benchmarks bench programs throughput   # some suites
 pnpm --filter trioxide-benchmarks bench --filter telemetry    # matching cases only
-pnpm --filter trioxide-benchmarks bench --quick  # one short round, to check it runs
+pnpm --filter trioxide-benchmarks bench --quick  # one short round, to check it runs (keeps results.json)
 pnpm --filter trioxide-benchmarks fit            # refit the cost model (partition/fit.mjs)
 pnpm --filter trioxide-benchmarks reach          # default-mode reach (partition/reach.mjs)
 ```
 
-`TRIOXIDE_BIN` picks the binary, `ROUNDS` the rounds (default 5; 3 for partition and
-throughput), `BENCH_TIME` the milliseconds each timing process runs (default 1000), and
-`BENCH_OUT` the report's path.
+`TRIOXIDE_BIN` picks the binary (default: the release build, brought up to date first),
+`ROUNDS` the rounds (default 5; 3 for partition and throughput), `BENCH_TIME` the milliseconds
+each timing process runs (default 1000), and `BENCH_OUT` the report's path.
 
 | suite | what | variants |
 |---|---|---|
@@ -25,7 +25,8 @@ throughput), `BENCH_TIME` the milliseconds each timing process runs (default 100
 
 **The harness** (`lib/harness.mjs`, `lib/worker.mjs`): every variant runs in Node processes of
 its own, so one variant's JIT state can't affect another's. Each round runs every variant
-once, in an order that rotates and reverses from round to round. A process warms up for a
+once; the order rotates by one each round and reverses every other cycle, so each variant
+takes every position (two variants: first, second, second, first, …). A process warms up for a
 quarter of its time, then times batches of at least 10 ms and reports the median batch. The
 report gives each variant's median time over the rounds and, against the first variant, the
 median and the range of the per-round speedups; every round also checks that all variants
@@ -49,22 +50,24 @@ default options (`mode: "auto"`) with the islands the cost model picks, built an
 ## Results
 
 Node 22.22.0 (V8 12.4.254.21), Intel Xeon @ 2.10 GHz × 4 (a shared cloud VM), 16 GiB, Linux
-6.18; Rust 1.99.1; the release `trioxide` binary at `9a24eb9` (main after #15–#19, plus this
-branch's fixes). Run-to-run noise on this machine is ±10–30% for short programs, so read the
-ranges, not just the medians.
+6.18; Rust 1.99.1; the release `trioxide` binary of this branch (main at `baa82da`, with #6,
+plus this PR, including the refitted cost model). Defaults throughout: five rounds for
+`passes` and `programs`, three for `partition` and `throughput`. Run-to-run noise on this
+machine is heavy-tailed: one process in five or so of the same build runs 20–30% slow, so read
+the ranges, not just the medians, and prefer more rounds (`ROUNDS=11`) for a single decision.
 
 ### JS passes
 
 | case | engine | measures | stripped | optimised | speedup (range) |
 |---|---:|---:|---:|---:|---:|
-| `closure-hoist-loop` | default | `bench()` | 1.3 µs | 1.1 µs | 1.06× (0.76–1.41) |
-| `closure-hoist-loop` | cold | `bench()` | 9.3 µs | 6.2 µs | 1.46× (1.43–1.54) |
-| `inline-vector` | default | `bench()` | 5.8 µs | 7.0 µs | 0.83× (0.82–0.96) |
-| `inline-vector` | cold | `bench()` | 180.3 µs | 152.9 µs | 1.18× (0.90–1.25) |
-| `partial-eval-table` | default | module evaluation | 431.4 µs | 156.4 µs | 2.76× (2.37–3.11) |
-| `partial-eval-table` | cold | module evaluation | 501.6 µs | 240.5 µs | 2.06× (1.76–2.42) |
-| `scalar-points` | default | `bench()` | 7.3 µs | 8.5 µs | 0.85× (0.83–1.14) |
-| `scalar-points` | cold | `bench()` | 605.5 µs | 198.2 µs | 3.07× (3.05–3.36) |
+| `closure-hoist-loop` | default | `bench()` | 1.1 µs | 1.1 µs | 1.06× (0.93–1.29) |
+| `closure-hoist-loop` | cold | `bench()` | 8.5 µs | 6.1 µs | 1.39× (1.22–1.74) |
+| `inline-vector` | default | `bench()` | 5.8 µs | 6.9 µs | 0.85× (0.68–0.86) |
+| `inline-vector` | cold | `bench()` | 177.5 µs | 148.2 µs | 1.19× (1.07–1.45) |
+| `partial-eval-table` | default | module evaluation | 433.4 µs | 148.9 µs | 2.62× (2.24–3.44) |
+| `partial-eval-table` | cold | module evaluation | 517.8 µs | 202.5 µs | 2.20× (1.52–2.63) |
+| `scalar-points` | default | `bench()` | 7.0 µs | 8.3 µs | 0.84× (0.83–0.90) |
+| `scalar-points` | cold | `bench()` | 569.5 µs | 196.3 µs | 2.88× (2.52–3.32) |
 
 The same picture as S5a measured with tinybench: partial evaluation wins everywhere, closure
 hoisting, inlining and scalar replacement win only in cold code, and inlining and scalar
@@ -74,39 +77,37 @@ replacement are slightly slower in hot code (which is why they are off by defaul
 
 | program | engine | stripped | trioxide | all passes | auto + WASM | islands |
 |---|---:|---:|---:|---:|---:|---:|
-| `array-pipeline` | default | 8.20 ms | 0.97× (0.93–1.02) | 1.00× (0.92–1.03) | 1.01× (0.96–1.06) | — |
-| `array-pipeline` | cold | 12.32 ms | 0.94× (0.65–0.96) | 1.01× (0.95–1.21) | 0.94× (0.86–1.04) | — |
-| `numeric-driver` | default | 2.33 ms | 0.99× (0.95–1.36) | 1.02× (0.91–1.35) | 1.00× (0.80–1.17) | — |
-| `numeric-driver` | cold | 36.90 ms | 1.09× (0.90–1.59) | 1.00× (0.90–1.62) | 1.04× (0.92–1.65) | — |
-| `object-heavy` | default | 2.29 ms | 1.01× (0.97–1.15) | 1.05× (0.92–1.11) | 0.91× (0.77–1.10) | — |
-| `object-heavy` | cold | 27.37 ms | 0.97× (0.83–0.99) | 1.07× (1.02–1.25) | 0.94× (0.83–1.11) | — |
-| `examples/image-filters` | default | 32.81 ms | 1.01× (0.94–1.24) | 0.98× (0.76–1.26) | 0.78× (0.77–1.01) | filters |
-| `examples/image-filters` | cold | 223.24 ms | 1.02× (0.96–1.10) | 1.01× (0.86–1.14) | 1.57× (1.42–2.10) | filters |
-| `examples/mixed` | default | 1.23 ms | 1.03× (0.92–1.18) | 1.00× (0.70–1.19) | 1.48× (1.40–1.61) | kernel |
-| `examples/mixed` | cold | 53.58 ms | 1.01× (0.94–1.10) | 0.96× (0.82–1.09) | 5.81× (5.26–7.38) | kernel |
-| `examples/telemetry` | default | 989.2 µs | 1.07× (1.05–1.58) | 1.09× (1.05–1.58) | 1.01× (0.83–1.38) | — |
-| `examples/telemetry` | cold | 10.19 ms | 1.05× (0.98–1.07) | 1.03× (0.98–1.13) | 0.95× (0.85–1.05) | — |
+| `array-pipeline` | default | 7.65 ms | 0.95× (0.85–1.04) | 0.96× (0.90–1.13) | 0.95× (0.85–0.99) | — |
+| `array-pipeline` | cold | 11.96 ms | 1.00× (0.95–1.06) | 1.03× (1.03–1.10) | 1.04× (0.74–1.10) | — |
+| `numeric-driver` | default | 2.18 ms | 0.99× (0.98–1.03) | 1.00× (0.66–1.07) | 1.15× (1.11–1.21) | dsp |
+| `numeric-driver` | cold | 33.93 ms | 1.00× (0.73–1.09) | 1.04× (1.03–1.27) | 6.22× (5.00–7.79) | dsp |
+| `object-heavy` | default | 1.58 ms | 1.04× (0.91–1.12) | 0.95× (0.93–1.03) | 0.95× (0.86–1.01) | — |
+| `object-heavy` | cold | 25.96 ms | 0.98× (0.89–0.99) | 1.08× (0.98–1.17) | 1.00× (0.72–1.01) | — |
+| `examples/image-filters` | default | 31.40 ms | 0.87× (0.74–1.02) | 0.98× (0.93–1.01) | 0.99× (0.97–1.02) | — |
+| `examples/image-filters` | cold | 205.29 ms | 0.94× (0.93–1.11) | 0.97× (0.93–1.09) | 0.98× (0.90–1.16) | — |
+| `examples/mixed` | default | 1.25 ms | 1.08× (1.02–1.50) | 1.06× (1.00–1.26) | 1.54× (1.49–1.83) | kernel |
+| `examples/mixed` | cold | 50.34 ms | 1.19× (0.85–1.35) | 0.97× (0.81–1.10) | 6.56× (6.06–7.03) | kernel |
+| `examples/telemetry` | default | 903.4 µs | 1.07× (0.86–1.11) | 1.05× (0.91–1.08) | 1.01× (0.84–1.10) | — |
+| `examples/telemetry` | cold | 9.65 ms | 1.02× (0.91–1.14) | 1.08× (0.99–1.14) | 1.04× (0.97–1.16) | — |
 
 (`examples/telemetry`'s own config already turns on `inline-fn` and `scalar`, so its
 `trioxide` and `all passes` columns are the same build; its README compares against the
-default passes.) The variants agree on every result in every round.
+default passes. `examples/image-filters`' `trioxide` column is the same code as its stripped
+build but for inlined constants, so its 0.87× is this machine's noise.) The variants agree on
+every result in every round.
 
-- **WASM pays off where the cost model says it does**: `mixed`'s int32 kernel, 1.5× under V8's
-  defaults and 5.8× cold. It loses where the model is wrong: `image-filters`' `boxBlur`, which
-  the model now picks (see "Cost-model refit"), is 0.78× under the defaults. (Cold, it is 1.6×,
-  since the JS it replaces runs in the interpreter.) `numeric-driver`'s four kernels are all
-  eligible by default and the model keeps them JS, but with every cluster as WASM
-  (`node partition/compare.mjs input.ts` in `programs/numeric-driver`) `run()` takes 1.99 ms
-  against 2.39 ms JS-only: a miss of the same kind as `matmul` (int32-indexed typed-array
-  work, which the `index` weight still charges 2.5 ns per access).
+- **WASM pays off where the cost model now picks it**: `mixed`'s int32 kernel (1.5× under
+  V8's defaults, 6.6× cold) and `numeric-driver`'s FIR filter (`fir`, 1.15× and 6.2×). With
+  the weights before the refit, `numeric-driver` stayed all JS and `image-filters` moved
+  `boxBlur` into WASM, which is slower (0.79× over eleven rounds; its README has the numbers).
 - **The JS passes don't move these programs** beyond the noise, under either engine. The
-  largest effect is `object-heavy` cold with every pass, 1.07×.
+  largest effect is `object-heavy` cold with every pass, 1.08×.
 
 ### M4: "Benchmarks show speedups on array-pipeline and object-heavy fixtures"
 
 **It does not hold on main today**, for realistic programs. It holds for the synthetic
-single-pass cases (`scalar-points` 3.1× and `inline-vector` 1.2× cold, `partial-eval-table`
-2–2.8× everywhere), but `array-pipeline` and `object-heavy` run within ±7% of the stripped
+single-pass cases (`scalar-points` 2.9× and `inline-vector` 1.2× cold, `partial-eval-table`
+2.2–2.6× everywhere), but `array-pipeline` and `object-heavy` run within ±8% of the stripped
 build in both engines, with the default passes and with every pass. What blocks it, from
 `trioxide explain` on those programs:
 
@@ -128,8 +129,8 @@ build in both engines, with the default passes and with every pass. What blocks 
    `this`). With both passes on, one call in `step` and one call and one literal in `bounce`
    change.
 4. **V8 already does the rest in hot code.** Where the passes do fire, the optimising tiers
-   reach the same code; the gains are in cold code (`closure-hoist-loop` 1.46×,
-   `scalar-points` 3.1× cold, both neutral or slower hot).
+   reach the same code; the gains are in cold code (`closure-hoist-loop` 1.39×,
+   `scalar-points` 2.9× cold, both neutral or slower hot).
 
 ### Compiler throughput
 
@@ -140,16 +141,17 @@ modules), median of three runs:
 
 | corpus | modules | wall time | peak RSS |
 |---|---:|---:|---:|
-| conformance/heap-js | 3 | 76.07 ms (68.47 ms–84.25 ms) | 35 MiB (35–35) |
-| conformance/mitt | 2 | 39.89 ms (38.55 ms–49.04 ms) | 32 MiB (32–32) |
-| conformance/neverthrow | 6 | 66.64 ms (60.11 ms–76.01 ms) | 39 MiB (39–39) |
-| conformance/simplex-noise | 2 | 51.88 ms (51.25 ms–62.54 ms) | 33 MiB (33–33) |
-| analysis bench corpus (1940 modules) | 1940 | 2.21 s (1.81 s–2.81 s) | 220 MiB (220–221) |
+| conformance/heap-js | 3 | 57.01 ms (56.66 ms–79.12 ms) | 37 MiB (37–37) |
+| conformance/mitt | 2 | 40.01 ms (38.20 ms–48.11 ms) | 32 MiB (32–32) |
+| conformance/neverthrow | 6 | 59.93 ms (59.52 ms–71.19 ms) | 40 MiB (40–40) |
+| conformance/simplex-noise | 2 | 44.23 ms (43.06 ms–44.39 ms) | 33 MiB (33–33) |
+| analysis bench corpus (1940 modules) | 1940 | 1.56 s (1.19 s–1.98 s) | 282 MiB (279–283) |
 
 This is the baseline. A whole build of the 1940-module corpus (graph, tsrs program, analysis,
-partitioning, passes and codegen of every module) takes about 2.2 s and 220 MiB; S2's
-analysis-only benchmark measured 770–800 ms of analysis on 1820 of these modules. The
-conformance libraries build in 40–80 ms each, most of it fixed start-up (loading tsrs's
+partitioning, passes and codegen of every module) takes about 1.6 s and 280 MiB with #6's
+parallel analysis (before #6 it was 2.2 s and 220 MiB on the same corpus); S2's
+analysis-only benchmark measured 770–800 ms of sequential analysis on 1820 of these modules.
+The conformance libraries build in 40–60 ms each, most of it fixed start-up (loading tsrs's
 `lib.d.ts`).
 
 ## Cost-model refit
@@ -157,20 +159,26 @@ conformance libraries build in 40–80 ms each, most of it fixed start-up (loadi
 S8 deferred the refit to this session; the details and tables are in `partition/README.md`.
 
 - **Rerun on main**, the calibration kernels moved: the analysis now proves loop counters
-  bounded by parameters and `.length` int32. `rounding` (S8's only miss) is now picked;
-  `matmul` became a WASM win the model misses; `noise` became a model pick that is still
-  slower. 15 of 17 agree with the current defaults.
-- **One metrics bug fixed** (S8's `trioxide_partition::metrics`, see the PR): an element access
-  counted as int32-indexed when its index expression's range was int32, but the backend
-  computes `+ - *` in `i32` only when every operand is `i32` too. `image-filters`' kernel
-  reads with `(ny * width + nx) * 4 + c`, which the island computes in `f64`; the model
-  counted it as an int32 access. `crates/trioxide/tests/cost_metrics.rs` covers it.
-- **The refit is rejected.** The fit also agrees on 15 of 17, and its misses lose more time
-  per run (3.59 ms against the defaults' 1.61 ms; `node partition/fit.mjs`, which now decides
-  like the model, instantiation included, and reports the time wrong picks lose). It doesn't
-  fix `examples/image-filters` either: with the fitted weights `boxBlur` is still a WASM pick.
-  Nor `numeric-driver`, which both weight sets keep JS though it is 1.2× faster in WASM.
-  What the model misses is in the generated code, below; refit after S6 fixes it.
+  bounded by parameters and `.length` int32. `rounding` (S8's only miss) became a pick;
+  `matmul` became a WASM win the old weights missed; `noise` became an old-weights pick that
+  is still slower. The old weights agreed on 15 of 17.
+- **Two metrics fixes first** (S8's `trioxide_partition::metrics`, see the PR): the model's
+  idea of which values the island holds as integers now follows the backend's typing
+  structurally. An element access used to count as int32-indexed whenever its index's range
+  was int32, but the backend computes `+ - *` in `i32` only when both operands are integers
+  and the node's range is proven, and `%`, `/` and `Math` calls in `f64` whatever their range.
+  `image-filters`' kernel reads with `(ny * width + nx) * 4 + c`, and `a[(i % 7) * 4 + 1]` is
+  float-indexed; the model counted both as int32 accesses.
+  `crates/trioxide/tests/cost_metrics.rs` covers both.
+- **The refit is applied** (`CostModel::default`, the schema and `options.d.ts`). The fitted
+  weights pick the faster side on 16 of 17 kernels, against 15, and on the whole programs
+  they move `examples/image-filters`' `boxBlur` back to JS (measured 0.79× in WASM) and
+  `numeric-driver`'s `fir` into WASM (measured 1.15× faster), and keep `mixed`'s kernel. Their
+  one kernel miss, `rounding` (2.2 ms per run left on the table), is the `Math.round`/`floor`/
+  `sign` speed-up that one `math` weight can't separate from the slower transcendental
+  functions. The values are kept as fitted, to three significant figures: `integer` and
+  `iteration` are collinear, and rounding further flips `tile-digest` and `mixed`.
+- What the model still can't see is in the generated code, below; refit after S6 fixes it.
 
 ### For S6 and S7: what each known miss costs
 
@@ -192,8 +200,10 @@ proposed fix as written (an `i32` index needs a range proof).
   refit afterwards.
 - The `fmod` paths cost nothing measurable: `floor % 2.0` only runs on exact `.5` values,
   and `to_uint32`'s `%` only out of the `u32` range. Not worth a change for speed.
-- `rounding` is no longer mispredicted: with its counter now int32, the model picks it, and it
-  is 2.1× faster in WASM.
+- `rounding`: with its counter now int32 the old weights picked it (2.1× faster in WASM); the
+  refitted ones don't, by 0.18 ms of predicted saving (one `math` weight for every `Math`
+  call). Separating `round`/`floor`/`sign`/`trunc` from the transcendental functions would
+  change the model's form, which S9 didn't (S8).
 - Loop counters typed `f64`: fixed on main for counters bounded by parameters and `.length`
   (`for (let i = 0; i < n; i++)`); a counter stepped by more than one against a length
   (`for (let i = 0; i + 3 < a.length; i += 4)`, image-filters' `grayscale`) is still `f64`.
@@ -202,5 +212,6 @@ proposed fix as written (an `i32` index needs a range proof).
   driver passes the same constants. Why the products' ranges differ between the two programs
   is a question for S2.
 - Even with `i32` indices, `examples/image-filters`' `boxBlur` island is slower than JS
-  (40.6 against 32.1 ms for the whole `run()`; removing the `black_box` on its divisor changes
-  nothing), so the example's misprediction isn't only the index type; it needs a profile.
+  (40.9 against 32.9 ms for the whole `run()`, the median of eleven rounds; removing the
+  `black_box` on its divisor changes nothing), so what makes it slow isn't only the index
+  type; it needs a profile. The refitted weights keep it in JS.

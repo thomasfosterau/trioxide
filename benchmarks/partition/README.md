@@ -10,7 +10,7 @@ a range of compute/boundary ratios: scalar kernels called once (float, int32, wr
 image filters, a `number[]` reduction, small helpers.
 
 ```sh
-cargo build -p trioxide_cli --release   # optional; target/debug works too
+cargo build -p trioxide_cli --release   # optional: the scripts build it if stale (or set TRIOXIDE_BIN)
 node run.mjs              # time JS vs WASM, ask the cost model, print the confusion table
 node fit.mjs              # least-squares fit of the weights to results.json
 node fit.mjs --weights w.json   # evaluate other weights on the same measurements
@@ -31,44 +31,45 @@ bytes, which `fit.mjs` fits the weights to.
 
 ## Results
 
-Measured on `main` after #15–#19 (with the int32-index fix to the metrics from S9), Node
-22.22.0 (V8 12.4), Intel Xeon @ 2.10 GHz × 4, islands built by the Rust 1.99.1 backend at
-`opt-level = 3` without `wasm-opt`. Times are per `run()`; "faster" is the steady-state
-winner, and within 5% counts as a tie (either pick is right). S8's numbers, from before the
-analysis proved most loop counters int32, are in git history.
+Measured on `main` at `baa82da` (after #15–#19 and #6) with this branch's metrics fixes and
+refitted weights, Node 22.22.0 (V8 12.4), Intel Xeon @ 2.10 GHz × 4, islands built by the
+Rust 1.99.1 backend at `opt-level = 3` without `wasm-opt`. Times are per `run()`, the median of
+three alternating rounds; "faster" is the steady-state winner, and within 5% counts as a tie
+(either pick is right). S8's numbers, from before the analysis proved most loop counters
+int32, are in git history.
 
 | kernel | JS | WASM | faster | model picks | benefit − cost | agrees |
 |---|---|---|---|---|---|---|
-| collatz | 8.83 ms | 16.68 ms | JS ×1.89 | JS | -14117547 | yes |
-| gamma | 1.11 ms | 1.98 ms | JS ×1.79 | JS | -1623900 | yes |
-| histogram | 254.2 µs | 3.59 ms | JS ×14.11 | JS | -4258519 | yes |
-| image-filters | 5.41 ms | 22.54 ms | JS ×4.16 | JS | -9408558 | yes |
-| int-hash | 10.30 ms | 4.61 ms | WASM ×2.24 | WASM | 8999992 | yes |
-| mandelbrot | 4.44 ms | 4.39 ms | WASM ×1.01 (tie) | JS | -2587470 | yes |
-| matmul | 1.41 ms | 983.0 µs | WASM ×1.43 | JS | -3574163 | **no** |
-| noise | 8.27 ms | 9.46 ms | JS ×1.14 | WASM | 10605824 | **no** |
-| number-reduction | 34.2 µs | 502.7 µs | JS ×14.69 | JS | -306166 | yes |
-| per-element | 306.5 µs | 1.70 ms | JS ×5.54 | JS | -1135000 | yes |
-| rounding | 4.59 ms | 2.19 ms | WASM ×2.09 | WASM | 1399992 | yes |
-| sdf | 460.8 µs | 622.9 µs | JS ×1.35 | JS | -257933 | yes |
-| small-arrays | 118.4 µs | 2.47 ms | JS ×20.84 | JS | -3512000 | yes |
-| small-helpers | 1.7 µs | 16.7 µs | JS ×10.11 | JS | -307800 | yes |
-| stencil | 107.6 µs | 164.1 µs | JS ×1.53 | JS | -994801 | yes |
-| tile-digest | 1.10 ms | 645.0 µs | WASM ×1.70 | WASM | 2452682 | yes |
-| transcendental | 2.98 ms | 3.26 ms | JS ×1.10 | JS | -150008 | yes |
+| collatz | 8.78 ms | 16.42 ms | JS ×1.87 | JS | -8073804 | yes |
+| gamma | 1.08 ms | 1.94 ms | JS ×1.80 | JS | -208780 | yes |
+| histogram | 273.9 µs | 3.22 ms | JS ×11.76 | JS | -3248056 | yes |
+| image-filters | 6.06 ms | 22.59 ms | JS ×3.73 | JS | -17027670 | yes |
+| int-hash | 10.35 ms | 4.60 ms | WASM ×2.25 | WASM | 6524387 | yes |
+| mandelbrot | 4.15 ms | 4.25 ms | JS ×1.02 (tie) | JS | -432626 | yes |
+| matmul | 1.41 ms | 973.7 µs | WASM ×1.44 | WASM | 28291 | yes |
+| noise | 8.51 ms | 9.36 ms | JS ×1.10 | JS | -894560 | yes |
+| number-reduction | 33.5 µs | 101.9 µs | JS ×3.04 | JS | -304023 | yes |
+| per-element | 192.9 µs | 990.9 µs | JS ×5.14 | JS | -1619860 | yes |
+| rounding | 4.40 ms | 2.09 ms | WASM ×2.10 | JS | -177913 | **no** |
+| sdf | 440.1 µs | 612.4 µs | JS ×1.39 | JS | -299229 | yes |
+| small-arrays | 116.9 µs | 2.15 ms | JS ×18.41 | JS | -2453200 | yes |
+| small-helpers | 1.6 µs | 17.1 µs | JS ×10.94 | JS | -313201 | yes |
+| stencil | 101.3 µs | 156.6 µs | JS ×1.55 | JS | -369444 | yes |
+| tile-digest | 1.02 ms | 632.4 µs | WASM ×1.61 | WASM | 88701 | yes |
+| transcendental | 2.91 ms | 3.16 ms | JS ×1.09 | JS | -272033 | yes |
 
 | measured faster ↓ / model picks → | WASM | JS |
 |---|---|---|
 | WASM | 3 | 1 |
 | tie (within 5%) | 0 | 1 |
-| JS | 1 | 11 |
+| JS | 0 | 12 |
 
-The model picks the faster side on 15 of 17 kernels. Since S8 measured, the analysis proves
-loop counters bounded by parameters and `.length` int32, which moved three kernels:
-`rounding` (S8's miss) now counts its counter work as int32 and is picked; `matmul` became
-1.4× faster in WASM (int32-indexed accesses are no longer slower) while the model, with
-`index` at −2.5 ns, still keeps it JS; and `noise` became a model pick (its counters are
-int32) while the island is still 1.1× slower (see below).
+The model picks the faster side on 16 of 17 kernels. Since S8 measured, the analysis proves
+loop counters bounded by parameters and `.length` int32, which moved three kernels: `rounding`
+(S8's miss) counts its counter work as int32; `matmul` became 1.4× faster in WASM
+(int32-indexed accesses are no longer slower); and `noise` counts its hashing as int32 work
+while the island is still 1.1× slower (see below). The refitted weights get `matmul` and
+`noise` right and miss `rounding`.
 
 ### What the measurements say
 
@@ -82,8 +83,8 @@ int32) while the island is still 1.1× slower (see below).
   generated crate by hand (not committed); `../README.md` has the details for S6/S7:
   - index arithmetic whose product isn't proven int32 (`(ny * width + nx) * 4 + c` with
     `width` a parameter) runs in `f64` and every access is checked, and so does a counter
-    stepped by 4 (`grayscale`): image-filters' island goes
-    from 23.3 ms to 6.5 ms (JS: 8.0 ms in the same run) with int32 indices and counter;
+    stepped by 4 (`grayscale`): image-filters' island goes from 23.3 ms to 6.5 ms (JS: 8.0 ms
+    in the same run) with int32 indices and counter;
   - typed-array increments go through `f64` (`bins[x]++` on a `Uint32Array`): histogram's
     island goes from 3.46 ms to 0.21 ms (JS: 0.26 ms) with an integer read-modify-write;
   - `Math.imul(h, 0x9e3779b1)` converts both operands with `ToInt32` at run time because the
@@ -105,43 +106,44 @@ int32) while the island is still 1.1× slower (see below).
 `fit.mjs` solves least squares of the measured saving per run (JS − WASM) against each
 island's operation counts by kind, calls, array arguments and bytes, every row scaled by the
 kernel's run time. It then decides like the model: WASM when the predicted saving exceeds
-the instantiation cost plus the threshold.
+the instantiation cost plus the threshold, and reports the time per run a wrong pick gives up.
 
-**The refit was not applied.** On these measurements the defaults and the fit both pick right
-on 15 of 17 kernels, and the fit's misses cost more (`node fit.mjs`, `node fit.mjs --weights`
-with the defaults):
+**S9's refit** (on a calibration run before this table's, with the metrics fixes in) is now
+the default, `CostModel::default`:
 
-| weights | agree | misses (time lost per run) |
-|---|---|---|
-| defaults (`CostModel::default`) | 15/17 | matmul (0.42 ms), noise (1.19 ms): 1.61 ms |
-| fitted (ridge 10⁻³) | 15/17 | noise (1.19 ms), rounding (2.40 ms): 3.59 ms |
+| weights | kernels agreeing | time lost per run by misses | whole programs (`../README.md`) |
+|---|---|---|---|
+| S8's (before) | 15/17 | 1.28 ms (matmul, noise) | `image-filters` picks `boxBlur` (0.79×); `numeric-driver` stays JS (1.16× in WASM) |
+| refitted (now) | 16/17 | 2.31 ms (rounding) | both right; `mixed` unchanged |
 
-The fitted weights were `arithmetic` 0.07, `integer` 0.17, `conversion` −5.3, `wrapping` 1.6,
-`math` −0.11, `remainder` −0.41, `index` 0.22, `checkedIndex` −8.2, `iteration` −1.05,
-`crossing` 14.8, `aggregate` 48.6, `byte` 0.14 (other ridge values give 14–15/17 and lose more).
-The misses that remain are the backend's `f64` paths above, which no weight on these
-operation kinds describes; once S6 fixes them, rerun `node run.mjs && node fit.mjs` and update
-the defaults (and this table) together. The current defaults:
+Both measured on this table's run. Refitting on it again gives nearly the same weights (16/17,
+the same miss). The values are kept as fitted, to three significant figures: `integer` and
+`iteration` are collinear, and rounding them further flips `tile-digest` and `mixed`, whose
+margin over the instantiation cost is small. `rounding` stays a miss because one `math`
+weight covers both the fast `Math.round`/`floor`/`sign` and the slower transcendental
+functions; separating them would change the model's form. When the backend or runtime
+improves, rerun `node run.mjs && node fit.mjs` and update the defaults (and this table)
+together.
 
-| weight | default | meaning (ns) |
-|---|---|---|
-| `arithmetic` | −0.05 | saved per float operation or comparison |
-| `integer` | 0.3 | saved per operation on int32-held values |
-| `conversion` | −6 | saved per float operand of a bitwise operator or `Math.imul` |
-| `wrapping` | 2 | saved per `(a + b) \| 0`-style wrapped operation |
-| `math` | 0 | saved per `Math.*` call |
-| `remainder` | −1.5 | saved per float `%` |
-| `index` | −2.5 | saved per element access with an int32 index |
-| `checkedIndex` | −7 | saved per element access with a float index |
-| `iteration` | 0 | saved per loop iteration |
-| `crossing` | 8 | per call into an island |
-| `aggregate` | 65 | per array or object argument or result, per call |
-| `byte` | 0.1 | per byte copied |
-| `numberArray` | 12 | multiplier on a `number[]`'s bytes |
-| `instantiation` | 300 000 | per island (measured 0.65 ms, mostly off the main thread) |
-| `threshold` | 0 | `benefit − cost` must exceed it in `auto` mode |
-| `wasmPreferredThreshold` | −1 000 000 | the same in `wasm-preferred` mode |
-| `trips` | 256 | trip count assumed for loops without a known bound |
+| weight | default | S8's | meaning (ns) |
+|---|---|---|---|
+| `arithmetic` | −0.021 | −0.05 | saved per float operation or comparison |
+| `integer` | −0.0595 | 0.3 | saved per operation on integer-held values |
+| `conversion` | −11.7 | −6 | saved per float operand of a bitwise operator or `Math.imul` |
+| `wrapping` | 3.65 | 2 | saved per `(a + b) \| 0`-style wrapped operation |
+| `math` | 0.0242 | 0 | saved per `Math.*` call |
+| `remainder` | −1.22 | −1.5 | saved per float `%` |
+| `index` | 0.245 | −2.5 | saved per element access with an integer index |
+| `checkedIndex` | −7.7 | −7 | saved per element access with a float index |
+| `iteration` | 0.333 | 0 | saved per loop iteration |
+| `crossing` | 13.1 | 8 | per call into an island |
+| `aggregate` | 45.9 | 65 | per array or object argument or result, per call |
+| `byte` | 0.169 | 0.1 | per byte copied |
+| `numberArray` | 12 | 12 | multiplier on a `number[]`'s bytes |
+| `instantiation` | 300 000 | 300 000 | per island (measured 0.65 ms, mostly off the main thread) |
+| `threshold` | 0 | 0 | `benefit − cost` must exceed it in `auto` mode |
+| `wasmPreferredThreshold` | −1 000 000 | −1 000 000 | the same in `wasm-preferred` mode |
+| `trips` | 256 | 256 | trip count assumed for loops without a known bound |
 
 ## Default-mode reach
 

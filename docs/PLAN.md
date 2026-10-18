@@ -105,7 +105,7 @@ tests/
   conformance/                # vendored TS libraries built by trioxide, run against their own tests
 examples/
   dom-app/                    # should stay JS
-  image-filters/              # filters the cost model scores (one is picked today, wrongly: see its README)
+  image-filters/              # filters the cost model scores (today's islands are slower at them, so they stay JS)
   mixed/                      # both, with a boundary
   telemetry/                  # a workload for the JS speed passes
 benchmarks/                   # trioxide-benchmarks: one entry point and timing harness
@@ -532,9 +532,11 @@ call edge into a component from JS code is a boundary entry.
 **Cost model** (per cluster; `trioxide_partition::CostModel`, `costModel` in `trioxide.json`).
 Every weight is in nanoseconds, fitted to `benchmarks/partition/` (Node 22; its README has the
 measurements, the fit and the confusion table) and meant to be refitted as the backend
-improves. S9 refitted on main after the analysis proved loop counters int32: the fit agreed on
-no more kernels than the defaults (15 of 17) and its misses cost more, so the defaults stayed;
-the remaining misses are code the backend still generates in `f64` (`benchmarks/README.md`):
+improves. S9 refitted on main after the analysis proved loop counters int32: the fit picks the
+faster side on 16 of 17 kernels (the previous weights 15), and on the whole programs it moves
+`examples/image-filters`' `boxBlur` back to JS and `numeric-driver`'s `fir` into WASM, both
+measured right, so the defaults are now the fitted values. The remaining misses are code the
+backend still generates in `f64` (`benchmarks/README.md`):
 - *benefit*: the operations the island would run per run of the program, by kind, each
   times the time WASM saves per operation (negative where the island is slower): float
   arithmetic; int32 operations (operands the backend holds as int32: every local in them has
@@ -785,7 +787,8 @@ FactSource}`, `trioxide_partition::Partitioner`, `trioxide_wasm::{IslandSpec,
 IslandSource, IslandBuilder}` (plus `trioxide_wasm::toolchain` for `check-toolchain`).
 
 **CLI:** `trioxide build [entries…] --out-dir dist [--watch]`, `trioxide transform <file>`
-(stdout; it plans the program from the file first, as `build` would, so the passes have facts), `trioxide explain [target] [--entry <file>…] [--json]` (entries default to the
+(stdout; it plans the program from the file first, so its passes have the facts `build`'s
+have, but it builds no islands, so calls to island functions stay JS calls), `trioxide explain [target] [--entry <file>…] [--json]` (entries default to the
 target's file), `trioxide check-toolchain [--json]`. `--config`,
 `--root`, `--mode`, `--world`, `--trust-types`, `--no-wasm`, `--require-wasm`,
 `--emit=js|rust|wasm|report|facts` (`--emit=facts` with `transform` prints the analysis facts

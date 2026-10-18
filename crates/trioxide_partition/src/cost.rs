@@ -69,29 +69,32 @@ pub struct CostModel {
 }
 
 impl Default for CostModel {
-    /// Fitted to `benchmarks/partition/` (see its README): int32 work and wrapped
-    /// `(a + b) | 0` arithmetic are faster in today's islands than in V8's optimised JS;
-    /// floating-point arithmetic is a tie; `ToInt32` of floats, float `%`, element accesses
-    /// and every crossing cost more in WASM.
+    /// Fitted to `benchmarks/partition/` (see its README; refitted in S9 once the analysis
+    /// proved loop counters int32): wrapped `(a + b) | 0` arithmetic and int32-indexed
+    /// element accesses are faster in today's islands than in V8's optimised JS; other int32
+    /// and floating-point arithmetic is about a tie; `ToInt32` of floats, float `%`,
+    /// float-indexed accesses and every crossing cost more in WASM. The fitted values are
+    /// kept to three significant figures: `integer` and `iteration` are collinear, and
+    /// rounding either one further changes picks.
     /// Instantiation is charged below its measured 0.65 ms, as `ready()` glue compiles off
     /// the main thread and runs the JS versions meanwhile.
     fn default() -> Self {
         Self {
             threshold: 0.0,
             wasm_preferred_threshold: -1_000_000.0,
-            arithmetic: -0.05,
-            integer: 0.3,
-            conversion: -6.0,
-            wrapping: 2.0,
-            math: 0.0,
-            remainder: -1.5,
-            index: -2.5,
-            checked_index: -7.0,
-            iteration: 0.0,
+            arithmetic: -0.021,
+            integer: -0.0595,
+            conversion: -11.7,
+            wrapping: 3.65,
+            math: 0.0242,
+            remainder: -1.22,
+            index: 0.245,
+            checked_index: -7.7,
+            iteration: 0.333,
             trips: 256.0,
-            crossing: 8.0,
-            aggregate: 65.0,
-            byte: 0.1,
+            crossing: 13.1,
+            aggregate: 45.9,
+            byte: 0.169,
             number_array: 12.0,
             instantiation: 300_000.0,
         }
