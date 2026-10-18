@@ -151,13 +151,19 @@ impl<'a> Cx<'_, '_, 'a> {
                 self.or_declared(value, new.node_id.get(), new.span)
             }
             Expression::TaggedTemplateExpression(tagged) => {
-                let tag = self.expr(&tagged.tag);
-                let strings = self.template_strings(&tagged.quasi);
-                let mut args = vec![strings];
-                for expression in &tagged.quasi.expressions {
-                    args.push(self.expr(expression));
-                }
-                let value = self.call_value(tagged.node_id.get(), &tag, None, &args, false);
+                // A call like any other (`p.f`x`` has `this` = `p`): the strings array, then
+                // each substitution.
+                let value =
+                    self.call_with(tagged.node_id.get(), &tagged.tag, false, |cx: &mut Self| {
+                        let mut values = vec![cx.template_strings(&tagged.quasi)];
+                        for expression in &tagged.quasi.expressions {
+                            values.push(cx.expr(expression));
+                        }
+                        super::call::Args {
+                            values,
+                            spread: false,
+                        }
+                    });
                 self.or_declared(value, tagged.node_id.get(), tagged.span)
             }
             Expression::ChainExpression(chain) => {
@@ -2102,6 +2108,10 @@ impl<'a> Cx<'_, '_, 'a> {
             if obj.unit != self.unit.id || obj.escape != Escape::None {
                 self.always(EffectKind::Writes);
             }
+            // Writing to a frozen object throws in strict code.
+            if obj.frozen && self.unit.strict && !defining {
+                self.always(EffectKind::Throws);
+            }
             if obj.escape == Escape::Unknown {
                 self.escape_value(value, Escape::Unknown);
                 self.always(EffectKind::CallsUnknown);
@@ -2129,6 +2139,17 @@ impl<'a> Cx<'_, '_, 'a> {
                                 }
                             });
                         }
+                    } else if matches!(key, Key::Unknown) {
+                        // May be `length` or any index: the length is no longer known, and
+                        // the value may be an element.
+                        self.store_elem(site, value);
+                        self.mark(site, |obj| {
+                            obj.dynamic = true;
+                            obj.length = None;
+                            obj.holey = true;
+                        });
+                        self.coerce(value, true);
+                        self.escape_value(value, Escape::Known);
                     } else {
                         self.mark(site, move |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Known);
@@ -2198,6 +2219,22 @@ impl<'a> Cx<'_, '_, 'a> {
     fn delete(&mut self, object: &Val, key: &Key) {
         self.note_write(true);
         if let Some(sites) = object.pts.sites().filter(|sites| !sites.is_empty()) {
+            // In strict code, deleting a non-configurable own property throws; so does
+            // deleting from `null` or `undefined`, in any code.
+            let mut throws = object.ty.may_be_nullish() || object.trust != Trust::Proven;
+            if self.unit.strict {
+                throws |= match key.name() {
+                    None => true,
+                    Some(name) => sites.iter().any(|&site| {
+                        self.an
+                            .heap(site)
+                            .is_none_or(|obj| non_configurable(obj, name))
+                    }),
+                };
+            }
+            if throws {
+                self.always(EffectKind::Throws);
+            }
             for &site in sites {
                 let name = key.name().map(str::to_string);
                 self.mark(site, move |obj| {
@@ -2455,4 +2492,20 @@ fn target_member<'s, 'a>(
         member => return member.as_member_expression(),
     };
     inner.without_parentheses().as_member_expression()
+}
+
+/// Whether `name` may be a non-configurable own property of the objects made at `obj`'s
+/// site (so deleting it in strict code throws).
+fn non_configurable(obj: &super::Obj, name: &str) -> bool {
+    // Code trioxide can't see may have frozen, sealed or redefined it.
+    if obj.frozen || obj.poisoned || obj.escape == Escape::Unknown {
+        return true;
+    }
+    match obj.kind {
+        ObjKind::Array => name == "length",
+        ObjKind::TypedArray(_) => is_array_index(name),
+        ObjKind::Class(_) | ObjKind::Function(_) => name == "prototype",
+        ObjKind::Namespace(_) | ObjKind::Opaque => true,
+        ObjKind::Object | ObjKind::Instance(_) | ObjKind::Prototype(_) => false,
+    }
 }

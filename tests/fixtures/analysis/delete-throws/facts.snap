@@ -1,0 +1,95 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/delete-throws
+input_file: tests/fixtures/analysis/delete-throws/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
+nodes:
+  3:17 bind `main`: function@proven
+  4:9 bind `xs`: unknown[]@proven
+  4:14 array `[1, 2, 3]`: unknown[]@proven escape=none
+  5:14 bind `k`: string@proven
+  5:19 array `["0", "length"]`: string[]@proven escape=none stable-shape
+  7:7 unary `delete (xs as unknown as Record<strin...`: boolean@proven
+  7:14 member `(xs as unknown as Record<string, numb...`: unknown
+  7:15 cast `xs as unknown as Record<string, number>`: unknown[]@proven
+  7:15 cast `xs as unknown`: unknown[]@proven
+  7:15 ref `xs`: unknown[]@proven
+  7:32 ref `Record`: unknown
+  7:56 ref `k`: string@proven
+  8:7 call `console.log("deleted", k)`: unknown
+  8:7 member `console.log`: unknown
+  8:7 ref `console`: unknown
+  8:30 ref `k`: string@proven
+  9:14 bind `error`: unknown
+  10:7 call `console.log("threw", k, (error as Err...`: unknown
+  10:7 member `console.log`: unknown
+  10:7 ref `console`: unknown
+  10:28 ref `k`: string@proven
+  10:31 member `(error as Error).name`: string@declared
+  10:32 cast `error as Error`: unknown
+  10:32 ref `error`: unknown
+  10:41 ref `Error`: unknown
+  13:9 bind `frozen`: { a: undefined | (number[1, 2] int nonNaN nonNegZero) }@proven
+  13:18 call `Object.freeze({ a: 1 })`: { a: undefined | (number[1, 2] int nonNaN nonNegZero) }@proven
+  13:18 member `Object.freeze`: unknown
+  13:18 ref `Object`: unknown
+  13:32 object `{ a: 1 }`: { a: undefined | (number[1, 2] int nonNaN nonNegZero) }@proven escape=known
+  15:5 unary `delete (frozen as { a?: number }).a`: boolean@proven
+  15:12 member `(frozen as { a?: number }).a`: unknown
+  15:13 cast `frozen as { a?: number }`: { a: undefined | (number[1, 2] int nonNaN nonNegZero) }@proven
+  15:13 ref `frozen`: { a: undefined | (number[1, 2] int nonNaN nonNegZero) }@proven
+  16:5 call `console.log("deleted a")`: unknown
+  16:5 member `console.log`: unknown
+  16:5 ref `console`: unknown
+  17:12 bind `error`: unknown
+  18:5 call `console.log("threw a", (error as Erro...`: unknown
+  18:5 member `console.log`: unknown
+  18:5 ref `console`: unknown
+  18:28 member `(error as Error).name`: string@declared
+  18:29 cast `error as Error`: unknown
+  18:29 ref `error`: unknown
+  18:38 ref `Error`: unknown
+  21:5 assign `(frozen as { a: number }).a = 2`: 2@proven
+  21:5 member `(frozen as { a: number }).a`: unknown
+  21:6 cast `frozen as { a: number }`: { a: undefined | (number[1, 2] int nonNaN nonNegZero) }@proven
+  21:6 ref `frozen`: { a: undefined | (number[1, 2] int nonNaN nonNegZero) }@proven
+  22:5 call `console.log("wrote a")`: unknown
+  22:5 member `console.log`: unknown
+  22:5 ref `console`: unknown
+  23:12 bind `error`: unknown
+  24:5 call `console.log("threw writing a", (error...`: unknown
+  24:5 member `console.log`: unknown
+  24:5 ref `console`: unknown
+  24:36 member `(error as Error).name`: string@declared
+  24:37 cast `error as Error`: unknown
+  24:37 ref `error`: unknown
+  24:46 ref `Error`: unknown
+  26:9 bind `bytes`: Uint8Array@proven
+  26:17 new `new Uint8Array(2)`: Uint8Array@proven escape=none
+  26:21 ref `Uint8Array`: unknown
+  27:14 bind `k`: string@proven
+  27:19 array `["1", "length"]`: string[]@proven escape=none stable-shape
+  29:7 unary `delete (bytes as unknown as Record<st...`: boolean@proven
+  29:14 member `(bytes as unknown as Record<string, n...`: unknown
+  29:15 cast `bytes as unknown as Record<string, nu...`: Uint8Array@proven
+  29:15 cast `bytes as unknown`: Uint8Array@proven
+  29:15 ref `bytes`: Uint8Array@proven
+  29:35 ref `Record`: unknown
+  29:59 ref `k`: string@proven
+  30:7 call `console.log("deleted byte", k)`: unknown
+  30:7 member `console.log`: unknown
+  30:7 ref `console`: unknown
+  30:35 ref `k`: string@proven
+  31:14 bind `error`: unknown
+  32:7 call `console.log("threw byte", k, (error a...`: unknown
+  32:7 member `console.log`: unknown
+  32:7 ref `console`: unknown
+  32:33 ref `k`: string@proven
+  32:36 member `(error as Error).name`: string@declared
+  32:37 cast `error as Error`: unknown
+  32:37 ref `error`: unknown
+  32:46 ref `Error`: unknown

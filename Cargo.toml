@@ -52,6 +52,7 @@ tsrs_vfs = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937
 
 # Everything else.
 clap = { version = "4.6", features = ["derive"] }
+fast-glob = "1.1"
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 insta = { version = "1.49", features = ["glob"] }
 json-strip-comments = "3"

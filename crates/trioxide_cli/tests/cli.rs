@@ -162,8 +162,6 @@ fn unimplemented_features_say_so() {
     let input = fixture("classes/input.ts");
     let input = input.to_str().unwrap();
     for args in [
-        vec!["explain"],
-        vec!["explain", "a.ts:f"],
         vec!["--emit=wasm", "transform", input],
         vec!["--emit=report", "transform", input],
     ] {
@@ -175,13 +173,20 @@ fn unimplemented_features_say_so() {
             stderr(&out)
         );
     }
-    let out = trioxide(&["--mode=wasm-preferred", "transform", input]);
-    assert!(out.status.success(), "{}", stderr(&out));
-    assert!(
-        stderr(&out).contains("not yet implemented"),
-        "{}",
-        stderr(&out)
-    );
+    // `explain` needs something to explain (the working directory has no index.html).
+    let out = trioxide(&["explain"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("needs a file"), "{}", stderr(&out));
+    // The partitioner uses these.
+    for flag in ["--mode=wasm-preferred", "--mode=js-only"] {
+        let out = trioxide(&[flag, "transform", input]);
+        assert!(out.status.success(), "{flag}: {}", stderr(&out));
+        assert!(
+            !stderr(&out).contains("not yet implemented"),
+            "{flag}: {}",
+            stderr(&out)
+        );
+    }
     // The analysis uses these.
     for flag in ["--world=app", "--trust-types"] {
         let out = trioxide(&[flag, "transform", input]);

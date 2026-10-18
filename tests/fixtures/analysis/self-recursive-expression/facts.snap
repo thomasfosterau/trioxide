@@ -1,0 +1,31 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/self-recursive-expression
+input_file: tests/fixtures/analysis/self-recursive-expression/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  self (2:14): pure
+    calls 3:27 -> self
+  main (6:8) open: reads writes allocates throws calls-unknown
+    calls 7:15 -> self
+nodes:
+  2:7 bind `fact`: function@proven
+  2:23 bind `self`: function@proven
+  2:28 bind `n`: number[1, 3] int nonNaN nonNegZero@proven
+  3:10 cond `n <= 1 ? 1 : n * self(n - 1)`: number[1, inf] int nonNaN nonNegZero@proven
+  3:10 binary `n <= 1`: boolean@proven
+  3:10 ref `n`: number[1, 3] int nonNaN nonNegZero@proven
+  3:23 binary `n * self(n - 1)`: number[2, inf] int nonNaN nonNegZero@proven
+  3:23 ref `n`: number[2, 3] int nonNaN nonNegZero@proven
+  3:27 call `self(n - 1)`: number[1, inf] int nonNaN nonNegZero@proven
+  3:27 ref `self`: function@proven
+  3:32 binary `n - 1`: number[1, 2] int nonNaN nonNegZero@proven
+  3:32 ref `n`: number[2, 3] int nonNaN nonNegZero@proven
+  6:17 bind `main`: function@proven
+  7:3 call `console.log(fact(3))`: unknown
+  7:3 member `console.log`: unknown
+  7:3 ref `console`: unknown
+  7:15 call `fact(3)`: number[1, inf] int nonNaN nonNegZero@proven
+  7:15 ref `fact`: function@proven

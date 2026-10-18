@@ -286,6 +286,7 @@ impl<'s> Tables<'s> {
                         obj.present.len(),
                         obj.shares_buffer.len(),
                         obj.accessors,
+                        obj.frozen,
                     )
                 };
                 let before = flags(obj);

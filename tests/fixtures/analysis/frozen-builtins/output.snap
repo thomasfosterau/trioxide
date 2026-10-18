@@ -1,0 +1,64 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/frozen-builtins
+input_file: tests/fixtures/analysis/frozen-builtins/input.ts
+---
+//- input.ts
+// Mutating builtins throw on a frozen receiver, in sloppy code too, and freezing a non-empty
+// typed array throws.
+function attempt(label, run) {
+	try {
+		run();
+		console.log("ran", label);
+	} catch (error) {
+		console.log("threw", label, error.name);
+	}
+}
+export function main() {
+	const fa = Object.freeze([
+		3,
+		1,
+		2
+	]);
+	try {
+		fa.pop();
+		console.log("popped");
+	} catch (error) {
+		console.log("threw pop", error.name);
+	}
+	try {
+		fa.shift();
+		console.log("shifted");
+	} catch (error) {
+		console.log("threw shift", error.name);
+	}
+	try {
+		fa.reverse();
+		console.log("reversed");
+	} catch (error) {
+		console.log("threw reverse", error.name);
+	}
+	try {
+		fa.fill(0);
+		console.log("filled");
+	} catch (error) {
+		console.log("threw fill", error.name);
+	}
+	try {
+		fa.sort();
+		console.log("sorted");
+	} catch (error) {
+		console.log("threw sort", error.name);
+	}
+	attempt("arrow pop", () => fa.pop());
+	try {
+		Object.freeze(new Uint8Array(2));
+		console.log("froze bytes");
+	} catch (error) {
+		console.log("threw freezing bytes", error.name);
+	}
+	Object.freeze(new Uint8Array(0));
+	const plain = [1, 2];
+	plain.pop();
+	console.log(plain.length, fa.length);
+}

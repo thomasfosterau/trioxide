@@ -220,6 +220,15 @@ impl Project {
             .map_err(to_napi)
     }
 
+    /// Analyses and partitions the program reachable from `entries` and runs the JS passes,
+    /// without building islands, and returns the decision log (what `explain` reports).
+    #[napi]
+    pub fn plan(&mut self, entries: Vec<String>) -> Result<Value> {
+        let entries: Vec<PathBuf> = entries.into_iter().map(PathBuf::from).collect();
+        let report = self.inner.plan(&entries).map_err(to_napi)?;
+        serde_json::to_value(report).map_err(to_napi)
+    }
+
     /// The decision log for `target` (`file` or `file:function`; everything if omitted).
     #[napi]
     pub fn explain(&self, target: Option<String>) -> Result<Value> {

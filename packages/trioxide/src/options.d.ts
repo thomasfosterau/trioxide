@@ -82,6 +82,13 @@ export interface TrioxideOptions {
    * Per-file overrides, applied in order (later wins).
    */
   overrides?: Array<Override>;
+  /**
+   * The partitioner's cost model: when moving a cluster of functions to WebAssembly pays
+   * (`trioxide explain` shows its numbers). Fields not given keep their defaults.
+   *
+   * @default {"threshold":0,"wasmPreferredThreshold":-1000000,"arithmetic":-0.05,"integer":0.3,"conversion":-6,"wrapping":2,"math":0,"remainder":-1.5,"index":-2.5,"checkedIndex":-7,"iteration":0,"trips":256,"crossing":8,"aggregate":65,"byte":0.1,"numberArray":12,"instantiation":300000}
+   */
+  costModel?: CostModel;
 }
 
 /**
@@ -97,7 +104,8 @@ export type Mode =
    */
   | "auto"
   /**
-   * Prefer WASM for every eligible function unless the cost model strongly objects.
+   * Like `auto`, with the cost model's lower `wasmPreferredThreshold`: WASM for every
+   * eligible function unless the cost model strongly objects.
    */
   | "wasm-preferred";
 
@@ -173,7 +181,9 @@ export interface DevOptions {
 }
 
 /**
- * Forces files matching `files` to stay JS or to become WASM.
+ * Forces files matching `files` to stay JS or to become WASM: like a `"use js"` or
+ * `"use wasm"` file directive (directives in the file win). Overrides apply even in
+ * `js-only` mode, but not with WASM off.
  */
 export interface Override {
   /**
@@ -198,3 +208,123 @@ export type OverrideTarget =
    * Like `"use wasm"` on every function; ineligible functions are errors.
    */
   | "wasm";
+
+/**
+ * The cost model's weights and thresholds (`costModel` in `trioxide.json`).
+ *
+ * Operation weights are the nanoseconds WASM saves per operation compared with V8's
+ * optimised JS (negative where the island is slower); the cost terms are nanoseconds too.
+ * The defaults are fitted to `benchmarks/partition/` (Node 22, V8 12.4) for the code the
+ * Rust backend generates today.
+ */
+export interface CostModel {
+  /**
+   * In `auto` mode an island is kept when `benefit − cost` exceeds this (nanoseconds).
+   *
+   * @default 0
+   */
+  threshold?: number;
+  /**
+   * The threshold in `wasm-preferred` mode.
+   *
+   * @default -1000000
+   */
+  wasmPreferredThreshold?: number;
+  /**
+   * Nanoseconds saved per floating-point arithmetic operation or comparison.
+   *
+   * @default -0.05
+   */
+  arithmetic?: number;
+  /**
+   * Nanoseconds saved per operation on values the island holds as int32s (arithmetic,
+   * comparisons, `++`, `--`, bitwise operators).
+   *
+   * @default 0.3
+   */
+  integer?: number;
+  /**
+   * Nanoseconds saved per float operand of a bitwise operator or `Math.imul` (a
+   * `ToInt32` in WASM).
+   *
+   * @default -6
+   */
+  conversion?: number;
+  /**
+   * Nanoseconds saved per `(a + b) | 0`-style wrapped operation (V8 leaves its int32 fast
+   * path when the sum overflows; WASM wraps natively).
+   *
+   * @default 2
+   */
+  wrapping?: number;
+  /**
+   * Nanoseconds saved per `Math.*` call or `**`.
+   *
+   * @default 0
+   */
+  math?: number;
+  /**
+   * Nanoseconds saved per `%` on values not proven integers (a call to `fmod` in WASM).
+   *
+   * @default -1.5
+   */
+  remainder?: number;
+  /**
+   * Nanoseconds saved per array element read or write whose index the island computes as
+   * an int32.
+   *
+   * @default -2.5
+   */
+  index?: number;
+  /**
+   * Nanoseconds saved per other element read or write (the index is a float, converted
+   * and checked on every access).
+   *
+   * @default -7
+   */
+  checkedIndex?: number;
+  /**
+   * Nanoseconds saved per loop iteration (its own control flow).
+   *
+   * @default 0
+   */
+  iteration?: number;
+  /**
+   * Trip count assumed for loops without a known bound, and the element count assumed
+   * for arrays of unknown length crossing the boundary.
+   *
+   * @default 256
+   */
+  trips?: number;
+  /**
+   * Nanoseconds per call into an island (the glue's checks and the arena reset).
+   *
+   * @default 8
+   */
+  crossing?: number;
+  /**
+   * Nanoseconds per array or object argument (or result) per call: allocating it in the
+   * arena, the glue's aliasing and plain-view checks, the views it creates.
+   *
+   * @default 65
+   */
+  aggregate?: number;
+  /**
+   * Nanoseconds per byte copied into or out of linear memory.
+   *
+   * @default 0.1
+   */
+  byte?: number;
+  /**
+   * Multiplier for the bytes of a `number[]`, which is converted element by element.
+   *
+   * @default 12
+   */
+  numberArray?: number;
+  /**
+   * Nanoseconds to instantiate one island.
+   *
+   * @default 300000
+   */
+  instantiation?: number;
+}
