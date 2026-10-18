@@ -4,7 +4,7 @@ description: tests/fixtures/passes/dce/repro-spread
 input_file: tests/fixtures/passes/dce/repro-spread/input.ts
 ---
 //- input.ts
+10:9 dce skipped: unused, but its initialiser has effects
 4:9 scalar skipped: the literal has accessors or methods
 10:9 scalar skipped: the literal spreads another object
 14:3 inline-fn skipped: `viaSpread` contains a closure (its identity and what it captures would change)
-10:9 dce skipped: unused, but its initialiser has effects

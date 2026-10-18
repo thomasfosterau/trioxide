@@ -22,8 +22,7 @@ export function sharedWrite() {
 	return value;
 }
 export function readOnlyCapture() {
-	const add = (x) => x + 10;
-	return add(5);
+	return 15;
 }
 export function main() {
 	const next = counter();

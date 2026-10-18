@@ -4,18 +4,11 @@ description: tests/fixtures/passes/fold/values
 input_file: tests/fixtures/passes/fold/values/input.ts
 ---
 //- input.ts
-40:15 inline-fn applied
-40:23 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-40:32 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-40:43 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-40:55 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-41:25 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-41:46 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-3:1 inline-fn applied
 11:11 inline applied
 11:23 inline applied
 11:29 inline applied
 33:7 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+5:11 fold applied
 11:29 fold applied
 17:7 fold applied
 17:3 fold applied
@@ -26,8 +19,18 @@ input_file: tests/fixtures/passes/fold/values/input.ts
 28:49 fold applied
 33:7 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
 33:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
-5:11 fold applied
 9:9 dce applied
-11:11 simplify applied
+40:15 inline-fn applied
+40:23 inline-fn applied
+40:32 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+40:43 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+40:55 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+41:25 inline-fn applied
+41:46 inline-fn applied
+3:1 inline-fn applied
+8:1 inline-fn applied
 21:10 simplify applied
 5:10 simplify applied
+11:11 simplify applied
+11:11 simplify applied
+11:11 simplify applied

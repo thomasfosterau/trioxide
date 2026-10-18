@@ -4,8 +4,8 @@ description: tests/fixtures/passes/inline/constants
 input_file: tests/fixtures/passes/inline/constants/input.ts
 ---
 //- input.ts
-27:63 inline-fn applied
-17:1 inline-fn applied
+18:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+18:20 inline applied
 22:15 inline applied
 22:26 inline applied
 22:32 inline applied
@@ -18,13 +18,15 @@ input_file: tests/fixtures/passes/inline/constants/input.ts
 27:38 inline applied
 27:49 inline applied
 27:72 inline applied
-18:20 inline applied
 28:25 inline applied
 28:49 inline applied
 28:64 inline applied
+18:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 22:15 fold applied
 14:7 dce applied
 15:7 dce applied
+27:63 inline-fn applied
+17:1 inline-fn applied
 18:10 simplify applied
 18:10 simplify applied
 //- config.ts

@@ -4,15 +4,13 @@ description: tests/fixtures/passes/closure-hoist/basics
 input_file: tests/fixtures/passes/closure-hoist/basics/input.ts
 ---
 //- input.ts
+const map_callback = (v) => v * 2;
 function weights(n) {
 	let total = 0;
 	for (let i = 0; i < n; i++) {
 		total += i * 3 + 1;
 	}
 	return total;
-}
-function map_callback(v) {
-	return v * 2;
 }
 export function main() {
 	console.log(weights(5), [

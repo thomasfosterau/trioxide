@@ -4,6 +4,7 @@ description: tests/fixtures/passes/fold/adversarial
 input_file: tests/fixtures/passes/fold/adversarial/input.ts
 ---
 //- input.ts
+const map_callback = (x) => Object.is(x, -0);
 // Adversarial cases for folding.
 const counter = {
 	reads: 0,
@@ -23,15 +24,6 @@ function hoisting() {
 	}
 	return hoisted;
 }
-function negativeZero() {
-	// max(-0, 0) is 0, min(0, -0) is -0.
-	return [
-		Math.max(-0, 0),
-		Math.min(0, -0),
-		Math.max(0, -0),
-		0
-	];
-}
 function sideEffects() {
 	let n = 0;
 	// The comparison is decided, but evaluating it writes n.
@@ -39,9 +31,6 @@ function sideEffects() {
 		return -1;
 	}
 	return 5;
-}
-function map_callback(x) {
-	return Object.is(x, -0);
 }
 export function main() {
 	let Math_1;
@@ -54,5 +43,10 @@ export function main() {
 		1,
 		2
 	]));
-	console.log(negativeZero().map(map_callback), sideEffects());
+	console.log([
+		Math.max(-0, 0),
+		Math.min(0, -0),
+		Math.max(0, -0),
+		Math.abs(-0)
+	].map(map_callback), sideEffects());
 }

@@ -5,14 +5,6 @@ input_file: tests/fixtures/passes/fold/values/input.ts
 ---
 //- input.ts
 // Positive cases: values, ranges and branches the facts decide.
-function signs() {
-	// -0 must come out as -0.
-	return [
-		-0,
-		-0,
-		0
-	];
-}
 function bounded() {
 	const r = Math.random();
 	// r is in [0, 1): the comparisons are decided by its range.
@@ -38,6 +30,18 @@ function guard(n) {
 	return "small";
 }
 export function main() {
-	console.log(-2147483648, signs(), bounded(), rounding(), guard(4));
-	console.log(Object.is(signs()[0], -0), 1 / signs()[1]);
+	console.log(-2147483648, [
+		-0,
+		-0,
+		0
+	], bounded(), rounding(), guard(4));
+	console.log(Object.is([
+		-0,
+		-0,
+		0
+	][0], -0), 1 / [
+		-0,
+		-0,
+		0
+	][1]);
 }

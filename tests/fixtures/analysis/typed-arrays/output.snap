@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/typed-arrays/input.ts
 // Typed arrays: element types follow the kind, whatever is stored.
 export function main() {
 	const bytes = new Uint8Array(4);
-	for (let i = 0; i < 4; i++) {
+	for (let i = 0; i < bytes.length; i++) {
 		bytes[i] = 300;
 	}
 	console.log(

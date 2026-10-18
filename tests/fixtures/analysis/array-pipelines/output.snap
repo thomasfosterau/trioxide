@@ -4,21 +4,13 @@ description: tests/fixtures/analysis/array-pipelines
 input_file: tests/fixtures/analysis/array-pipelines/input.ts
 ---
 //- input.ts
-function forEach_callback(v, i, all) {
+const forEach_callback = (v, i, all) => {
 	console.log(v + i, all.length);
-}
-function find_callback(v) {
-	return v > 2;
-}
-function reduce_callback(acc, v) {
-	return acc + v;
-}
-function filter_callback(v, i) {
-	return i % 2 === 0;
-}
-function map_callback(v) {
-	return v * 2;
-}
+};
+const find_callback = (v) => v > 2;
+const reduce_callback = (acc, v) => acc + v;
+const filter_callback = (v, i) => i % 2 === 0;
+const map_callback = (v) => v * 2;
 // map/filter/reduce over proven arrays: callbacks get proven elements and indices.
 export function main() {
 	const values = [

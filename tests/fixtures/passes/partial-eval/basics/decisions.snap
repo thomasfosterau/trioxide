@@ -4,6 +4,17 @@ description: tests/fixtures/passes/partial-eval/basics
 input_file: tests/fixtures/passes/partial-eval/basics/input.ts
 ---
 //- input.ts
+6:23 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+25:18 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+25:43 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+32:25 inline applied
+6:23 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+25:18 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+25:43 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+29:46 fold applied
+29:75 fold applied
+38:60 fold skipped: the expression has effects, so it stays
+2:7 dce applied
 32:17 partial-eval applied
 33:13 partial-eval applied
 34:15 partial-eval applied
@@ -13,13 +24,3 @@ input_file: tests/fixtures/passes/partial-eval/basics/input.ts
 34:7 scalar skipped: a closure uses the object
 35:7 scalar skipped: a key is called as a method (which passes the object as `this`)
 39:27 closure-hoist applied
-38:60 fold applied
-2:7 dce applied
-4:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-4:1 dce applied
-12:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-12:1 dce applied
-24:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-24:1 dce applied
-28:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-28:1 dce applied

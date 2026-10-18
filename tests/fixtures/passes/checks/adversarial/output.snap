@@ -10,9 +10,6 @@ function castAway() {
 	const value = Math.random() > 2 ? { x: 1 } : null;
 	return value?.x;
 }
-function shadowed(undefined) {
-	return 1 === undefined;
-}
 function getterChain() {
 	let reads = 0;
 	const box = { get inner() {
@@ -37,6 +34,6 @@ function typeofEffects() {
 }
 export function main() {
 	let input;
-	console.log(castAway(), shadowed(1), shadowed(2), getterChain(), typeofEffects());
+	console.log(castAway(), true, false, getterChain(), typeofEffects());
 	console.log("string", (input = JSON.parse("1"), typeof input === "string" ? "string" : "other"));
 }

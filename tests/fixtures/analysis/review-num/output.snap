@@ -45,7 +45,7 @@ function inc(x) {
 	return y - x;
 }
 export function main() {
-	console.log(.10000000149011612, 34028234663852886e22, Infinity);
+	console.log(Math.fround(.1), Math.fround(34028235e31), Math.fround(34028236e31));
 	const xs = [
 		0,
 		-0,

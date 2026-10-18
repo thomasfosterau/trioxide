@@ -5,8 +5,8 @@ input_file: tests/fixtures/passes/inline-fn/islands/input.ts
 ---
 //- input.ts
 //- kernel.ts
+25:21 fold applied
 24:11 scalar applied
 9:10 inline-fn skipped: `square` is a WASM island function (an explicit request stays)
 25:10 inline-fn skipped: `hot` is a WASM island function (an explicit request stays)
-25:21 inline applied
-24:11 dce applied
+24:11 simplify applied

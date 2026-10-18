@@ -13,16 +13,20 @@ function thrower(value) {
 	return Math.sqrt(value);
 }
 function caller() {
-	state = 4;
+	const value = Math.max(1, 2) * 2;
+	state = value;
 	return state;
 }
 function catches() {
 	try {
-		throw new RangeError("negative");
+		if (-1 < 0) {
+			throw new RangeError("negative");
+		}
+		return Math.sqrt(-1);
 	} catch {
 		return 0;
 	}
 }
 export function main() {
-	console.log(8, caller(), catches(), 1, thrower(4));
+	console.log(Math.max(3, 4) * 2, caller(), catches(), 1, thrower(4));
 }

@@ -4,13 +4,7 @@ description: tests/fixtures/passes/checks/basics
 input_file: tests/fixtures/passes/checks/basics/input.ts
 ---
 //- input.ts
-14:9 closure-hoist skipped: the closure is used other than by calling it (its identity may be seen)
-13:13 inline-fn applied
-41:15 inline-fn skipped: `chains` contains a closure (its identity and what it captures would change)
-41:25 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-41:37 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-41:48 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-8:1 inline-fn applied
+9:12 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
 14:36 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
 24:11 inline applied
 24:22 inline applied
@@ -22,6 +16,7 @@ input_file: tests/fixtures/passes/checks/basics/input.ts
 31:25 checks applied
 34:7 checks applied
 37:10 checks applied
+9:12 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 14:36 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 14:36 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 15:17 fold skipped: the comparison's operands have effects
@@ -34,6 +29,18 @@ input_file: tests/fixtures/passes/checks/basics/input.ts
 37:10 fold applied
 21:9 dce applied
 22:9 dce applied
+14:9 closure-hoist applied
+13:13 inline-fn applied
+17:17 inline-fn applied
+41:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+41:25 inline-fn applied
+41:37 inline-fn applied
+41:48 inline-fn applied
+8:1 inline-fn applied
+14:13 inline-fn applied
+20:1 inline-fn applied
+27:1 inline-fn applied
+14:36 simplify applied
 17:25 simplify applied
 24:11 simplify applied
 24:22 simplify applied

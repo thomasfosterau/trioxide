@@ -74,7 +74,7 @@ pub const SMALL: usize = 40;
 /// A callee's only call site takes at most this many nodes.
 pub const LARGE: usize = 400;
 
-/// PLAN §4 pass 5 (`"inline-fn"`), last in the speed group.
+/// PLAN §4 pass 5 (`"inline-fn"`), last in the foundation group.
 pub struct InlineFn;
 
 impl Pass for InlineFn {
@@ -174,6 +174,10 @@ struct Index<'a> {
 }
 
 impl<'a> Index<'a> {
+    #[expect(
+        clippy::items_after_statements,
+        reason = "visitors used only here, next to their use"
+    )]
     fn build(
         program: &Program<'a>,
         scoping: &Scoping,
@@ -369,11 +373,7 @@ impl<'a> Index<'a> {
                     }
                 }
                 let statements = body.map_or(&[][..], |body| body.statements.as_slice());
-                let single_return = match statements {
-                    [] => true,
-                    [Statement::ReturnStatement(_)] => true,
-                    _ => false,
-                };
+                let single_return = matches!(statements, [] | [Statement::ReturnStatement(_)]);
                 let last_returns = matches!(statements.last(), Some(Statement::ReturnStatement(_)));
                 let simple_returns = scan.returns == 0 || (scan.returns == 1 && last_returns);
                 let template = problem.is_none().then(|| {
@@ -569,6 +569,9 @@ enum Value<'a> {
         name: String,
         init: Expression<'a>,
         mutable: bool,
+        /// The value is the callee's code (a default), so its names are renamed; an argument
+        /// is the caller's, and must not be (it may hold earlier inlined copies of the callee).
+        callee_code: bool,
     },
 }
 
@@ -749,24 +752,31 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
                 Some(Value::Copy(expression)) => {
                     copies.insert(*symbol, expression);
                 }
-                Some(Value::Local { name, init, .. }) => {
+                Some(Value::Local {
+                    name,
+                    init,
+                    callee_code,
+                    ..
+                }) => {
                     renames.insert(*symbol, name.clone());
-                    sequence.push((name, init));
+                    sequence.push((name, init, callee_code));
                 }
                 None => {}
             }
         }
         let mut parts: Vec<Expression<'a>> = Vec::new();
-        for (name, mut init) in sequence {
-            Rename {
-                scoping: ctx.scoping(),
-                copies: &copies,
-                renames: &renames,
-                this: receiver.as_ref(),
-                ast: AstBuilder::new(self.allocator),
-                mode: None,
+        for (name, mut init, callee_code) in sequence {
+            if callee_code {
+                Rename {
+                    scoping: ctx.scoping(),
+                    copies: &copies,
+                    renames: &renames,
+                    this: receiver.as_ref(),
+                    ast: AstBuilder::new(self.allocator),
+                    mode: None,
+                }
+                .visit_expression(&mut init);
             }
-            .visit_expression(&mut init);
             let target = AssignmentTarget::new_assignment_target_identifier(
                 span,
                 Ident::from_str_in(&name, ctx),
@@ -816,6 +826,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
                 .skipped(span, "the body would put a bare name under `typeof`");
             return;
         }
+        ForgetNames.visit_expression(&replacement);
         *expression = slot.wrap(replacement, ctx);
         self.inlined.insert(site.callee);
         self.decisions.applied(span);
@@ -954,15 +965,6 @@ impl<'a> Visitor<'a, '_> {
         {
             return Err(Some(
                 "other code than the callee may run at the call".into(),
-            ));
-        }
-        let value = self.query.ty(call.node_id());
-        if super::util::type_constant(value.value).is_some()
-            && self.query.usable(value.trust)
-            && self.query.pure(call.node_id())
-        {
-            return Err(Some(
-                "the call's value is a constant, which fold puts in its place".into(),
             ));
         }
         for (name, binding) in &callee.free {
@@ -1134,6 +1136,7 @@ impl<'a> Visitor<'a, '_> {
                 name: namer.fresh(&base, scope, scoping),
                 init,
                 mutable,
+                callee_code: false,
             };
             let value = match how {
                 How::CopyArgument(at) => Value::Copy(taken[at].take().expect("present")),
@@ -1149,7 +1152,20 @@ impl<'a> Visitor<'a, '_> {
                         .expect("a default")
                         .clone_in_with_semantic_ids(self.allocator);
                     ForgetIds.visit_expression(&default);
-                    local(default.unbox(), &mut self.namer)
+                    match local(default.unbox(), &mut self.namer) {
+                        Value::Local {
+                            name,
+                            init,
+                            mutable,
+                            ..
+                        } => Value::Local {
+                            name,
+                            init,
+                            mutable,
+                            callee_code: true,
+                        },
+                        copy @ Value::Copy(_) => copy,
+                    }
                 }
                 How::Rest(from) => {
                     let elements = taken
@@ -1351,23 +1367,26 @@ impl<'a> Visitor<'a, '_> {
                     name,
                     init,
                     mutable,
+                    callee_code,
                 }) => {
                     renames.insert(*symbol, name.clone());
-                    locals_in_order.push((name, init, mutable));
+                    locals_in_order.push((name, init, mutable, callee_code));
                 }
                 None => {}
             }
         }
-        for (name, mut init, mutable) in locals_in_order {
-            Rename {
-                scoping: ctx.scoping(),
-                copies: &copies,
-                renames: &renames,
-                this: receiver.as_ref(),
-                ast: AstBuilder::new(self.allocator),
-                mode: None,
+        for (name, mut init, mutable, callee_code) in locals_in_order {
+            if callee_code {
+                Rename {
+                    scoping: ctx.scoping(),
+                    copies: &copies,
+                    renames: &renames,
+                    this: receiver.as_ref(),
+                    ast: AstBuilder::new(self.allocator),
+                    mode: None,
+                }
+                .visit_expression(&mut init);
             }
-            .visit_expression(&mut init);
             out.push(declare(
                 if mutable {
                     VariableDeclarationKind::Let
@@ -1471,7 +1490,7 @@ impl<'a> Visitor<'a, '_> {
             }
             Mode::Return => match final_value {
                 Some(value) => {
-                    body_statements.push(Statement::new_return_statement(span, value, ctx))
+                    body_statements.push(Statement::new_return_statement(span, value, ctx));
                 }
                 None => suffix.push(Statement::new_return_statement(span, None, ctx)),
             },
@@ -1548,6 +1567,9 @@ impl<'a> Visitor<'a, '_> {
         if let Some(first) = replacement.first_mut() {
             set_statement_span(first, span_of);
         }
+        for statement in &replacement {
+            ForgetNames.visit_statement(statement);
+        }
         let count = replacement.len();
         statements.remove(index);
         for (offset, statement) in replacement.into_iter().enumerate() {
@@ -1590,7 +1612,7 @@ fn uses(expression: &Expression<'_>, symbol: SymbolId, scoping: &Scoping) -> usi
     struct Count<'s> {
         scoping: &'s Scoping,
         symbol: SymbolId,
-        count: usize,
+        found: usize,
     }
     impl<'a> Visit<'a> for Count<'_> {
         fn visit_identifier_reference(&mut self, ident: &IdentifierReference<'a>) {
@@ -1600,17 +1622,17 @@ fn uses(expression: &Expression<'_>, symbol: SymbolId, scoping: &Scoping) -> usi
                 .and_then(|reference| self.scoping.get_reference(reference).symbol_id())
                 == Some(self.symbol)
             {
-                self.count += 1;
+                self.found += 1;
             }
         }
     }
     let mut count = Count {
         scoping,
         symbol,
-        count: 0,
+        found: 0,
     };
     count.visit_expression(expression);
-    count.count
+    count.found
 }
 
 /// The binding `expression` reads before evaluating anything else, if it starts with a name.
@@ -1646,6 +1668,21 @@ fn first_read(expression: &Expression<'_>, scoping: &Scoping) -> Option<SymbolId
             .first()
             .and_then(|first| first_read(first, scoping)),
         _ => None,
+    }
+}
+
+/// Clears the reference and symbol ids under a node the inliner made, so a later inlining in
+/// the same run (of a call whose argument holds this code) can't take its names for the
+/// callee's; the scoping is rebuilt after the pass.
+struct ForgetNames;
+
+impl<'a> Visit<'a> for ForgetNames {
+    fn visit_identifier_reference(&mut self, ident: &IdentifierReference<'a>) {
+        ident.reference_id.set(None);
+    }
+
+    fn visit_binding_identifier(&mut self, ident: &oxc_ast::ast::BindingIdentifier<'a>) {
+        ident.symbol_id.set(None);
     }
 }
 
@@ -1891,6 +1928,10 @@ impl<'a> VisitMut<'a> for Rename<'_, 'a> {
 }
 
 /// Removes the functions every call of which was inlined, where nothing else needs them.
+#[expect(
+    clippy::items_after_statements,
+    reason = "visitors used only here, next to their use"
+)]
 fn remove_inlined<'a>(
     program: &mut Program<'a>,
     ctx: &mut PassContext<'a, '_>,
@@ -1933,7 +1974,7 @@ fn remove_inlined<'a>(
         return;
     }
     struct Remove<'r> {
-        remove: &'r FxHashMap<Span, Span>,
+        targets: &'r FxHashMap<Span, Span>,
         comments: Comments,
         removed: Vec<Span>,
     }
@@ -1944,7 +1985,7 @@ fn remove_inlined<'a>(
                 .iter()
                 .map(|statement| match statement {
                     Statement::FunctionDeclaration(function) => {
-                        let gone = self.remove.contains_key(&function.span);
+                        let gone = self.targets.contains_key(&function.span);
                         if gone {
                             self.removed.push(function.span);
                         }
@@ -1959,7 +2000,7 @@ fn remove_inlined<'a>(
         }
     }
     let mut visitor = Remove {
-        remove: &remove,
+        targets: &remove,
         comments: Comments::default(),
         removed: Vec::new(),
     };
@@ -1993,6 +2034,10 @@ fn find_function(program: &Program<'_>, node: NodeId) -> Option<(Span, SymbolId)
 
 /// Specialisation: drops parameters every caller passes the same literal. Returns whether
 /// anything changed.
+#[expect(
+    clippy::items_after_statements,
+    reason = "visitors used only here, next to their use"
+)]
 fn drop_constant_parameters<'a>(
     program: &mut Program<'a>,
     ctx: &mut PassContext<'a, '_>,
@@ -2382,11 +2427,6 @@ fn constant_literal<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn budgets_are_ordered() {
-        assert!(SMALL < LARGE);
-    }
 
     #[test]
     fn literal_constants() {

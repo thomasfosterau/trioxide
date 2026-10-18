@@ -27,7 +27,7 @@
 //!
 //! [`Facts::symbol_constant`]: trioxide_analysis::Facts::symbol_constant
 
-use std::rc::Rc;
+use std::{fmt::Write as _, rc::Rc};
 
 use oxc_allocator::ArenaVec;
 use oxc_ast::ast::{
@@ -61,7 +61,7 @@ pub const MAX_LEAVES: usize = 128;
 /// The longest string (in UTF-16 code units) a result may contain.
 pub const MAX_STRING: usize = 256;
 
-/// PLAN §4 pass 11 (`"partial-eval"`), first in the speed group.
+/// PLAN §4 pass 11 (`"partial-eval"`), the first speed pass of the foundation group.
 pub struct PartialEval;
 
 impl Pass for PartialEval {
@@ -382,6 +382,13 @@ fn units(text: &str) -> Rc<Vec<u16>> {
     Rc::new(text.encode_utf16().collect())
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::float_cmp,
+    reason = "lengths and indices stay below 2^32, and JavaScript compares doubles exactly"
+)]
 impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
     fn step(&mut self, cost: u64) -> Eval<()> {
         self.fuel = self.fuel.checked_sub(cost).ok_or(Stop::OutOfFuel)?;
@@ -495,7 +502,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             }
             Statement::IfStatement(branch) => {
                 let test = self.expression(&branch.test)?;
-                if self.truthy(&test) {
+                if Self::truthy(&test) {
                     self.statement(&branch.consequent)
                 } else if let Some(alternate) = &branch.alternate {
                     self.statement(alternate)
@@ -518,7 +525,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                 loop {
                     if let Some(test) = &for_statement.test {
                         let test = self.expression(test)?;
-                        if !self.truthy(&test) {
+                        if !Self::truthy(&test) {
                             break;
                         }
                     }
@@ -536,7 +543,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             Statement::WhileStatement(while_statement) => {
                 loop {
                     let test = self.expression(&while_statement.test)?;
-                    if !self.truthy(&test) {
+                    if !Self::truthy(&test) {
                         break;
                     }
                     match self.statement(&while_statement.body)? {
@@ -555,7 +562,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                         Completion::Normal | Completion::Continue => {}
                     }
                     let test = self.expression(&do_while.test)?;
-                    if !self.truthy(&test) {
+                    if !Self::truthy(&test) {
                         break;
                     }
                 }
@@ -635,7 +642,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
         Ok(())
     }
 
-    fn truthy(&self, value: &Value) -> bool {
+    fn truthy(value: &Value) -> bool {
         match value {
             Value::Undefined | Value::Null | Value::Hole => false,
             Value::Boolean(value) => *value,
@@ -739,7 +746,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                     text.extend(cooked.encode_utf16());
                     if let Some(expression) = template.expressions.get(index) {
                         let value = self.expression(expression)?;
-                        text.extend(self.to_string(&value)?.iter());
+                        text.extend(Self::to_string(&value)?.iter());
                     }
                 }
                 self.string(text)
@@ -801,8 +808,8 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             Expression::LogicalExpression(logical) => {
                 let left = self.expression(&logical.left)?;
                 let take_left = match logical.operator {
-                    LogicalOperator::And => !self.truthy(&left),
-                    LogicalOperator::Or => self.truthy(&left),
+                    LogicalOperator::And => !Self::truthy(&left),
+                    LogicalOperator::Or => Self::truthy(&left),
                     LogicalOperator::Coalesce => !matches!(left, Value::Null | Value::Undefined),
                 };
                 if take_left {
@@ -813,7 +820,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             }
             Expression::ConditionalExpression(conditional) => {
                 let test = self.expression(&conditional.test)?;
-                if self.truthy(&test) {
+                if Self::truthy(&test) {
                     self.expression(&conditional.consequent)
                 } else {
                     self.expression(&conditional.alternate)
@@ -847,7 +854,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                 }
                 let object = self.expression(&member.object)?;
                 let key = self.expression(&member.expression)?;
-                let key = self.key(&key)?;
+                let key = Self::key(&key)?;
                 self.get(&object, &key)
             }
             Expression::CallExpression(call) => self.call_expression(call),
@@ -1069,11 +1076,12 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                         if matches!(target, Value::Object(_)) {
                             return unsupported("searching for objects");
                         }
+                        // `indexOf` skips holes; `includes` reads them as `undefined`.
                         let found = elements.iter().position(|element| {
                             if name == "includes" {
                                 same_value_zero(element, &target)
                             } else {
-                                strict_equals(element, &target)
+                                *element != Value::Hole && strict_equals(element, &target)
                             }
                         });
                         let count = elements.len() as u64;
@@ -1110,7 +1118,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
     }
 
     /// A property key from a value.
-    fn key(&mut self, key: &Value) -> Eval<PropertyName> {
+    fn key(key: &Value) -> Eval<PropertyName> {
         match key {
             Value::Number(index) if array_index(*index).is_some() => {
                 Ok(PropertyName::Index(array_index(*index).expect("checked")))
@@ -1204,7 +1212,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
                 let object = self.expression(&member.object)?;
                 let key = self.expression(&member.expression)?;
-                let key = self.key(&key)?;
+                let key = Self::key(&key)?;
                 Ok(Some((object, key)))
             }
             SimpleAssignmentTarget::AssignmentTargetIdentifier(_) => Ok(None),
@@ -1234,8 +1242,8 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                 Some(Err(logical)) => {
                     let old = self.read(ident)?;
                     let keep = match logical {
-                        AssignmentOperator::LogicalAnd => !self.truthy(&old),
-                        AssignmentOperator::LogicalOr => self.truthy(&old),
+                        AssignmentOperator::LogicalAnd => !Self::truthy(&old),
+                        AssignmentOperator::LogicalOr => Self::truthy(&old),
                         _ => !matches!(old, Value::Null | Value::Undefined),
                     };
                     if keep {
@@ -1289,7 +1297,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
     fn unary(&mut self, operator: UnaryOperator, argument: &Expression<'a>) -> Eval<Value> {
         let value = self.expression(argument)?;
         Ok(match operator {
-            UnaryOperator::LogicalNot => Value::Boolean(!self.truthy(&value)),
+            UnaryOperator::LogicalNot => Value::Boolean(!Self::truthy(&value)),
             UnaryOperator::Void => Value::Undefined,
             UnaryOperator::Typeof => {
                 let name = match value {
@@ -1302,15 +1310,15 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                 };
                 Value::String(units(name))
             }
-            UnaryOperator::UnaryNegation => Value::Number(-self.number(&value)?),
-            UnaryOperator::UnaryPlus => Value::Number(self.number(&value)?),
-            UnaryOperator::BitwiseNot => Value::Number(f64::from(!to_int32(self.number(&value)?))),
+            UnaryOperator::UnaryNegation => Value::Number(-Self::number(&value)?),
+            UnaryOperator::UnaryPlus => Value::Number(Self::number(&value)?),
+            UnaryOperator::BitwiseNot => Value::Number(f64::from(!to_int32(Self::number(&value)?))),
             UnaryOperator::Delete => return unsupported("`delete`"),
         })
     }
 
-    /// ToNumber for the values where it can't run user code or depend on string parsing.
-    fn number(&self, value: &Value) -> Eval<f64> {
+    /// `ToNumber` for the values where it can't run user code or depend on string parsing.
+    fn number(value: &Value) -> Eval<f64> {
         match value {
             Value::Number(value) => Ok(*value),
             Value::Boolean(value) => Ok(f64::from(u8::from(*value))),
@@ -1320,8 +1328,8 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
         }
     }
 
-    /// ToString for primitives.
-    fn to_string(&self, value: &Value) -> Eval<Rc<Vec<u16>>> {
+    /// `ToString` for primitives.
+    fn to_string(value: &Value) -> Eval<Rc<Vec<u16>>> {
         Ok(match value {
             Value::String(text) => Rc::clone(text),
             Value::Number(value) => units(&value.to_js_string()),
@@ -1337,8 +1345,8 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
         if operator == B::Addition
             && (matches!(left, Value::String(_)) || matches!(right, Value::String(_)))
         {
-            let mut text = (*self.to_string(left)?).clone();
-            text.extend(self.to_string(right)?.iter());
+            let mut text = (*Self::to_string(left)?).clone();
+            text.extend(Self::to_string(right)?.iter());
             return self.string(text);
         }
         let comparison = |less: bool, equal: bool, greater: bool| -> Option<bool> {
@@ -1363,12 +1371,11 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                 Value::Boolean(equal == (operator == B::Equality))
             }
             B::LessThan | B::LessEqualThan | B::GreaterThan | B::GreaterEqualThan => {
-                let order = match (left, right) {
-                    (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
-                    _ => {
-                        let (a, b) = (self.number(left)?, self.number(right)?);
-                        a.partial_cmp(&b)
-                    }
+                let order = if let (Value::String(a), Value::String(b)) = (left, right) {
+                    Some(a.cmp(b))
+                } else {
+                    let (a, b) = (Self::number(left)?, Self::number(right)?);
+                    a.partial_cmp(&b)
                 };
                 let Some(order) = order else {
                     return Ok(Value::Boolean(false));
@@ -1382,7 +1389,7 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             }
             B::In | B::Instanceof => return unsupported("`in` or `instanceof`"),
             _ => {
-                let (a, b) = (self.number(left)?, self.number(right)?);
+                let (a, b) = (Self::number(left)?, Self::number(right)?);
                 Value::Number(match operator {
                     B::Addition => a + b,
                     B::Subtraction => a - b,
@@ -1496,7 +1503,7 @@ fn invisible(c: char) -> bool {
     reason = "checked"
 )]
 fn array_index(value: f64) -> Option<usize> {
-    (value.fract() == 0.0 && value >= 0.0 && value < 4_294_967_295.0).then_some(value as usize)
+    (value.fract() == 0.0 && (0.0..4_294_967_295.0).contains(&value)).then_some(value as usize)
 }
 
 #[expect(
@@ -1505,16 +1512,16 @@ fn array_index(value: f64) -> Option<usize> {
     reason = "checked"
 )]
 fn array_length(value: f64) -> Option<usize> {
-    (value.fract() == 0.0 && value >= 0.0 && value < 4_294_967_296.0).then_some(value as usize)
+    (value.fract() == 0.0 && (0.0..4_294_967_296.0).contains(&value)).then_some(value as usize)
 }
 
-/// ECMAScript ToInt32.
-#[expect(clippy::cast_possible_truncation, reason = "modular conversion")]
+/// ECMAScript `ToInt32`.
+#[expect(clippy::cast_possible_wrap, reason = "modular conversion")]
 fn to_int32(value: f64) -> i32 {
     to_uint32(value) as i32
 }
 
-/// ECMAScript ToUint32.
+/// ECMAScript `ToUint32`.
 #[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -1544,6 +1551,7 @@ fn js_round(x: f64) -> f64 {
 }
 
 /// `Math.max` of two: NaN wins, `+0` beats `-0`.
+#[expect(clippy::float_cmp, reason = "exact comparison, as JavaScript's")]
 fn js_max(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
         f64::NAN
@@ -1557,6 +1565,7 @@ fn js_max(a: f64, b: f64) -> f64 {
 }
 
 /// `Math.min` of two: NaN wins, `-0` beats `+0`.
+#[expect(clippy::float_cmp, reason = "exact comparison, as JavaScript's")]
 fn js_min(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
         f64::NAN
@@ -1571,6 +1580,11 @@ fn js_min(a: f64, b: f64) -> f64 {
 
 /// `base ** exponent` where it is exact without the engine's `pow`: integer bases and small
 /// non-negative integer exponents whose result stays an exact integer.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "checked range"
+)]
 fn exact_power(base: f64, exponent: f64) -> Eval<f64> {
     if exponent.fract() != 0.0
         || !(0.0..=64.0).contains(&exponent)
@@ -1592,6 +1606,7 @@ fn exact_power(base: f64, exponent: f64) -> Eval<f64> {
     Ok(result)
 }
 
+#[expect(clippy::float_cmp, reason = "`===` compares doubles exactly")]
 fn strict_equals(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(a), Value::Number(b)) => a == b,
@@ -1601,6 +1616,7 @@ fn strict_equals(a: &Value, b: &Value) -> bool {
     }
 }
 
+#[expect(clippy::float_cmp, reason = "SameValueZero compares doubles exactly")]
 fn same_value_zero(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(a), Value::Number(b)) => a == b || (a.is_nan() && b.is_nan()),
@@ -1650,7 +1666,7 @@ fn build<'a>(literal: &Literal, span: Span, ctx: &mut TraverseCtx<'a, ()>) -> Ex
                     Ok(c) => text.push(c),
                     Err(error) => {
                         text.push('\u{FFFD}');
-                        text.push_str(&format!("{:04x}", error.unpaired_surrogate()));
+                        let _ = write!(text, "{:04x}", error.unpaired_surrogate());
                     }
                 }
             }

@@ -27,6 +27,7 @@ export function main() {
 }
 
 //- runtime.ts
+const map_callback = ([key, value]) => ` ${key}="${String(value)}"`;
 export const Fragment = Symbol("Fragment");
 export function h(tag, props, ...children) {
 	return {
@@ -34,9 +35,6 @@ export function h(tag, props, ...children) {
 		props: props ?? {},
 		children
 	};
-}
-function map_callback([key, value]) {
-	return ` ${key}="${String(value)}"`;
 }
 export function render(node) {
 	if (node === null || node === undefined || typeof node === "boolean") return "";

@@ -8,8 +8,8 @@ input_file: tests/fixtures/analysis/default-params/input.ts
 export function main() {
 	let name, times, times_1;
 	console.log((name = "world", times = 1, name.repeat(
-		1
+		times
 		/*@proven number int*/
-	)), (times_1 = 1, "you".repeat(1)), "twice".repeat(2));
+	)), (times_1 = 1, "you".repeat(times_1)), "twice".repeat(2));
 	console.log(0, 3);
 }

@@ -12,8 +12,9 @@ export function main() {
 		n
 		/*@proven string*/
 	);
+	const b = "not a number";
 	// An unknown call's `any` result is unknown, and the annotation can't make it proven.
-	console.log("not a number", "string");
+	console.log(b, typeof b);
 	const json = JSON.parse("[1, 2]");
 	const first = json[0];
 	// Only the annotation says it is a number.

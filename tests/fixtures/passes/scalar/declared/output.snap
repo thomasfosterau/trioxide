@@ -10,5 +10,9 @@ export function report(p) {
 	return p.x + p.y;
 }
 export function main() {
-	console.log(3, 12);
+	const p = {
+		x: 1,
+		y: 2
+	};
+	console.log(p.x + p.y, 12);
 }

@@ -6,23 +6,15 @@ input_file: tests/fixtures/passes/checks/basics/input.ts
 //- input.ts
 function chains() {
 	const p = { x: 1 };
-	const f = (n) => n + 1;
 	const maybe = Math.random() > 2 ? null : p;
 	// p and f are never nullish; maybe may be null.
 	return [
 		p.x,
-		f(1),
+		2,
 		undefined,
 		maybe?.x
 	];
 }
-function coalesce() {
-	// `??` only replaces null and undefined.
-	return [0, "fallback"];
-}
-function guards(value) {
-	return "number";
-}
 export function main() {
-	console.log(chains(), coalesce(), guards(3), guards(4));
+	console.log(chains(), [0, "fallback"], "number", "number");
 }

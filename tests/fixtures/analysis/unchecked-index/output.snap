@@ -16,8 +16,9 @@ export function main() {
 		past
 		/*@proven union*/
 	);
+	const tuple_1 = "a";
 	console.log(
-		"a"
+		tuple_1
 		/*@proven union*/
 	);
 	console.log(

@@ -4,6 +4,25 @@ description: tests/fixtures/passes/partial-eval/adversarial
 input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 ---
 //- input.ts
+19:7 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+20:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+36:10 inline skipped: the read may throw (e.g. in its temporal dead zone)
+39:10 inline applied
+97:53 inline skipped: the read may throw (e.g. in its temporal dead zone)
+10:10 fold skipped: the comparison's operands have effects
+19:7 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
+19:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+36:10 fold skipped: the expression has effects, so it stays
+36:10 fold skipped: the expression has effects, so it stays
+39:10 fold applied
+65:11 fold applied
+65:25 fold applied
+82:8 fold skipped: the expression has effects, so it stays
+87:12 fold applied
+97:53 fold skipped: the expression has effects, so it stays
+98:51 fold skipped: the expression has effects, so it stays
+3:7 dce applied
+38:1 dce applied
 68:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
 69:12 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
 70:12 partial-eval skipped: the interpreter doesn't model globals
@@ -17,7 +36,6 @@ input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 92:22 partial-eval skipped: the interpreter doesn't model strings with lone surrogates
 92:37 partial-eval skipped: the result has a string with invisible characters
 93:13 partial-eval skipped: evaluating the call takes more than 200000 steps
-87:12 partial-eval applied
 88:13 partial-eval applied
 91:13 partial-eval applied
 92:14 partial-eval applied
@@ -53,26 +71,9 @@ input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 53:1 inline-fn applied
 58:1 inline-fn applied
 61:1 inline-fn applied
-36:10 inline skipped: the read may throw (e.g. in its temporal dead zone)
-97:15 inline applied
-97:27 inline applied
-97:53 inline skipped: the read may throw (e.g. in its temporal dead zone)
-7:10 fold applied
-10:10 fold skipped: the comparison's operands have effects
-16:10 fold applied
-19:7 fold applied
-74:3 fold applied
-97:53 fold skipped: the expression has effects, so it stays
-98:51 fold skipped: the expression has effects, so it stays
-38:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-38:1 dce applied
-41:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-41:1 dce applied
-44:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-44:1 dce applied
-64:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
-64:1 dce applied
-68:7 dce applied
-71:7 dce applied
-3:7 dce applied
+65:72 simplify applied
+65:80 simplify applied
+65:88 simplify applied
+19:7 simplify applied
+74:3 simplify applied
 74:8 simplify applied

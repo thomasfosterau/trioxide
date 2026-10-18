@@ -11,5 +11,5 @@ export function scale(x) {
 }
 export const SCALED = 41;
 export function main() {
-	console.log(41);
+	console.log(SCALED);
 }

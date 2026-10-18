@@ -1,10 +1,14 @@
 //! What the speed passes (PLAN §4 passes 5, 8, 11 and 12) share: rebuilding the scoping
 //! without losing node ids, fresh readable names, and the island checks.
 //!
-//! The speed passes run as one fact-reading group. Each rewrites the AST directly and then
-//! rebuilds the scoping with [`rescope`], which keeps the node ids of the nodes it kept, so the
-//! next pass of the group still gets facts about them (nodes a pass made stay
-//! [`NodeId::DUMMY`](trioxide_common::NodeId::DUMMY) and answer `Unknown`).
+//! The speed passes run at the end of the foundation group, on the facts the build computed.
+//! Each rewrites the AST directly and then rebuilds the scoping with [`rescope`], which keeps
+//! the node ids of the nodes it kept, so the next pass still gets facts about them (nodes a
+//! pass made stay [`NodeId::DUMMY`](trioxide_common::NodeId::DUMMY) and answer `Unknown`).
+//!
+//! New bindings must not change what any reference means, and DCE counts a reference inside a
+//! declaration's span as the declaration's own (a self-reference), so nodes the passes make
+//! for a binding's uses never get a span inside that binding's declaration.
 
 use oxc_ast::{AstKind, ast::Program};
 use oxc_ast_visit::Visit;
@@ -64,7 +68,7 @@ impl Namer {
             taken: scoping
                 .root_unresolved_references()
                 .keys()
-                .map(|name| name.to_string())
+                .map(ToString::to_string)
                 .collect(),
         }
     }

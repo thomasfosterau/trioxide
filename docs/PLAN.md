@@ -342,16 +342,63 @@ Every pass has a pre-condition expressed in analysis facts. A pass whose facts a
 **Pipeline** (`trioxide_js::passes`). Passes 1–4 run as one fact-driven group, once, in the
 order inline (1), checks (4), fold (2), dce (3): checks turn guards into literals that fold
 then takes, and dce removes what the others left unused. Within the group node ids are
-stable, so later passes read facts about the nodes earlier ones kept. A syntactic cleanup
+stable, so later passes read facts about the nodes earlier ones kept. The speed passes 11,
+8, 12 and 5 (partial-eval, scalar, closure-hoist, inline-fn) follow in the same group: a
+group of their own would refresh the facts of every module the foundation passes changed
+(measured: 33 whole-program re-analyses over the pass fixtures, and the 14-module random
+corpus building in 688 s instead of 46 s), while in the group they cost nothing. Each
+rebuilds the scoping after it rewrites without renumbering nodes (`speed::rescope` puts the
+old ids back), so the next pass still reads facts about the nodes it kept; the foundation
+passes don't see the speed passes' output with facts, the syntactic cleanup does. A syntactic cleanup
 group follows and runs to a fixed point without reading facts (`Pass::reads_facts`, so it
 never triggers a refresh): `oxc_ecmascript` constant evaluation (plus exact int32 bitwise
 folding, which it leaves alone), branches with literal tests, `null?.x`, statements after a
 `return`/`throw`/`break`/`continue`, empty statements, and unused bindings with inert
 initialisers. With these two groups no module is refreshed at all (refreshes happen only
-before a fact-reading group that follows a change); S5's groups pay for refreshes when they
-read facts after a change. An import guard brackets both groups: when the passes remove an
+before a fact-reading group that follows a change); a later fact-reading group pays for a
+refresh of every module changed before it (`trioxide_js`'s `no_refreshes` test keeps the
+fixture corpus at zero). An import guard brackets both groups: when the passes remove an
 import's last value use, the TypeScript strip would elide the whole declaration and its module
 might not run, so a side-effect `import "…"` is added in its place.
+
+**Speed passes** (S5a). All four only rewrite code in their own module, and leave WASM island
+functions, and code proven never to run, alone.
+- *Inlining (5)*: calls of the module's function declarations and class methods (a method's
+  receiver, a name that is never reassigned or `this`, stands for `this`) when
+  `site_resolution` is complete with that one callee; up to 40 AST nodes, or 400 for a
+  callee's only call site (`callers_complete`). A body that is one `return` becomes an
+  expression anywhere (temporaries declared at the top of the enclosing statement list);
+  other bodies are inlined where the call is a statement, a declaration's initialiser, a
+  `return` argument or an assignment to a name, `return`s becoming assignments and a
+  labeled-block `break`. Arguments evaluate once, in order: literals and never-reassigned
+  names are copied, one computed argument read first and once by the body goes into that use,
+  anything else gets a local. Callees using `this` (functions), `arguments`, `new.target`,
+  `super`, `eval`, `with`, labels, `var` or private names, generators, async and recursive
+  functions, and callees containing a function or class are not inlined. Every call of a
+  function inlined, the declaration goes (not exported, `callers_complete` usable-true). With
+  `passes.specialize`, a parameter every caller (all direct calls in the module, no
+  `arguments`, no defaults) passes the same literal leaves the signature and the calls and
+  becomes a `const` (which pass 1 inlines). Callees in other modules are not inlined: the
+  passes see one module's AST at a time.
+- *Scalar replacement (8)*: needs `escapes = None` and a stable shape for the literal's site,
+  `points_to` exactly that site at every key use, literal keys present at creation, and no
+  use of the binding but key reads and writes in its own function (`p.x` → `p_x`).
+- *Partial evaluation (11)*: a call in module top-level code of a module function, with
+  constant arguments, is interpreted (200,000 steps; numbers, strings, booleans, arrays and
+  plain objects it creates, earlier module `const`s, the exactly specified parts of `Math`,
+  `Number` and `String`) and replaced with a literal of at most 128 values when the call has
+  no unknown calls (`expr_effects`, so builtins are the real ones) and the result is a tree
+  of fresh objects with no holes. Anything it doesn't model, a throw or running out of fuel
+  leaves the call.
+- *Closure hoisting (12)*: a closure that captures nothing (only module-level and global
+  names; no contextual `this`, `arguments`, `super` or `new.target`) with `escapes = None`,
+  that is either a `const` only ever called after its declaration (it becomes a top-level
+  function declaration, which pass 5 may then inline) or a callback argument of a call at
+  which only it runs (`xs.map((x) => …)` on a proven array). A callback stays an arrow, in a
+  `const` at the top of the module when the module has no imports or re-exports (an import
+  cycle could otherwise run the function before the `const` exists), else just before the
+  outermost loop around it in its function: V8 optimises a builtin's arrow callback better
+  than a function declaration (2.5× in `benchmarks/`).
 
 **Specialisation** is opt-in (`passes: { "specialize": true }`). In a closed world a
 parameter's facts are whatever every caller passes, which can make a function's body constant
@@ -673,7 +720,10 @@ Parallel sessions rely on this to stay safe.
   snapshots of a few libraries) and check they still parse, typecheck-strip, and pass their
   own tests where cheap.
 - **Benchmarks**: `benchmarks/` with tinybench (runtime of outputs) and criterion (compiler
-  throughput). Cost-model tuning is driven by these numbers.
+  throughput). Cost-model tuning is driven by these numbers. `pnpm --filter
+  trioxide-benchmarks bench` times each case's stripped and optimised versions in separate
+  processes, with V8's defaults and with `--no-opt` (V8's optimising tier already inlines and
+  scalar-replaces hot loops, so passes 5 and 8 pay off in code that isn't hot yet).
 - **Every PR**: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`,
   and the differential suite. The WASM jobs need `rustup target add wasm32-unknown-unknown`.
 

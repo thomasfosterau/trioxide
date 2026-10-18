@@ -7,7 +7,7 @@ input_file: tests/fixtures/passes/inline/shadowing/input.ts
 // Values whose names are shadowed where they land: `Infinity`, `NaN` and `undefined` are
 export function main() {
 	console.log([
-		undefined,
+		void 0,
 		Infinity,
 		-Infinity,
 		NaN,
@@ -15,7 +15,7 @@ export function main() {
 		2,
 		3
 	], [
-		undefined,
+		void 0,
 		Infinity,
 		-Infinity,
 		NaN,

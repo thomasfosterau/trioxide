@@ -1,22 +1,26 @@
 //! PLAN §4 pass 12: closure hoisting.
 //!
 //! A closure created inside a function (or a top-level loop) that captures nothing is created
-//! once instead: it becomes a function declaration at the top of the module, and its uses name
-//! that. Creating it once is only invisible when nothing can tell one closure object from
-//! another, so the closure must be one of:
+//! once instead. Creating it once is only invisible when nothing can tell one closure object
+//! from another, so the closure must be one of:
 //!
 //! - the initialiser of a `const` (or never reassigned `let`) every reference to which, after
 //!   the declaration, is a direct call `f(…)`: never compared, used as a `WeakMap`/`Set` key,
-//!   given properties, stored, pushed or passed;
+//!   given properties, stored, pushed or passed. It becomes a function declaration at the top
+//!   level (hoisted, so nothing can call it before it exists, import cycles included), which
+//!   pass 5 may then inline;
 //! - a callback argument of a call at which the facts say nothing runs but that closure
 //!   (`xs.map((x) => x * 2)` on a proven array: `site_resolution` is complete and lists only
-//!   it), so a modelled builtin that only calls it.
+//!   it), so a modelled builtin that only calls it. It stays an arrow (V8 optimises a builtin's
+//!   arrow callback better than a function declaration) in a `const`: at the top of the module
+//!   when the module imports nothing (so no import cycle can run the function before the
+//!   `const` exists), otherwise just before the outermost loop around it in its function.
 //!
 //! and its allocation site must be `escapes = None` (usable). It captures nothing: every name
 //! it reads is a module-level binding or a global, and (an arrow) it uses no `this`,
 //! `arguments`, `super` or `new.target`. Generators, async functions and named function
 //! expressions stay, and so do closures in WASM island functions and in code proven never to
-//! run. An arrow becomes a plain function, which is the same when only called with no `this`.
+//! run. An arrow made a function declaration is the same when it is only called, with no `this`.
 
 use oxc_allocator::{ArenaBox, ArenaVec, TakeIn};
 use oxc_ast::ast::{
@@ -40,7 +44,7 @@ use super::{
 };
 use crate::{Pass, PassContext};
 
-/// PLAN §4 pass 12 (`"closure-hoist"`), in the speed group.
+/// PLAN §4 pass 12 (`"closure-hoist"`), a speed pass of the foundation group.
 pub struct ClosureHoist;
 
 impl Pass for ClosureHoist {
@@ -57,6 +61,12 @@ impl Pass for ClosureHoist {
             return false;
         }
         let tagged = super::wasm_tags(program);
+        // Whether another module may run before this one finishes (an import cycle).
+        let imports = program.body.iter().any(|statement| match statement {
+            Statement::ImportDeclaration(import) => !import.import_kind.is_type(),
+            Statement::ExportFromDeclaration(_) | Statement::ExportAllDeclaration(_) => true,
+            _ => false,
+        });
         let mut find = Find {
             query,
             scoping: ctx.scoping(),
@@ -69,6 +79,8 @@ impl Pass for ClosureHoist {
             dead: 0,
             opaque: 0,
             top: 0,
+            anchor: None,
+            items: Vec::new(),
         };
         find.visit_program(program);
         let Find {
@@ -85,6 +97,19 @@ impl Pass for ClosureHoist {
                 decisions.skipped(candidate.span, reason);
                 continue;
             }
+            let place = match (candidate.binding, candidate.anchor) {
+                (Some(_), _) => Place::Top(candidate.top),
+                (None, _) if !imports => Place::ModuleStart,
+                (None, Some(anchor)) => Place::BeforeLoop(anchor),
+                (None, None) => {
+                    decisions.skipped(
+                        candidate.span,
+                        "it isn't in a loop, and a module-level constant could be read before \
+                         it exists through an import cycle",
+                    );
+                    continue;
+                }
+            };
             // The new declaration must not take any name a reference resolves through.
             let name =
                 namer.fresh_replacing(&candidate.base, root, ctx.scoping(), candidate.binding);
@@ -94,7 +119,7 @@ impl Pass for ClosureHoist {
                 Hoist {
                     name,
                     binding: candidate.binding,
-                    top: candidate.top,
+                    place,
                     reference: candidate.call.map_or(candidate.span, |(_, span)| span),
                 },
             );
@@ -111,13 +136,14 @@ impl Pass for ClosureHoist {
             plans: &plans,
             renames: &renames,
             ast: AstBuilder::new(ctx.allocator),
-            hoisted: Vec::new(),
+            top: Vec::new(),
+            loops: FxHashMap::default(),
         };
         rewrite.visit_program(program);
-        let mut hoisted = rewrite.hoisted;
-        hoisted.sort_by_key(|(top, _)| std::cmp::Reverse(*top));
-        for (top, declaration) in hoisted {
-            let at = top.min(program.body.len());
+        let mut top = rewrite.top;
+        top.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+        for (index, declaration) in top {
+            let at = index.min(program.body.len());
             program.body.insert(at, declaration);
         }
         *ctx.scoping_mut() = rescope(program);
@@ -136,6 +162,8 @@ struct Candidate {
     base: String,
     /// The top-level statement it is in.
     top: usize,
+    /// The outermost loop around it in its function.
+    anchor: Option<Span>,
     /// Why it can't be, from syntax.
     rejected: Option<String>,
 }
@@ -197,10 +225,21 @@ fn check(
 struct Hoist {
     name: String,
     binding: Option<SymbolId>,
-    top: usize,
+    place: Place,
     /// The span the new reference gets: the call's, so it isn't inside the function's own
     /// span (which DCE would count as a self-reference).
     reference: Span,
+}
+
+/// Where a hoisted closure goes.
+#[derive(Clone, Copy)]
+enum Place {
+    /// A function declaration before this top-level statement.
+    Top(usize),
+    /// A `const` at the top of the module.
+    ModuleStart,
+    /// A `const` just before the loop statement with this span.
+    BeforeLoop(Span),
 }
 
 /// Finds closures that capture nothing, and direct calls of bindings.
@@ -218,6 +257,11 @@ struct Find<'s, 'q> {
     dead: usize,
     opaque: usize,
     top: usize,
+    /// The statement-list item around the outermost loop of the current function the visit
+    /// is in (the loop itself, or a labeled statement or `if` around it).
+    anchor: Option<Span>,
+    /// The statement-list items around the visit, innermost last.
+    items: Vec<Span>,
 }
 
 impl<'a> Find<'_, '_> {
@@ -260,6 +304,7 @@ impl<'a> Find<'_, '_> {
             call: call.map(|(call, span, _)| (call, span)),
             base,
             top: self.top,
+            anchor: self.anchor,
             rejected: problem,
         });
     }
@@ -374,7 +419,9 @@ impl<'a> Visit<'a> for Find<'_, '_> {
     fn visit_program(&mut self, program: &Program<'a>) {
         for (index, statement) in program.body.iter().enumerate() {
             self.top = index;
+            self.items.push(statement.span());
             self.visit_statement(statement);
+            self.items.pop();
         }
     }
 
@@ -390,9 +437,24 @@ impl<'a> Visit<'a> for Find<'_, '_> {
         );
         self.dead += usize::from(dead);
         self.loops += usize::from(looping);
+        let outermost = looping && self.anchor.is_none();
+        if outermost {
+            self.anchor = Some(self.items.last().copied().unwrap_or(statement.span()));
+        }
         walk::walk_statement(self, statement);
+        if outermost {
+            self.anchor = None;
+        }
         self.loops -= usize::from(looping);
         self.dead -= usize::from(dead);
+    }
+
+    fn visit_statements(&mut self, statements: &ArenaVec<'a, Statement<'a>>) {
+        for statement in statements {
+            self.items.push(statement.span());
+            self.visit_statement(statement);
+            self.items.pop();
+        }
     }
 
     fn visit_ts_namespace_declaration(
@@ -414,7 +476,11 @@ impl<'a> Visit<'a> for Find<'_, '_> {
         self.dead += usize::from(dead);
         self.functions.push(island);
         let loops = std::mem::take(&mut self.loops);
+        let anchor = self.anchor.take();
+        let items = std::mem::take(&mut self.items);
         walk::walk_function(self, function, flags);
+        self.items = items;
+        self.anchor = anchor;
         self.loops = loops;
         self.functions.pop();
         self.dead -= usize::from(dead);
@@ -427,7 +493,11 @@ impl<'a> Visit<'a> for Find<'_, '_> {
         self.dead += usize::from(dead);
         self.functions.push(island);
         let loops = std::mem::take(&mut self.loops);
+        let anchor = self.anchor.take();
+        let items = std::mem::take(&mut self.items);
         walk::walk_arrow_function_expression(self, arrow);
+        self.items = items;
+        self.anchor = anchor;
         self.loops = loops;
         self.functions.pop();
         self.dead -= usize::from(dead);
@@ -492,8 +562,10 @@ struct Rewrite<'s, 'a> {
     plans: &'s FxHashMap<NodeId, Hoist>,
     renames: &'s FxHashMap<SymbolId, String>,
     ast: AstBuilder<'a>,
-    /// The new declarations, with the top-level index to put each before.
-    hoisted: Vec<(usize, Statement<'a>)>,
+    /// New top-level statements, with the index to put each before.
+    top: Vec<(usize, Statement<'a>)>,
+    /// New `const`s, by the loop to put them before.
+    loops: FxHashMap<Span, Vec<Statement<'a>>>,
 }
 
 impl<'a> Rewrite<'_, 'a> {
@@ -570,6 +642,31 @@ impl<'a> Rewrite<'_, 'a> {
         declaration
     }
 
+    /// `const name = closure;`
+    fn constant(&self, closure: Expression<'a>, name: &str) -> Statement<'a> {
+        let ast = &self.ast;
+        let span = Span::empty(closure.span().start);
+        let declarator = oxc_ast::ast::VariableDeclarator::new(
+            span,
+            oxc_ast::ast::BindingPattern::new_binding_identifier(
+                span,
+                Ident::from_str_in(name, ast),
+                ast,
+            ),
+            None,
+            Some(closure),
+            false,
+            ast,
+        );
+        Statement::new_variable_declaration(
+            span,
+            VariableDeclarationKind::Const,
+            ArenaVec::from_iter_in([declarator], ast),
+            false,
+            ast,
+        )
+    }
+
     fn symbol(&self, ident: &IdentifierReference<'_>) -> Option<SymbolId> {
         ident
             .reference_id
@@ -581,6 +678,19 @@ impl<'a> Rewrite<'_, 'a> {
 impl<'a> VisitMut<'a> for Rewrite<'_, 'a> {
     fn visit_statements(&mut self, statements: &mut ArenaVec<'a, Statement<'a>>) {
         walk_mut::walk_statements(self, statements);
+        if !self.loops.is_empty() {
+            let mut index = 0;
+            while index < statements.len() {
+                if let Some(consts) = self.loops.remove(&statements[index].span()) {
+                    let count = consts.len();
+                    for (offset, statement) in consts.into_iter().enumerate() {
+                        statements.insert(index + offset, statement);
+                    }
+                    index += count;
+                }
+                index += 1;
+            }
+        }
         statements.retain_mut(|statement| match statement {
             Statement::VariableDeclaration(declaration) => {
                 let before = declaration.declarations.len();
@@ -588,7 +698,8 @@ impl<'a> VisitMut<'a> for Rewrite<'_, 'a> {
                     !declarator
                         .id
                         .get_binding_identifier()
-                        .is_some_and(|id| self.renames.contains_key(&id.symbol_id()))
+                        .and_then(|id| id.symbol_id.get())
+                        .is_some_and(|symbol| self.renames.contains_key(&symbol))
                 });
                 before == declaration.declarations.len() || !declaration.declarations.is_empty()
             }
@@ -600,12 +711,13 @@ impl<'a> VisitMut<'a> for Rewrite<'_, 'a> {
         if let Some(init) = &mut declarator.init
             && let Some(hoist) = self.plan(init)
         {
-            let (top, name) = (hoist.top, hoist.name.clone());
-            let closure = init.take_in(&self.ast);
-            let mut closure = closure;
+            let (place, name) = (hoist.place, hoist.name.clone());
+            let mut closure = init.take_in(&self.ast);
             walk_mut::walk_expression(self, &mut closure);
             let declaration = self.declaration(closure, &name);
-            self.hoisted.push((top, declaration));
+            if let Place::Top(index) = place {
+                self.top.push((index, declaration));
+            }
             return;
         }
         walk_mut::walk_variable_declarator(self, declarator);
@@ -615,11 +727,17 @@ impl<'a> VisitMut<'a> for Rewrite<'_, 'a> {
         if let Some(hoist) = self.plan(expression)
             && hoist.binding.is_none()
         {
-            let (top, name, span) = (hoist.top, hoist.name.clone(), hoist.reference);
+            let (place, name, span) = (hoist.place, hoist.name.clone(), hoist.reference);
             let mut closure = expression.take_in(&self.ast);
             walk_mut::walk_expression(self, &mut closure);
-            let declaration = self.declaration(closure, &name);
-            self.hoisted.push((top, declaration));
+            let declaration = self.constant(closure, &name);
+            match place {
+                Place::ModuleStart => self.top.push((0, declaration)),
+                Place::BeforeLoop(anchor) => {
+                    self.loops.entry(anchor).or_default().push(declaration);
+                }
+                Place::Top(index) => self.top.push((index, declaration)),
+            }
             *expression =
                 Expression::new_identifier(span, Ident::from_str_in(&name, &self.ast), &self.ast);
             return;

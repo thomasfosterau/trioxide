@@ -4,10 +4,10 @@ description: tests/fixtures/passes/review/bigint
 input_file: tests/fixtures/passes/review/bigint/input.ts
 ---
 //- input.ts
+21:7 dce applied
 12:5 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
 16:5 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
 20:5 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-21:7 dce applied
 18:9 simplify applied
 24:5 simplify applied
 23:5 simplify applied

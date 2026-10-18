@@ -4,6 +4,9 @@ description: tests/fixtures/passes/scalar/adversarial
 input_file: tests/fixtures/passes/scalar/adversarial/input.ts
 ---
 //- input.ts
+45:9 checks skipped: the left operand's type is only Declared (trustTypes is off)
+58:9 checks applied
+42:16 fold applied
 8:11 scalar applied
 11:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
 13:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
@@ -21,8 +24,5 @@ input_file: tests/fixtures/passes/scalar/adversarial/input.ts
 34:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
 38:11 scalar skipped: a closure uses the object
 39:11 closure-hoist skipped: the closure captures `viaClosure`
-42:16 inline applied
-45:9 checks skipped: the left operand's type is only Declared (trustTypes is off)
-58:9 checks applied
-8:11 dce applied
 31:25 simplify applied
+8:11 simplify applied

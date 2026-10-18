@@ -4,10 +4,10 @@ description: tests/fixtures/passes/inline/declared-trusted
 input_file: tests/fixtures/passes/inline/declared-trusted/input.ts
 ---
 //- input.ts
-18:15 inline-fn applied
-18:26 inline-fn applied
 9:10 inline applied
 14:10 inline applied
-14:10 inline applied
-9:10 fold applied
+18:26 fold skipped: the expression has effects, so it stays
+18:15 inline-fn applied
+18:26 inline-fn applied
+9:10 simplify applied
 9:10 simplify applied

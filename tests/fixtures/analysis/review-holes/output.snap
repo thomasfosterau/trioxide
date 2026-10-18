@@ -4,9 +4,7 @@ description: tests/fixtures/analysis/review-holes
 input_file: tests/fixtures/analysis/review-holes/input.ts
 ---
 //- input.ts
-function map_callback(x) {
-	return x * 2;
-}
+const map_callback = (x) => x * 2;
 function sliced() {
 	const a = new Array(3);
 	a[0] = 1;

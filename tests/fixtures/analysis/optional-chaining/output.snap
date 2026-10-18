@@ -9,7 +9,7 @@ export function main() {
 		value: 1,
 		next: { value: 2 }
 	};
-	const value = list.next.value;
+	const value = list?.next?.value;
 	console.log(value, undefined);
 	const fallback = value ?? -1;
 	console.log(

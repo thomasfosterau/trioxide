@@ -64,6 +64,11 @@ function scaled(v: number): number {
   return v * scale;
 }
 
+// Nested calls of one callee: the outer call's argument holds the inner call's inlined copy.
+function second(a: number, b: number): number {
+  return b + a * 0;
+}
+
 // What may not be inlined.
 function self(this: { n: number } | void): number {
   return this ? (this as { n: number }).n : -1;
@@ -100,6 +105,7 @@ export function main(): void {
   console.log(big, small, order.join(","));
   console.log(difference(next("a"), next("b")), order.join(","));
   console.log(first(1, next("extra")), order.join(","));
+  console.log(second(next("p"), second(next("q"), second(next("r"), 7))), order.join(","));
   {
     const scale = 10;
     console.log(scaled(2), scale);

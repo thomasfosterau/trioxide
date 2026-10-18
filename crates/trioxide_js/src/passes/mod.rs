@@ -13,6 +13,21 @@
 //! - [`Dce`] (`"dce"`, pass 3): unreachable statements, unused pure bindings and functions,
 //!   unused exports (app world) and pure expression statements.
 //!
+//! The speed passes follow in the same group, so they read the same facts and cost no refresh
+//! (a group of their own would re-analyse the whole program for every module the foundation
+//! passes changed). Each rebuilds the scoping when it rewrites (`speed::rescope` keeps node
+//! ids, so the next one still gets facts about the nodes it kept):
+//!
+//! - [`PartialEval`] (`"partial-eval"`, pass 11): top-level calls with constant arguments
+//!   evaluated by a fuel-bounded interpreter and replaced with the literal they return.
+//! - [`Scalar`] (`"scalar"`, pass 8): object and array literals that never leave their
+//!   function become one local per key.
+//! - [`ClosureHoist`] (`"closure-hoist"`, pass 12): closures that capture nothing and whose
+//!   identity can't be seen are created once.
+//! - [`InlineFn`] (`"inline-fn"`, pass 5): calls of small or single-call-site functions and
+//!   methods become their bodies; with `passes.specialize`, parameters every caller passes the
+//!   same literal leave the signature.
+//!
 //! Then a syntactic cleanup group, run to a fixed point without reading facts:
 //! [`Simplify`] (`"simplify"`) folds what the first group left constant with
 //! `oxc_ecmascript`, takes branches with literal tests and drops empty and inert code.
@@ -109,19 +124,6 @@ use util::Query;
 pub fn default_groups() -> Vec<PassGroup> {
     let imports = Rc::new(RefCell::new(imports::Guard::default()));
     vec![
-        // S5a's speed passes (PLAN §4 passes 11, 8, 12, 5): first, so they read the facts the
-        // build computed, and a module they change is refreshed once, before the foundation.
-        PassGroup {
-            name: "speed",
-            passes: vec![
-                Box::new(RecordImports::new(Rc::clone(&imports))),
-                Box::new(PartialEval),
-                Box::new(Scalar),
-                Box::new(ClosureHoist),
-                Box::new(InlineFn),
-            ],
-            fixpoint: false,
-        },
         PassGroup {
             name: "foundation",
             passes: vec![
@@ -130,6 +132,13 @@ pub fn default_groups() -> Vec<PassGroup> {
                 Box::new(Checks),
                 Box::new(Fold),
                 Box::new(Dce),
+                // Speed passes (S5a; PLAN §4 passes 11, 8, 12, 5) read the same facts, so they
+                // cost no refresh: a group of their own would re-analyse the whole program for
+                // every module the foundation passes changed.
+                Box::new(PartialEval),
+                Box::new(Scalar),
+                Box::new(ClosureHoist),
+                Box::new(InlineFn),
             ],
             fixpoint: false,
         },

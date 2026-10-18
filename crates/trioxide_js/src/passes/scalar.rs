@@ -46,7 +46,7 @@ use super::{
 };
 use crate::{Pass, PassContext};
 
-/// PLAN §4 pass 8 (`"scalar"`), in the speed group.
+/// PLAN §4 pass 8 (`"scalar"`), a speed pass of the foundation group.
 pub struct Scalar;
 
 impl Pass for Scalar {
@@ -86,7 +86,7 @@ impl Pass for Scalar {
                 decisions.skipped(candidate.span, reason);
                 continue;
             }
-            if let Some(reason) = self.facts_problem(&candidate, query, ctx.scoping(), symbol) {
+            if let Some(reason) = Self::facts_problem(&candidate, query, ctx.scoping(), symbol) {
                 decisions.skipped(candidate.span, reason);
                 continue;
             }
@@ -128,7 +128,6 @@ impl Pass for Scalar {
 impl Scalar {
     /// Why the facts don't allow replacing the candidate, if they don't.
     fn facts_problem(
-        &self,
         candidate: &Candidate,
         query: Query<'_>,
         scoping: &Scoping,
@@ -284,7 +283,7 @@ struct Find<'s, 'q> {
     target: usize,
 }
 
-impl<'s> Find<'s, '_> {
+impl Find<'_, '_> {
     fn symbol_of(&self, ident: &IdentifierReference<'_>) -> Option<SymbolId> {
         ident
             .reference_id
@@ -317,7 +316,7 @@ impl<'s> Find<'s, '_> {
         symbol: SymbolId,
         object: NodeId,
         span: Span,
-        key: Option<String>,
+        key: Option<&str>,
         write: bool,
     ) {
         let function = self.functions.last().map(|(node, _)| *node);
@@ -332,8 +331,8 @@ impl<'s> Find<'s, '_> {
         } else if span.start < candidate.span.end {
             Some("the object is used before its declaration ends")
         } else {
-            match &key {
-                Some(key) if candidate.keys.contains(key) => None,
+            match key {
+                Some(key) if candidate.keys.iter().any(|known| known == key) => None,
                 Some(_) => Some(
                     "a key the literal doesn't have is used (it would be read through the prototype)",
                 ),
@@ -355,7 +354,7 @@ impl<'s> Find<'s, '_> {
         match target {
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
                 if let Some((symbol, object)) = self.candidate_of(&member.object) {
-                    let key = Some(member.property.name.to_string());
+                    let key = Some(member.property.name.as_str());
                     self.key_use(symbol, object, span, key, true);
                     return true;
                 }
@@ -363,7 +362,7 @@ impl<'s> Find<'s, '_> {
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
                 if let Some((symbol, object)) = self.candidate_of(&member.object) {
                     let key = computed_key(&member.expression);
-                    self.key_use(symbol, object, span, key, true);
+                    self.key_use(symbol, object, span, key.as_deref(), true);
                     self.visit_expression(&member.expression);
                     return true;
                 }
@@ -488,6 +487,21 @@ impl<'a> Visit<'a> for Find<'_, '_> {
         walk::walk_call_expression(self, call);
     }
 
+    fn visit_tagged_template_expression(
+        &mut self,
+        tagged: &oxc_ast::ast::TaggedTemplateExpression<'a>,
+    ) {
+        if let Some(member) = tagged.tag.without_parentheses().get_member_expr()
+            && let Some((symbol, _)) = self.candidate_of(member.object())
+        {
+            self.reject(
+                symbol,
+                "a key is a template tag (which passes the object as `this`)",
+            );
+        }
+        walk::walk_tagged_template_expression(self, tagged);
+    }
+
     fn visit_unary_expression(&mut self, unary: &oxc_ast::ast::UnaryExpression<'a>) {
         if unary.operator == oxc_syntax::operator::UnaryOperator::Delete
             && let Some(member) = unary.argument.without_parentheses().get_member_expr()
@@ -517,7 +531,7 @@ impl<'a> Visit<'a> for Find<'_, '_> {
                 symbol,
                 object,
                 member.span,
-                Some(member.property.name.to_string()),
+                Some(member.property.name.as_str()),
                 false,
             );
             return;
@@ -532,7 +546,7 @@ impl<'a> Visit<'a> for Find<'_, '_> {
                 return;
             }
             let key = computed_key(&member.expression);
-            self.key_use(symbol, object, member.span, key, false);
+            self.key_use(symbol, object, member.span, key.as_deref(), false);
             self.visit_expression(&member.expression);
             return;
         }
