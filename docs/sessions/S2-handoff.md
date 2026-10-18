@@ -149,9 +149,15 @@ parents.
 - From #19:
   - `delete`/`non_configurable`;
   - `Obj::frozen` (add it to the flags tuple in `tables.rs`'s `Mark` comparison, and make
-    the freeze mark a `move` closure).
+    the freeze mark a `move` closure);
+  - mutating builtins throwing on a frozen (or unknown) receiver (`builtin_mutates`), and
+    `Object.freeze` throwing on typed arrays, namespaces and untracked objects.
 - From #15 and #16, once they merge: their analysis changes (#16's `observe.rs`, the
   `delete` operand fix, new `Facts` tables in `remap_module`/`forget_module`).
+
+**Known blocker** (from the #6 review): in `sweep.rs` the merge decides which chunks take
+the fast path before the ops are replayed, so a chunk can skip work that a replayed op made
+necessary. The review is adding a fixture for it; fix that before anything else on #6.
 
 **Numbers:** about 2.8–3.0× parse (291–306 ms analysis against 102–105 ms parse). That
 misses the 2× target. About 270 ms of a sequential run is outside the sweeps (single-threaded
@@ -221,7 +227,8 @@ parse, index and summary), so the next win there is parallelising the summary fu
   may throw (`review-circular`'s `readA`). A real initialisation-order model would fix it.
 - About 1200 self-dirtying re-runs come from `Escape` writes to a unit's own reads. This is
   wasted time, not wrong facts.
-- Only `Object.freeze` sets `frozen`. `Object.seal`, `preventExtensions` and
+- Only `Object.freeze` sets `frozen`, and a mutating builtin counts as throwing whenever its
+  receiver may be frozen, poisoned or reachable by unknown code. `Object.seal`, `preventExtensions` and
   `defineProperty` go through reflective poisoning, which is sound but coarse.
 - #16 also edits `delete` handling in `interp/expr.rs` (looking through `?.`, parentheses
   and TS wrappers). It will conflict with #19's `delete`; keep both: #16's operand
