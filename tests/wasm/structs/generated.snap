@@ -278,17 +278,17 @@ fn bounds(xs: &[f64]) -> Bounds {
 
 fn sum(xs: &[f64], ys: &[f64]) -> Sum {
     let mut acc = Vec::new(0.0, 0.0);
-    let mut i = 0.0;
-    while i < array::len(xs) {
+    let mut i: i32 = 0;
+    while i < xs.len() as i32 {
         // SAFETY: the analysis proves the index is in bounds.
         acc = acc
             .plus(
                 Vec::new(
                     unsafe { array::get_unchecked(xs, i as usize) },
-                    array::get(ys, i),
+                    array::get_i32(ys, i),
                 ),
             );
-        i += 1.0;
+        i += 1;
     }
     Sum { x: acc.x, y: acc.y }
 }

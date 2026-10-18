@@ -210,8 +210,8 @@ nodes:
   68:21 ref `numbers`: number[]@proven
   69:7 assign `acc += clamp(a, -1, 1) + divide(a, b)`: number nonNegZero@proven
   69:7 ref `acc`: number nonNegZero@proven
-  69:14 binary `clamp(a, -1, 1) + divide(a, b)`: number nonNegZero@proven
-  69:14 call `clamp(a, -1, 1)`: number@proven
+  69:14 binary `clamp(a, -1, 1) + divide(a, b)`: number[-2147483649, 2147483648] nonNegZero@proven
+  69:14 call `clamp(a, -1, 1)`: number[-1, 1]@proven
   69:14 ref `clamp`: function@proven
   69:20 ref `a`: number@proven
   69:23 unary `-1`: -1@proven

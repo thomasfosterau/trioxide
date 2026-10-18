@@ -53,7 +53,7 @@ class WithParams {
 export function main() {
 	const p = new Point(3, 4);
 	console.log(
-		p.norm(),
+		5,
 		3
 		/*@proven number int*/
 	);

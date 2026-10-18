@@ -1141,7 +1141,15 @@ fn proven_facts_hold_at_run_time() {
     let mut failures = Vec::new();
     let mut total = 0;
     let out_root = tempfile::tempdir().unwrap();
+    // `FIXTURE=name` runs only the fixtures whose directory name contains `name`.
+    let filter = std::env::var("FIXTURE").ok();
     for entry in common::all_fixtures() {
+        let dir_name = entry.parent().and_then(|dir| dir.file_name());
+        if filter.as_ref().is_some_and(|filter| {
+            !dir_name.is_some_and(|name| name.to_string_lossy().contains(filter.as_str()))
+        }) {
+            continue;
+        }
         let source = std::fs::read_to_string(&entry).unwrap();
         if !source.contains("export function main")
             && !source.contains("export async function main")

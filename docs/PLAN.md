@@ -104,9 +104,10 @@ tests/
   differential/               # runs original vs optimised-JS vs WASM in Node and compares output
 examples/
   dom-app/                    # should stay JS
-  image-filters/              # should become WASM
+  image-filters/              # filters the cost model scores (today's islands are slower at them, so they stay JS)
   mixed/                      # both, with a boundary
 benchmarks/
+  partition/                  # cost-model calibration: JS vs WASM timings, fit, reach
 docs/
 ```
 
@@ -205,11 +206,9 @@ back to TS where it knows nothing:
 - *Temporal dead zones.* Reading a `let`/`const`/`class` binding before its declaration
   runs throws: in its own unit when the read comes first in the text (or in a `switch`), in
   another unit when the declaring unit may call out before the declaration, and across an
-  import cycle. A module's own bindings count as not yet declared from its first line when
-  another module of its cycle may run while it waits for its imports, and so call back into
-  it (simulated depth-first in request order from each module the host may load first, with
-  and without TypeScript's elision of type-only imports; from every module when the program
-  has a dynamic `import()`).
+  import cycle: from another unit, any read of a module-level binding of a module in an
+  import cycle may throw, since another module of the cycle may call in before the module's
+  top level has declared it (`tdz-cycle`).
 - *Convergence.* Whole-program entries that still change after 20 rounds are given up (set
   to "any value", their objects escaping, their flags to "anything may happen" for good), so
   the run always reaches a fixed point and only facts depending on those entries are lost,
@@ -285,12 +284,24 @@ to write, the callee that runs at sites proven complete, loop invariants, stable
 class shapes, and proven-unreachable code. Escape levels, points-to sets and the other loop
 facts are not checked at run time.
 
-**Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
-The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work
-as the parse (instruction counts ~1.1–1.2×), but tsrs parses on all cores and the
-interpreter on one, so wall-clock time is about 5× the parse on a 4-core machine (see
-`benches/analysis.rs`). Closing the gap needs parallel interpretation (Jacobi-style sweeps
-over a read-only snapshot with per-thread write logs, and one tsrs checker per thread).
+**Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time. It
+is not met: `benches/analysis.rs` (1820 modules, 4 cores, a noisy machine) measures about
+7.5× (770–800 ms against about 104 ms; before the changes below, 860–890 ms, about 8.2×).
+tsrs parses on all cores, but the analysis parses, interprets and summarises on one: the
+sweeps take about 470 ms (6 rounds, 18,820 runs of 11,200 units, ~140 ms of it tsrs queries)
+and parsing, indexing and the summary most of the rest. Two things keep sweeps short:
+
+- *Uncalled functions wait.* In the first round, a function no caller has reached yet (and
+  unknown code can't call) waits for the next: it would only run on `never` arguments, and
+  again once a caller reaches it.
+- *Warm-started loops.* A loop that runs again, inside another loop or in its unit's next
+  run, starts from where it last settled joined with its new entry; it stops at a
+  post-fixpoint above the entry either way, and usually after one pass instead of four.
+
+Parallel analysis (chunked Jacobi-style sweeps over a read-only snapshot with per-chunk write
+logs, one tsrs checker per worker, and parallel parsing and summary) is parked in #6: it
+measured about 2.6–2.8× on the same bench. It will be revisited together with incremental
+analysis, when analysis time hurts (Vite dev on large projects).
 
 **Embedding constraints.** tsrs checkers take `&mut self` (one per thread, behind a mutex),
 and its arenas are `'static`. The oracle runs every type query on the program's first
@@ -450,18 +461,54 @@ statement move to the next one.
 **Clustering.** Take connected components of eligible functions in the call graph. Every
 call edge into a component from JS code is a boundary entry.
 
-**Cost model** (per island, deliberately simple at first and tuned with benchmarks):
-- *benefit*: estimated compute weight, i.e. loop nesting × arithmetic/indexing op density,
-  higher for proven-integer maths and typed-array work
-- *cost*: boundary crossings (calls into the island from loops weigh heavily), marshalling
-  bytes (typed arrays copied in/out of linear memory, `number[]` converted), plus a fixed
-  per-island instantiation cost
-- an island is kept if `benefit − cost > threshold`; otherwise it stays JS (and still gets
-  the JS passes)
+**Cost model** (per cluster; `trioxide_partition::CostModel`, `costModel` in `trioxide.json`).
+Every weight is in nanoseconds, fitted to `benchmarks/partition/` (Node 22; its README has the
+measurements, the fit and the confusion table) and meant to be refitted as the backend
+improves:
+- *benefit*: the operations the island would run per run of the program, by kind, each
+  times the time WASM saves per operation (negative where the island is slower): float
+  arithmetic; int32 operations (operands the backend holds as int32: every local in them has
+  an int32 range fact, as the backend types locals by their binding's range); `ToInt32` of a
+  float operand of a bitwise operator or `Math.imul`; `(a + b) | 0`-style wrapped int32
+  arithmetic; `Math.*` calls; float `%` (an `fmod` call in WASM); element accesses with an
+  int32 and with a float index; loop iterations. Loops multiply by their trip count: from
+  the loop test when it compares the counter (an induction variable of the loop facts, plus
+  or minus a constant) with a value whose range is known, else a default (`trips`, 256);
+  typed arrays reaching a parameter from allocation sites of known length give `p.length`
+  bounds and marshalling sizes, and `for…of` over array literals their length. Callees count
+  at their call sites' frequency; a recursive call counts as a loop. Counts saturate at 10¹⁸.
+- *cost*: boundary crossings, marshalling (a cost per array or object argument or result per
+  call, plus per byte copied in, and out again when the island writes it; a `number[]` costs
+  a multiple per byte, as it is converted element by element), plus a fixed instantiation
+  cost per island (per module of its exports). Crossings count only the calls the facade
+  redirects: direct calls of an exported, never-reassigned binding from its own module or a
+  module importing it directly, weighted by the trip counts of the loops around the call
+  (only the caller's own loops: a caller itself called from a hot loop counts once). The host
+  calling an entry module's export, callbacks, namespace imports and re-exports run the JS
+  version, so they don't count, and a function only they call is never an export.
+- an island is kept if `benefit − cost > threshold` (`threshold`, 0 in `auto`;
+  `wasmPreferredThreshold`, −1 ms, in `wasm-preferred`); otherwise it stays JS (and still
+  gets the JS passes). The cluster's members with redirected calls become the island's
+  exports; the others are compiled in as internal functions. An island that doesn't build
+  (no toolchain, a cargo error) runs as JS, and its functions' verdicts say so; `explain`
+  checks the toolchain and says when a build would fall back.
+
+**Automatic islands use the forced islands' machinery** (`trioxide_rust::islands`): the
+chosen functions are lowered with the forced ones, one island per module (a module's
+forced and chosen functions share it), so call rewriting, `ready()` glue with the JS
+fallback, and `Keep` (computed from the partition's islands, which now include the automatic
+ones) are the same for both. A chosen function that fails the final lowering stays JS.
+`trioxide_rust::eligibility::candidates` checks every top-level function declaration with one
+parse of the program (lowering each module's candidates together, then one by one only if
+they don't settle together).
 
 **Overrides.** `"use wasm"` forces an island; it is an error if the function is ineligible,
-and the diagnostic explains why. `"use js"` forbids one. Config globs do the same per file.
-`mode: "js-only" | "auto" | "wasm-preferred"`.
+and the diagnostic explains why. `"use js"` forbids one. Config globs do the same per file:
+`overrides: [{ "files": ["src/kernels/**"], "target": "wasm" }]` (globs relative to the root,
+later entries win) places a module's top-level functions as a file directive would, below the
+source's own directives. Directives and overrides apply in every mode; `wasm.enabled: false`
+(`--no-wasm`) turns all of it off. `mode: "js-only" | "auto" | "wasm-preferred"`: `js-only`
+creates no island on its own.
 
 Directives are implemented (S6; the cost model is S8's): a `"use wasm"` function directive, a
 file directive (every top-level function declaration of the file) or a `/** @trioxide wasm */`
@@ -476,19 +523,27 @@ forced functions still become the island. A forced function the analysis proves 
 `trioxide_rust::eligibility::clusters` computes the connected components of eligible
 functions for the cost model.
 
-*For S8: without `trustTypes` few functions qualify yet.* The checker only uses usable facts,
-and today the analysis proves: number and boolean parameters whose callers it all sees, and
-typed arrays whose every allocation it sees. It never proves object fields (their facts are
-`Declared` even for fresh literals), `number[]` elements (even of `[1, -2, 3]`), or the
-arguments of exported entry functions. So structs and `number[]` parameters, and anything an
-entry function reaches, need `trustTypes` (seven of the eight hand-written-island variants and
-several lowering fixtures set it). Realistic kernels become islands automatically only once
-the analysis proves field facts and the types arriving at entry points;
-`trioxide_rust::ExtraFacts::param_field` is the hook for the former.
+*Default-mode reach (S8, measured with `benchmarks/partition/reach.mjs`).* The analysis now
+proves typed arrays allocated anywhere in the program, `number[]` elements from literals,
+`push` and `map` of proven numbers, and fresh object literals' fields at struct parameters,
+so 63 of 92 functions across the benchmarks, the hand-written islands and the examples
+qualify without `trustTypes` (90 with it). What still needs `trustTypes`: the arguments of
+exported entry functions (the host passes them; the glue could check them at the call and
+fall back to JS, which would make them provable); parameters reached through function values
+held in arrays; typed arrays from builtins the heap doesn't model (`subarray`, buffer views,
+`TextEncoder`); elements of nested arrays and of `Array.from` with a callback; fields of
+objects from factories with default parameters or object spread.
+`trioxide_rust::ExtraFacts::param_field` is the hook for field facts at entry.
 
-**Explainability.** `trioxide explain [file[:fn]]` prints each decision, the failed
-eligibility rule with its source span, and the cost-model numbers. This is how users come to
-trust the partitioner.
+**Explainability.** `trioxide explain [file[:fn]] [--entry <file>…] [--json]` plans the
+program (analysis, partitioning and the JS passes, no island builds: `Project::plan`) from
+`--entry`, else the module scripts of the root's `index.html`, else the target file (with a
+note that its exports' arguments are then unknown), and
+prints, per function, the decision (JS, WASM, forced or forbidden), why, every failed
+eligibility rule with its position, the cost-model numbers (benefit, each cost term,
+threshold, and the calls, operations and bytes behind them) and the JS passes that fired or
+skipped inside it. `--json` prints the `Report`; the npm package's `explain()` returns the
+same. This is how users come to trust the partitioner.
 
 ---
 
@@ -623,9 +678,9 @@ rustc version, profile, `wasm-opt` version). The source stands in for the RIR: i
 function of it, and also covers hand-written islands. Cache misses are staged into one cargo
 workspace in the cache directory and built by a single `cargo build`, which compiles them in
 parallel over a shared target directory. A missing toolchain falls back to JS with one clear
-warning, plus an `--require-wasm` flag that turns it into an error. Until S8 chooses
-islands, `Project::add_debug_island` (CLI: hidden `--debug-island <dir>`) supplies
-hand-written ones.
+warning, plus an `--require-wasm` flag that turns it into an error.
+`Project::add_debug_island` (CLI: hidden `--debug-island <dir>`) adds hand-written islands
+(the differential suite's `tests/islands/`).
 
 ---
 
@@ -633,13 +688,14 @@ hand-written ones.
 
 **Rust facade (`trioxide`):**
 ```rust
-pub struct Options { /* mode, world, trust_types, check, tsconfig, target, sourcemap, passes, wasm, dev, cache_dir, overrides */ }
+pub struct Options { /* mode, world, trust_types, check, tsconfig, target, sourcemap, passes, wasm, dev, cache_dir, overrides, cost_model */ }
 pub struct Project { /* graph + caches */ }
 impl Project {
     pub fn new(root: PathBuf, options: Options) -> Result<Self>;
     pub fn build(&mut self, entries: &[PathBuf]) -> Result<BuildOutput>;      // whole program
     pub fn update(&mut self, path: &Path, source: Option<String>) -> Result<Invalidation>;
     pub fn transform(&mut self, path: &Path) -> Result<ModuleOutput>;        // per-file, Vite
+    pub fn plan(&mut self, entries: &[PathBuf]) -> Result<Report>;          // build minus island builds, for explain
     pub fn explain(&self, query: &ExplainQuery) -> Report;
 }
 pub fn strip_types(root: &Path, path: &Path, source: &str, options: &Options) -> Result<ModuleOutput>; // differential baseline
@@ -659,7 +715,8 @@ FactSource}`, `trioxide_partition::Partitioner`, `trioxide_wasm::{IslandSpec,
 IslandSource, IslandBuilder}` (plus `trioxide_wasm::toolchain` for `check-toolchain`).
 
 **CLI:** `trioxide build [entries…] --out-dir dist [--watch]`, `trioxide transform <file>`
-(stdout), `trioxide explain [target]`, `trioxide check-toolchain [--json]`. `--config`,
+(stdout), `trioxide explain [target] [--entry <file>…] [--json]` (entries default to the
+target's file), `trioxide check-toolchain [--json]`. `--config`,
 `--root`, `--mode`, `--world`, `--trust-types`, `--no-wasm`, `--require-wasm`,
 `--emit=js|rust|wasm|report|facts` (`--emit=facts` with `transform` prints the analysis facts
 of that file: per function, class and node, with spans and trust levels),
@@ -705,8 +762,12 @@ Parallel sessions rely on this to stay safe.
   module of the build), later also `island_*.rs` and `report.json`. Every pass and lowering
   rule needs fixtures.
 - **Differential execution** (the core correctness gate): each fixture exports a `main()`
-  that prints results. A Node runner executes three variants (types stripped only,
-  trioxide JS, trioxide JS+WASM) and asserts identical output. CI fails on any divergence.
+  that prints results. A Node runner executes four variants (types stripped only,
+  trioxide JS, trioxide JS+WASM for fixtures with directives or hand-written islands, and
+  `mode: "auto"` over the whole corpus and the examples, so every island the partitioner
+  picks is checked) and asserts identical output. CI fails on any divergence. CI also runs
+  the auto leg with every eligible cluster as an island (`TRIOXIDE_EVERY_CLUSTER=1`), which
+  stresses automatic islands far beyond what the cost model picks.
 - **Generated programs**: a small generator of random programs in the numeric subset
   (expressions, loops, typed arrays), fed through the differential runner, to fuzz the Rust
   backend's semantics (`tests/differential/random.test.js`: 500 programs with a fixed seed in
@@ -721,7 +782,8 @@ Parallel sessions rely on this to stay safe.
   snapshots of a few libraries) and check they still parse, typecheck-strip, and pass their
   own tests where cheap.
 - **Benchmarks**: `benchmarks/` with tinybench (runtime of outputs) and criterion (compiler
-  throughput). Cost-model tuning is driven by these numbers.
+  throughput). Cost-model tuning is driven by these numbers: `benchmarks/partition/` times
+  kernels JS-only against WASM (plain Node timing, no dependencies) and fits the weights.
 - **Every PR**: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`,
   and the differential suite. The WASM jobs need `rustup target add wasm32-unknown-unknown`.
 

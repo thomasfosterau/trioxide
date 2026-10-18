@@ -24,7 +24,7 @@ pub fn watch(
     renderer: &Renderer,
 ) -> Result<(), Failure> {
     loop {
-        let (root, options, config) = resolve_config(global, entries.first(), renderer)?;
+        let (root, options, config) = resolve_config(global, entries.first())?;
         let mut project = Project::new(root, options)?;
         add_debug_islands(global, &mut project)?;
         let settings_files: Vec<PathBuf> = config

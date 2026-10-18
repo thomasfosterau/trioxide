@@ -1,0 +1,13 @@
+---
+source: crates/trioxide_cli/tests/explain.rs
+expression: text
+---
+src/view.ts
+  render (4:8): JS
+    why: ineligible: can't prove what parameter `root` receives
+    failed rules:
+      4:24  can't prove what parameter `root` receives
+      4:43  parameter `lines` is an array of anything, not of numbers
+      5:16  uses the global `document` (a host API)
+    passes:
+      for-of skipped at 6:3: an array it may be is not followed by the analysis (it reaches unknown code, or gets properties added)

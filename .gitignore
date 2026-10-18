@@ -31,3 +31,6 @@ node_modules/
 # Differential suite output
 tests/differential/.out/
 benchmarks/.out/
+
+# Partition benchmark output
+benchmarks/partition/.out/

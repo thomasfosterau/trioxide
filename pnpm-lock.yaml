@@ -29,6 +29,21 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@22.19.1)(vite@8.3.4(@types/node@22.19.1))
 
+  examples/image-filters:
+    devDependencies:
+      trioxide:
+        specifier: workspace:*
+        version: link:../../packages/trioxide
+
+  examples/mixed:
+    devDependencies:
+      trioxide:
+        specifier: workspace:*
+        version: link:../../packages/trioxide
+      vite:
+        specifier: 8.3.4
+        version: 8.3.4(@types/node@22.19.1)
+
   packages/trioxide:
     devDependencies:
       '@napi-rs/cli':

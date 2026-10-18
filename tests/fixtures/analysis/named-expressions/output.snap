@@ -1,0 +1,24 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/named-expressions
+input_file: tests/fixtures/analysis/named-expressions/input.ts
+---
+//- input.ts
+// A named function or class expression's own name, inside its body, is the function (class)
+// itself: calls through it are calls of that function, with their arguments.
+export function main() {
+	const factorials = [3, 4].map(function fact(n) {
+		return n <= 1 ? 1 : n * fact(n - 1);
+	});
+	console.log(factorials.join(","));
+	const C = class K {
+		value;
+		constructor(value) {
+			this.value = value;
+		}
+		static make(value) {
+			return new K(value * 2);
+		}
+	};
+	console.log(C.make(5).value);
+}

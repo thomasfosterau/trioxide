@@ -7,9 +7,13 @@
 use oxc_allocator::Allocator;
 use rustc_hash::FxHashMap;
 use trioxide_analysis::Facts;
+use trioxide_common::{ModuleId, Span};
 use trioxide_types::FunctionId;
 
-use crate::{ExtraFacts, Reason, SourceModule, lower, world::World};
+use crate::{
+    Directive, ExtraFacts, Placement, Reason, SourceModule, automatic_root, lower, never_called,
+    world::World,
+};
 
 /// The checker's verdict on one function.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +44,7 @@ pub fn check(
     if !world.functions.contains_key(&function) {
         return Eligibility::Ineligible(vec![Reason {
             function,
-            span: oxc_span::Span::default(),
+            span: Span::default(),
             message: "isn't a function of the program".into(),
         }]);
     }
@@ -49,6 +53,106 @@ pub fn check(
         Some((_, reasons)) => Eligibility::Ineligible(reasons),
         None => Eligibility::Eligible,
     }
+}
+
+/// A function the partitioner may move into WASM itself: a top-level function declaration
+/// whose name can be an island export.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Candidate {
+    /// The function.
+    pub function: FunctionId,
+    /// Its name.
+    pub name: String,
+    /// Its span.
+    pub span: Span,
+    /// The directive or config override that places it, if any: then that decides, not the
+    /// cost model.
+    pub directive: Option<Directive>,
+    /// The analysis proves nothing calls it (it is unreachable, or a parameter never
+    /// receives a value).
+    pub never_called: bool,
+    /// Its module exports it and never reassigns the binding, so calls from other modules
+    /// (and, with `ready()` glue, from its own) can be pointed at an island.
+    pub exported: bool,
+    /// Whether it can be an island export, checked unless `directive` or `never_called`
+    /// settles it.
+    pub eligibility: Option<Eligibility>,
+}
+
+/// Every candidate of the program (see [`Candidate`]), checked as in [`check`] but with one
+/// parse of the program. `overrides` places whole modules as config overrides do.
+pub fn candidates(
+    modules: &[SourceModule<'_>],
+    facts: &Facts,
+    extra: &dyn ExtraFacts,
+    overrides: &[(ModuleId, Placement)],
+) -> Vec<Candidate> {
+    let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
+    let mut world = World::build(&allocators, modules);
+    world.set_overrides(overrides);
+    let mut functions: Vec<_> = world
+        .functions
+        .values()
+        .filter(|info| automatic_root(info))
+        .collect();
+    functions.sort_by_key(|info| (info.id.module, info.func.span.start));
+    let mut out = Vec::new();
+    for module in &world.modules {
+        let first = out.len();
+        let mut roots = Vec::new();
+        for info in functions.iter().filter(|f| f.id.module == module.id) {
+            let directive = world.directive(info.id);
+            let never = never_called(module, facts, info.func);
+            let exported = info
+                .func
+                .id
+                .as_ref()
+                .and_then(|id| id.symbol_id.get())
+                .is_some_and(|symbol| {
+                    let (names, reassigned) = module.exported_names(symbol);
+                    !names.is_empty() && !reassigned
+                });
+            if directive.is_none() && !never {
+                roots.push(info.id);
+            }
+            out.push(Candidate {
+                function: info.id,
+                name: info.name.clone().unwrap_or_default(),
+                span: info.func.span,
+                directive,
+                never_called: never,
+                exported,
+                eligibility: None,
+            });
+        }
+        if roots.is_empty() {
+            continue;
+        }
+        let lowered = lower::lower_island(&world, facts, extra, "check", "check", &roots);
+        let mut failed: FxHashMap<FunctionId, Vec<Reason>> = lowered.failed.into_iter().collect();
+        let unsettled = failed
+            .values()
+            .flatten()
+            .any(|r| r.message.contains("didn't settle"));
+        if roots.len() > 1 && unsettled {
+            // Together they may not settle; alone some might.
+            failed.clear();
+            for &root in &roots {
+                let alone = lower::lower_island(&world, facts, extra, "check", "check", &[root]);
+                failed.extend(alone.failed);
+            }
+        }
+        for candidate in &mut out[first..] {
+            if roots.contains(&candidate.function) {
+                candidate.eligibility = Some(
+                    failed
+                        .remove(&candidate.function)
+                        .map_or(Eligibility::Eligible, Eligibility::Ineligible),
+                );
+            }
+        }
+    }
+    out
 }
 
 /// Clusters `eligible` functions into islands: the connected components of the call graph

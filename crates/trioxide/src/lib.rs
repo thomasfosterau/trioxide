@@ -35,8 +35,8 @@ mod report;
 pub use analysis::{FactRefresher, analysis_inputs, jsx_factories};
 pub use error::{Error, Result};
 pub use options::{
-    CONFIG_FILE_NAMES, DevOptions, GlueMode, Mode, Options, Override, OverrideTarget, WasmOptions,
-    World,
+    CONFIG_FILE_NAMES, CostModel, DevOptions, GlueMode, Mode, Options, Override, OverrideTarget,
+    WasmOptions, World,
 };
 pub use output::{BuildOutput, Invalidation, ModuleOutput, SourceMap};
 pub use project::{Project, strip_types};
