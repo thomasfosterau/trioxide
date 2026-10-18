@@ -455,7 +455,8 @@ pub struct Output {
     pub in_bounds: FxHashMap<NodeRef, Trust>,
     /// Per-unit effects and edges.
     pub units: FxHashMap<NodeRef, UnitRecord>,
-    /// Every value the unit's private locals held (they never reach the shared tables).
+    /// Every value the unit's private locals held, over all its runs: the table entry they
+    /// would have, kept with the unit since only it writes and reads them.
     pub symbols: FxHashMap<SymbolRef, Val>,
     /// Where each of the unit's loops settled in its last run, by loop node: the next run
     /// starts them there.
@@ -467,7 +468,6 @@ impl Output {
         self.nodes.clear();
         self.in_bounds.clear();
         self.units.clear();
-        self.symbols.clear();
     }
 }
 
@@ -1222,16 +1222,6 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         }
     }
 
-    /// Notes that the current unit depends on `dep` changing at someone else's hand only:
-    /// its own later writes to it in this run need no second run.
-    fn read_from_others(&self, dep: Dep) {
-        let mut deps = self.deps.borrow_mut();
-        let Some(unit) = deps.current else { return };
-        if deps.seen.insert((dep, unit)) {
-            deps.reads.entry(dep).or_default().push(unit);
-        }
-    }
-
     /// Notes that `dep` changed: this chunk's units that read it run (again). Units of other
     /// chunks are found when the sweep is merged.
     fn touch(&self, dep: Dep) {
@@ -1903,14 +1893,15 @@ impl Cx<'_, '_, '_> {
         let symbol = self.module.symbol(symbol);
         if private_local(&info, self.unit.id) {
             // Only this unit (and the facts) ever read it.
+            let round = self.an.round;
             let slot = self
                 .an
                 .output
                 .symbols
                 .entry(symbol)
                 .or_insert_with(Val::never);
-            if slot != &value {
-                *slot = slot.join(&value);
+            if tables::join_into(round, slot, &value) {
+                self.an.touch(Dep::Symbol(symbol));
             }
         } else {
             self.an.join_symbol(symbol, &value);
@@ -1923,6 +1914,7 @@ impl Cx<'_, '_, '_> {
         let info = self.module.info(symbol);
         let symbol = self.module.symbol(symbol);
         if private_local(info, self.unit.id) {
+            self.an.read(Dep::Symbol(symbol));
             return self.an.output.symbols.get(&symbol).cloned();
         }
         self.an.symbol_value(symbol).cloned()
@@ -1969,12 +1961,11 @@ impl Cx<'_, '_, '_> {
     }
 
     /// Updates a heap entry's flags. `update` runs again when the sweep is merged, on the
-    /// merged entry, and when the unit runs again, between the same writes, so it must be
-    /// idempotent: then what the unit itself writes to the entry never needs a second run,
-    /// only what others write.
+    /// merged entry, so it must be idempotent. The update depends on the entry, so a change
+    /// to it (the unit's own included) runs the unit again.
     pub fn mark(&mut self, site: AllocId, update: impl Fn(&mut Obj) + Send + 'static) {
+        self.an.read(Dep::Heap(site));
         self.an.write(tables::Op::Mark(site, Box::new(update)));
-        self.an.read_from_others(Dep::Heap(site));
     }
 }
 

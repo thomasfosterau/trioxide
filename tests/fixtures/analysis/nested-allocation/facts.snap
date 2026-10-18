@@ -1,0 +1,55 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/nested-allocation
+input_file: tests/fixtures/analysis/nested-allocation/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  wrap (3:1): pure
+  main (7:8) open: reads writes allocates throws calls-unknown
+    calls 11:20 -> wrap
+nodes:
+  3:10 bind `wrap`: function@proven
+  3:15 bind `values`: 1[]@proven
+  4:10 ref `values`: 1[]@proven
+  7:17 bind `main`: function@proven
+  8:9 bind `seed`: 1@proven
+  9:9 bind `made`: 1[][]@proven
+  9:28 array `[]`: 1[][]@proven escape=none stable-shape
+  10:12 bind `i`: 0@proven
+  10:19 binary `i < 3`: boolean@proven
+  10:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  10:26 unary `i++`: number[0, 2] int nonNaN nonNegZero@proven
+  10:26 ref `i`: number[0, 3] int nonNaN nonNegZero@proven
+  11:11 bind `values`: 1[]@proven
+  11:20 call `wrap([seed])`: 1[]@proven
+  11:20 ref `wrap`: function@proven
+  11:25 array `[seed]`: 1[]@proven escape=known stable-shape
+  11:26 ref `seed`: 1@proven
+  12:5 call `made.push(values)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  12:5 member `made.push`: unknown
+  12:5 ref `made`: 1[][]@proven
+  12:15 ref `values`: 1[]@proven
+  14:7 bind `total`: 0@proven
+  15:10 binary `total < 3`: boolean@proven
+  15:10 ref `total`: number[0, 4] int nonNaN nonNegZero@proven
+  16:11 bind `pair`: 2@proven
+  16:18 member `[total, seed].length`: 2@proven
+  16:18 array `[total, seed]`: (number[0, 2] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  16:19 ref `total`: number[0, 2] int nonNaN nonNegZero@proven
+  16:26 ref `seed`: 1@proven
+  17:5 assign `total += pair`: number[2, 4] int nonNaN nonNegZero@proven
+  17:5 ref `total`: number[0, 4] int nonNaN nonNegZero@proven
+  17:14 ref `pair`: 2@proven
+  19:3 call `console.log(made[0] === made[1], made...`: unknown
+  19:3 member `console.log`: unknown
+  19:3 ref `console`: unknown
+  19:15 binary `made[0] === made[1]`: boolean@proven
+  19:15 member `made[0]`: undefined | 1[]@proven
+  19:15 ref `made`: 1[][]@proven
+  19:27 member `made[1]`: undefined | 1[]@proven
+  19:27 ref `made`: 1[][]@proven
+  19:36 member `made.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  19:36 ref `made`: 1[][]@proven
+  19:49 ref `total`: number[3, 4] int nonNaN nonNegZero@proven

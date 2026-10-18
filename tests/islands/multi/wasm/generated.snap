@@ -299,14 +299,14 @@ fn at(n: f64, row: i32, col: f64) -> f64 {
 }
 
 fn swapRows(a: &mut [f64], n: i32, r1: i32, r2: i32) {
-    let mut k: i32 = 0;
-    while k < n {
-        let t = array::get(a, at(f64::from(n), r1, f64::from(k)));
-        let index = at(f64::from(n), r1, f64::from(k));
-        let value = array::get(a, at(f64::from(n), r2, f64::from(k)));
+    let mut k = 0.0;
+    while k < f64::from(n) {
+        let t = array::get(a, at(f64::from(n), r1, k));
+        let index = at(f64::from(n), r1, k);
+        let value = array::get(a, at(f64::from(n), r2, k));
         array::set(a, index, value);
-        array::set(a, at(f64::from(n), r2, f64::from(k)), t);
-        k += 1;
+        array::set(a, at(f64::from(n), r2, k), t);
+        k += 1.0;
     }
 }
 

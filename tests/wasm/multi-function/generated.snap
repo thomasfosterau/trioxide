@@ -78,7 +78,7 @@ const STEPS: f64 = 8.0;
 fn curve(a: f64, b: i32, out: &mut [f64]) {
     let mut i = 0.0;
     while i < array::len(out) {
-        let value = sample(a, b, i);
+        let value = sample(a, f64::from(b), i);
         array::set(out, i, value);
         i += 1.0;
     }
@@ -97,8 +97,8 @@ fn area(a: f64, b: i32) -> f64 {
     total / core::hint::black_box(array::len(out))
 }
 
-fn sample(a: f64, b: i32, i: f64) -> f64 {
-    lerp(a, f64::from(b), smooth(i / core::hint::black_box(STEPS)))
+fn sample(a: f64, b: f64, i: f64) -> f64 {
+    lerp(a, b, smooth(i / core::hint::black_box(STEPS)))
 }
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
