@@ -102,11 +102,15 @@ packages/
 tests/
   fixtures/                   # <case>/input.ts (+ trioxide.json) → snapshots
   differential/               # runs original vs optimised-JS vs WASM in Node and compares output
+  conformance/                # vendored TS libraries built by trioxide, run against their own tests
 examples/
   dom-app/                    # should stay JS
-  image-filters/              # filters the cost model scores (today's islands are slower at them, so they stay JS)
+  image-filters/              # filters the cost model scores (one is picked today, wrongly: see its README)
   mixed/                      # both, with a boundary
-benchmarks/
+  telemetry/                  # a workload for the JS speed passes
+benchmarks/                   # trioxide-benchmarks: one entry point and timing harness
+  passes/                     # one case per JS speed pass
+  programs/                   # whole programs (plus the examples), stripped vs trioxide vs auto + WASM
   partition/                  # cost-model calibration: JS vs WASM timings, fit, reach
 docs/
 ```
@@ -473,7 +477,9 @@ call edge into a component from JS code is a boundary entry.
 **Cost model** (per cluster; `trioxide_partition::CostModel`, `costModel` in `trioxide.json`).
 Every weight is in nanoseconds, fitted to `benchmarks/partition/` (Node 22; its README has the
 measurements, the fit and the confusion table) and meant to be refitted as the backend
-improves:
+improves. S9 refitted on main after the analysis proved loop counters int32: the fit agreed on
+no more kernels than the defaults (15 of 17) and its misses cost more, so the defaults stayed;
+the remaining misses are code the backend still generates in `f64` (`benchmarks/README.md`):
 - *benefit*: the operations the island would run per run of the program, by kind, each
   times the time WASM saves per operation (negative where the island is slower): float
   arithmetic; int32 operations (operands the backend holds as int32: every local in them has
@@ -724,7 +730,7 @@ FactSource}`, `trioxide_partition::Partitioner`, `trioxide_wasm::{IslandSpec,
 IslandSource, IslandBuilder}` (plus `trioxide_wasm::toolchain` for `check-toolchain`).
 
 **CLI:** `trioxide build [entries…] --out-dir dist [--watch]`, `trioxide transform <file>`
-(stdout), `trioxide explain [target] [--entry <file>…] [--json]` (entries default to the
+(stdout; it plans the program from the file first, as `build` would, so the passes have facts), `trioxide explain [target] [--entry <file>…] [--json]` (entries default to the
 target's file), `trioxide check-toolchain [--json]`. `--config`,
 `--root`, `--mode`, `--world`, `--trust-types`, `--no-wasm`, `--require-wasm`,
 `--emit=js|rust|wasm|report|facts` (`--emit=facts` with `transform` prints the analysis facts
@@ -787,16 +793,24 @@ Parallel sessions rely on this to stay safe.
   `tests/wasm-errors/<rule>/`, one per eligibility rule, snapshot the diagnostics. Fixtures whose
   `main()` passes values the analysis only knows from TypeScript (subarray views, arrays with
   holes, objects kept in arrays) set `trustTypes: true` in their `trioxide.jsonc`.
-- **Conformance smoke**: run the JS passes over a corpus of real TS projects (e.g. vendored
-  snapshots of a few libraries) and check they still parse, typecheck-strip, and pass their
-  own tests where cheap.
-- **Benchmarks**: `benchmarks/` with tinybench (runtime of outputs) and criterion (compiler
-  throughput). Cost-model tuning is driven by these numbers: `benchmarks/partition/` times
-  kernels JS-only against WASM (plain Node timing, no dependencies) and fits the weights.
-  `benchmarks/passes/` (`pnpm --filter trioxide-benchmarks bench`) times each case's
-  stripped and optimised JS in separate processes, with V8's defaults and with `--no-opt`
-  (V8's optimising tier already inlines and scalar-replaces hot loops, so passes 5 and 8 pay
-  off in code that isn't hot yet).
+- **Conformance smoke** (`tests/conformance/`, `TRIOXIDE_CONFORMANCE=1`, its own CI step):
+  four vendored, dependency-free TS libraries (mitt, heap-js, neverthrow, simplex-noise, with
+  their licenses) built stripped, in the default configuration, with `trustTypes` and with
+  every pass on. Each output must parse, pass the library's own test suite (run unchanged
+  by vitest) with the same per-test results as the stripped build, and print what the
+  stripped build prints from a deterministic driver.
+- **Benchmarks** (`pnpm --filter trioxide-benchmarks bench`, which writes one markdown report):
+  one harness (`benchmarks/lib/harness.mjs`) runs every variant in processes of its own over
+  rounds in alternating order and reports the median and the range of the speedups, under
+  V8's defaults and cold (`--no-opt --no-maglev`: V8's optimising tiers already inline and
+  scalar-replace hot loops, so passes 5 and 8 pay off in code that isn't hot yet). Suites:
+  each JS pass on its own case (`passes/`); whole programs (the examples and realistic
+  programs in `programs/`) stripped, as trioxide's JS, with every pass and in `auto` with WASM;
+  the cost-model calibration kernels (`partition/`, JS-only against WASM, from which
+  `fit.mjs` fits the weights); and compiler throughput (`trioxide build` wall time and peak
+  memory on the conformance corpus and the analysis bench's corpus). Plain Node timing, no
+  tinybench; criterion stays for the analysis bench (`cargo bench -p trioxide_analysis`).
+  `benchmarks/README.md` records the numbers and the machine.
 - **Every PR**: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `pnpm test`,
   and the differential suite. The WASM jobs need `rustup target add wasm32-unknown-unknown`.
 
