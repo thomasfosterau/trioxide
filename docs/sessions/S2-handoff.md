@@ -141,7 +141,7 @@ cycle TDZ, #12's `sized` and sticky give-up, #14's deferral, warm loops and esca
 parents.
 
 **Still to port** (none of these are on the branch):
-- From #18:
+- From #18 (merged):
   - the named function expression self-binding in `interpret` (through tables/ops there);
   - `call_with` for tagged templates;
   - the computed-key array write (`store_elem`, `dynamic`/`holey`/`length = None`), as a
@@ -155,9 +155,33 @@ parents.
 - From #15 and #16, once they merge: their analysis changes (#16's `observe.rs`, the
   `delete` operand fix, new `Facts` tables in `remap_module`/`forget_module`).
 
-**Known blocker** (from the #6 review): in `sweep.rs` the merge decides which chunks take
-the fast path before the ops are replayed, so a chunk can skip work that a replayed op made
-necessary. The review is adding a fixture for it; fix that before anything else on #6.
+**The #6 review** (owner, on `1e059cb`). Determinism held in their stress test: 188 entries
+× chunk sizes {1, 2, 3, 7, 128, 10⁶} × threads {1, 2, 4} gave byte-identical facts within each
+chunk setting. They measured 2.73× parse in release. Before it can merge:
+- **Blocking:**
+  - **The merge fast path is unsound.** `sweep.rs` decides `fast` for every chunk before any
+    replay. A slow chunk's replay (`Op::JoinSuper` escaping a parent, `escape` following new
+    props) can change an entry that a later `fast` chunk then overwrites with its stale
+    copy. Fix: decide fast-ness inside the merge loop, adding what each replay touched
+    (`global.touched`, `global.reads`) to `merged`. The repro is in the review comment on
+    `sweep.rs`; add it as a fixture and run it with tiny chunks.
+  - **Instance escape regressed.** The `this` of an open unit is plain unknown instead of
+    "recorded values joined with unknown", and `new C()` without a constructor joins `this`
+    into the initialiser without escaping it. The repro (a `Holder` whose field initialiser
+    leaks `[this]`) is in the review; add it as a fixture too.
+- **Should fix:**
+  - a true sequential path (one chunk still differs from `main`, e.g. a stale warm-loop join
+    in `numeric`);
+  - chunk-size-dependent precision: count widening and give-up per entry, not per round,
+    and add a test comparing `chunk_units = 1` with the default;
+  - tsrs answers depend on which worker's checker answers (`BoundQueries`, `ts_cache`), and
+    answer `None` once `shared_panicked` is set (`tsrs_adapter/mod.rs`).
+- **Minor:**
+  - `summary.rs` in-bounds facts should take the `min` of trusts again;
+  - `SpanMap::build` runs on every uncached query;
+  - bound `T` in `threads::Shared<T>`'s `unsafe impl`;
+  - detached drops pile up in long-running hosts;
+  - split out the unrelated churn (Tarjan rewrite, `Sites` small-vector, `Vars` as `Rc`).
 
 **Numbers:** about 2.8–3.0× parse (291–306 ms analysis against 102–105 ms parse). That
 misses the 2× target. About 270 ms of a sequential run is outside the sweeps (single-threaded
