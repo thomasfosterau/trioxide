@@ -30,6 +30,8 @@ src/main.ts
       8:17  returns values of different types (or a value on some paths only)
       9:27  creates an array literal
       10:22  reads `SEEDS`, which is defined outside the function (only module-level constants can be read)
+    passes:
+      applied: for-of ×1
   main (19:8): JS
     why: ineligible: calls `run`, which can't be compiled to WASM
     failed rules:
@@ -37,29 +39,31 @@ src/main.ts
       8:17  in `run`: returns values of different types (or a value on some paths only)
       9:27  in `run`: creates an array literal
       10:22  in `run`: reads `SEEDS`, which is defined outside the function (only module-level constants can be read)
+    passes:
+      for-of skipped at 20:3: an array it may be is not followed by the analysis (it reaches unknown code, or gets properties added)
 
 src/ease.ts
   ease (5:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -1120000 ≤ threshold 0
-    cost model: benefit -20000 − cost 1100000 = -1120000 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -1613560 ≤ threshold 0
+    cost model: benefit -3560 − cost 1610000 = -1613560 ≤ threshold 0
       benefit: 600000 operations over 100000 call(s)
-      cost: crossings 800000 + marshalling 0 (0 bytes) + instantiation 300000
+      cost: crossings 1310000 + marshalling 0 (0 bytes) + instantiation 300000
     passes:
       fold skipped at 6:13, 6:22: the call's result depends on what its callers pass (`passes.specialize` is off)
 
 src/kernel.ts
   tileDigest (10:8): WASM in island `kernel`
     why: chosen by the cost model; exported by the island
-    cost model: benefit 2752706 − cost 300024 = 2452682 > threshold 0
+    cost model: benefit 388740 − cost 300039 = 88701 > threshold 0
       benefit: 12585222 operations over 3 call(s)
-      cost: crossings 24 + marshalling 0 (0 bytes) + instantiation 300000
+      cost: crossings 39 + marshalling 0 (0 bytes) + instantiation 300000
     passes:
       applied: inline ×2
   cellNoise (22:8): WASM in island `kernel`
     why: compiled into the island as a callee (its JS version is kept too)
-    cost model: benefit 2752706 − cost 300024 = 2452682 > threshold 0
+    cost model: benefit 388740 − cost 300039 = 88701 > threshold 0
       benefit: 12585222 operations over 3 call(s)
-      cost: crossings 24 + marshalling 0 (0 bytes) + instantiation 300000
+      cost: crossings 39 + marshalling 0 (0 bytes) + instantiation 300000
 
 src/view.ts
   render (4:8): JS
@@ -68,6 +72,8 @@ src/view.ts
       4:24  can't prove what parameter `root` receives
       4:43  parameter `lines` is an array of anything, not of numbers
       5:16  uses the global `document` (a host API)
+    passes:
+      for-of skipped at 6:3: an array it may be is not followed by the analysis (it reaches unknown code, or gets properties added)
 ```
 
 - `tileDigest` becomes WASM: its int32 operations, and above all the sums wrapped with `| 0`
@@ -84,13 +90,13 @@ src/view.ts
 
 The differential suite runs this example's `main()` types-stripped, as trioxide's JS, and with
 the islands `auto` picks (`tests/differential`, legs a, b and d); all print the same. `pnpm
-compare` times `run()` three ways (Node 22):
+compare` times `run()` three ways (Node 22, the median of three alternating rounds):
 
 | build | islands | `run()` |
 |---|---|---|
-| JS only | — | 2.09 ms |
-| auto | kernel | 0.90 ms |
-| every cluster | ease, kernel | 1.47 ms |
+| JS only | — | 1.30 ms |
+| auto | kernel | 0.82 ms |
+| every cluster | ease, kernel | 1.41 ms |
 
-Moving the kernel makes `run()` about twice as fast; moving `ease` too gives part of that
+Moving the kernel makes `run()` about 1.6× as fast; moving `ease` too gives part of that
 back, as the model predicts.

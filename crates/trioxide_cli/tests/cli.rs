@@ -26,10 +26,32 @@ fn stderr(output: &Output) -> &str {
     std::str::from_utf8(&output.stderr).unwrap()
 }
 
-/// With no optimisation passes enabled yet, `transform` must print exactly what plain type
-/// stripping prints. Once passes are on by default (S4), the differential suite is the check.
+/// With every pass off, `transform` must print exactly what plain type stripping prints.
+/// (With passes on, the differential suite is the check.)
 #[test]
 fn transform_matches_plain_stripping() {
+    let config_dir = tempfile::tempdir().unwrap();
+    let config = config_dir.path().join("no-passes.json");
+    let passes = [
+        "inline",
+        "checks",
+        "fold",
+        "dce",
+        "licm",
+        "hidden-class",
+        "for-of",
+        "pipelines",
+        "partial-eval",
+        "scalar",
+        "closure-hoist",
+        "params",
+        "inline-fn",
+        "simplify",
+        "imports",
+    ]
+    .map(|pass| format!("\"{pass}\": false"))
+    .join(", ");
+    std::fs::write(&config, format!("{{ \"passes\": {{ {passes} }} }}")).unwrap();
     for name in [
         "classes",
         "enums",
@@ -45,7 +67,14 @@ fn transform_matches_plain_stripping() {
             .find(|path| path.is_file())
             .unwrap();
         let input = input.to_str().unwrap();
-        let transformed = trioxide(&["transform", input]);
+        let transformed = trioxide(&[
+            "transform",
+            "--config",
+            config.to_str().unwrap(),
+            "--root",
+            dir.to_str().unwrap(),
+            input,
+        ]);
         let stripped = trioxide(&["strip", input]);
         assert!(
             transformed.status.success(),
@@ -59,6 +88,51 @@ fn transform_matches_plain_stripping() {
             "{name}: types were not stripped"
         );
     }
+}
+
+/// `transform` runs the passes with facts, as `build` does, and with the config's `passes`
+/// (it used to transform a project it never analysed, so fact-driven passes never fired).
+#[test]
+fn transform_applies_passes_like_build() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = "export function main(): void {\n  let total = 0;\n  for (let i = 0; i < 10; i++) {\n    const p = { x: i, y: i * 2 };\n    total += p.x * p.y;\n  }\n  console.log(total);\n}\n";
+    std::fs::write(dir.path().join("input.ts"), source).unwrap();
+    let config = dir.path().join("scalar.json");
+    std::fs::write(&config, r#"{ "passes": { "scalar": true } }"#).unwrap();
+    let input = dir.path().join("input.ts");
+    let input = input.to_str().unwrap();
+
+    let transformed = trioxide(&["transform", "--config", config.to_str().unwrap(), input]);
+    assert!(transformed.status.success(), "{}", stderr(&transformed));
+    assert!(
+        stdout(&transformed).contains("p_x"),
+        "{}",
+        stdout(&transformed)
+    );
+
+    let out_dir = tempfile::tempdir().unwrap();
+    let built = trioxide(&[
+        "build",
+        "--emit=js",
+        "--no-wasm",
+        "--config",
+        config.to_str().unwrap(),
+        "--out-dir",
+        out_dir.path().to_str().unwrap(),
+        input,
+    ]);
+    assert!(built.status.success(), "{}", stderr(&built));
+    let js = std::fs::read_to_string(out_dir.path().join("input.js")).unwrap();
+    assert_eq!(
+        stdout(&transformed).trim_end(),
+        js.trim_end()
+            .trim_end_matches("//# sourceMappingURL=input.js.map")
+            .trim_end()
+    );
+
+    let default = trioxide(&["transform", input]);
+    assert!(default.status.success(), "{}", stderr(&default));
+    assert!(!stdout(&default).contains("p_x"), "{}", stdout(&default));
 }
 
 #[test]

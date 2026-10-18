@@ -29,10 +29,16 @@ Also useful:
 - `cargo run -p trioxide_cli -- check-toolchain` reports what WASM islands need.
 - `trioxide explain [file[:fn]] [--entry <file>] [--json]` prints the partitioner's verdicts
   (with failed eligibility rules and cost-model numbers) and the passes' decisions.
+- `pnpm --filter trioxide-benchmarks bench [suite…] [--filter x] [--quick]` runs the
+  benchmarks (passes, whole programs, partition kernels, compiler throughput) and writes
+  `benchmarks/.out/results.md`; `benchmarks/README.md` has the recorded numbers.
 - `node benchmarks/partition/run.mjs` times kernels JS vs WASM and compares the cost model's
   picks; `fit.mjs` refits its weights, `reach.mjs` reports what qualifies without
-  `trustTypes`. `TRIOXIDE_EVERY_CLUSTER=1` makes the differential suite's auto leg turn every
-  eligible cluster into an island.
+  `trustTypes`.
+- `TRIOXIDE_CONFORMANCE=1 pnpm --filter trioxide-conformance test` builds the vendored
+  libraries in `tests/conformance/` and runs their own tests against the output.
+- `TRIOXIDE_EVERY_CLUSTER=1` makes the differential suite's auto leg turn every eligible
+  cluster into an island.
 - `FIXTURE=enums pnpm --filter trioxide-differential test` runs one differential fixture.
   `TRIOXIDE_BIN=…` skips the cargo build it otherwise does first.
 - `cargo check -p trioxide_cli --no-default-features` builds without tsrs.

@@ -12,27 +12,29 @@ pnpm compare         # time run() JS-only, auto, and with every eligible functio
 
 ## What `trioxide explain` says
 
+The `src/filters.ts` part of `pnpm explain`:
+
 ```
 src/filters.ts
   grayscale (5:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -3633193 ≤ threshold 0
-    cost model: benefit -3271680 − cost 361513 = -3633193 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -3945832 ≤ threshold 0
+    cost model: benefit -3541939 − cost 403893 = -3945832 ≤ threshold 0
       benefit: 1459200 operations over 1 call(s)
-      cost: crossings 8 + marshalling 61505 (614400 bytes) + instantiation 300000
+      cost: crossings 13 + marshalling 103880 (614400 bytes) + instantiation 300000
     passes:
       fold skipped at 6:27: the expression's single value depends on what its callers pass (`passes.specialize` is off)
   invert (15:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -3625513 ≤ threshold 0
-    cost model: benefit -3264000 − cost 361513 = -3625513 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -3942606 ≤ threshold 0
+    cost model: benefit -3538714 − cost 403893 = -3942606 ≤ threshold 0
       benefit: 1305600 operations over 1 call(s)
-      cost: crossings 8 + marshalling 61505 (614400 bytes) + instantiation 300000
+      cost: crossings 13 + marshalling 103880 (614400 bytes) + instantiation 300000
     passes:
       fold skipped at 16:27: the expression's single value depends on what its callers pass (`passes.specialize` is off)
   boxBlur (24:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -18232962 ≤ threshold 0
-    cost model: benefit -17840664 − cost 392298 = -18232962 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -632751 ≤ threshold 0
+    cost model: benefit -176896 − cost 455855 = -632751 ≤ threshold 0
       benefit: 39245520 operations over 1 call(s)
-      cost: crossings 8 + marshalling 92290 (921600 bytes) + instantiation 300000
+      cost: crossings 13 + marshalling 155842 (921600 bytes) + instantiation 300000
     passes:
       inline skipped at 25:23, 26:25, 34:33, 34:58, 35:32, 40:18, 42:16, 42:47: the binding's single value depends on what its callers pass (`passes.specialize` is off)
       fold skipped at 25:23, 26:25, 34:33, 34:58, 35:32, 40:18, 42:16, 42:47: the expression's single value depends on what its callers pass (`passes.specialize` is off)
@@ -47,26 +49,29 @@ src/filters.ts
 
 `grayscale`, `invert` and `boxBlur` are eligible in the default mode (every typed array that
 reaches them is allocated in the program, and their other arguments are constants), so the
-cost model scores them, and keeps them in JS. Their benefit is negative: element accesses
-are slower in today's islands than in V8's optimised JS, by ~2.5 ns with an int32 index and
-~7 ns with a float index (which these loops get, as their counters are bounded by parameters
-and array lengths), and every `Uint8ClampedArray` store pays for a software `fmod` in the
-runtime. `benchmarks/partition/README.md` has the measurements and the causes. `sharpen` is
-ineligible: it calls `.set()`, which the backend doesn't lower.
+cost model scores them. `sharpen` is ineligible: it calls `.set()`, which the backend doesn't
+lower.
 
-That is the cost model working as intended. `pnpm compare` (Node 22):
+The model keeps all three in JS, and that is the faster choice. `boxBlur` is the close one:
+the analysis proves its loop counters and its index arithmetic int32 (with `width` and
+`height` constant, `(ny * width + nx) * 4 + c` is an int32 everywhere), and before the S9
+refit the model counted that int32 work as a win and picked it. Measured, the island is
+slower, so the refitted weights (`benchmarks/README.md`, "Cost-model refit") keep it in JS.
+`grayscale` and `invert` stay JS by a wide margin: their counters (`i += 4` against
+`pixels.length`) are `f64` in the island, so every access is a float-indexed, checked one.
+
+`run()`, Node 22, each build in processes of its own over alternating rounds (`pnpm compare`
+with three rounds; eleven for the `boxBlur` row, whose processes vary more):
 
 | build | islands | `run()` |
 |---|---|---|
-| JS only | — | 35.58 ms |
-| auto | — | 36.97 ms |
-| every cluster | filters, image | 64.57 ms |
+| JS only, and `auto` (the same output) | — | 32.9 ms |
+| `boxBlur` in WASM (what the weights before the refit picked) | filters | 40.9 ms (0.79×; 0.64–1.26× over 11 rounds) |
+| every cluster | filters, image | 48.3 ms |
 
-Forcing them into WASM (`"use wasm"`, an `overrides` entry with `"target": "wasm"`, or
-`wasm-preferred` with a very low `costModel.wasmPreferredThreshold`) makes the program almost
-twice as slow. When the backend gets int32 counters for parameter-bounded loops and a
-cheaper clamped store, rerun `benchmarks/partition` and refit the weights: the same
-explain output then shows where the balance tips.
+What makes these islands slow is code the backend still generates in `f64` (see
+`benchmarks/README.md`); once S6 fixes it, rerun `benchmarks/partition` and refit, and the
+same `explain` output shows where the balance tips.
 
 ## Same behaviour either way
 

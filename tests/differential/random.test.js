@@ -18,7 +18,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { before, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -358,7 +358,10 @@ test(`${count} random programs (seed ${seed}) agree in JS and WASM`, { timeout: 
   assert.equal(build.status, 0, `seed ${seed}: build failed:\n${build.stderr}`);
   assert.doesNotMatch(build.stderr, /warning|error/, build.stderr);
   const islands = path.join(c, '_islands');
-  const glues = readdirSync(islands).filter((name) => name.endsWith('.js')).map((name) => path.join(islands, name));
+  // No programs (RANDOM_PROGRAMS=0) means no islands, and no _islands directory.
+  const glues = existsSync(islands)
+    ? readdirSync(islands).filter((name) => name.endsWith('.js')).map((name) => path.join(islands, name))
+    : [];
   assert.equal(glues.length, modules.length, 'every module should become an island');
   const wasm = execute(path.join(c, 'input.js'), glues);
   assert.equal(wasm.status, 0, wasm.stderr);

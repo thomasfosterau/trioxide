@@ -1,10 +1,14 @@
 // Fits the cost model's weights to results.json (written by run.mjs): least squares of the
 // measured saving per run (JS time − WASM time) against the operation counts, calls and
 // bytes of each kernel's island, each row scaled by the kernel's run time so short kernels
-// count as much as long ones. Prints the fitted weights and the confusion table they give.
+// count as much as long ones. Prints the fitted weights and, for each kernel, what they pick:
+// WASM when the predicted saving per run exceeds the island's instantiation cost plus the
+// threshold, as the cost model decides. "Lost" is the measured time per run a wrong pick
+// gives up (ties lose nothing).
 //
 // Usage: node fit.mjs [--ridge 0.01] [--weights weights.json]
-// With --weights, evaluates those weights (e.g. the defaults) instead of fitting.
+// With --weights, evaluates those weights (e.g. the defaults) instead of fitting;
+// `instantiation` and `threshold` default to CostModel::default's.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -58,23 +62,31 @@ for (let i = n - 1; i >= 0; i--) {
 const fitted = Object.fromEntries(NAMES.map((name, i) => [name, Number(w[i].toPrecision(3))]));
 process.stdout.write(`fitted weights (ns): ${JSON.stringify(fitted)}\n\n`);
 const weightsAt = process.argv.indexOf('--weights');
+let instantiation = 300_000;
+let threshold = 0;
 if (weightsAt > 0) {
   const given = JSON.parse(readFileSync(process.argv[weightsAt + 1], 'utf8'));
   NAMES.forEach((name, i) => {
     w[i] = given[name] ?? 0;
   });
+  instantiation = given.instantiation ?? instantiation;
+  threshold = given.threshold ?? threshold;
   process.stdout.write(`evaluating ${JSON.stringify(given)}\n\n`);
 }
 
 let agree = 0;
-const lines = ['| kernel | measured saving | fitted saving | faster | fitted picks |', '|---|---|---|---|---|'];
+let lost = 0;
+const lines = ['| kernel | measured saving | predicted saving | faster | picks | lost per run |', '|---|---|---|---|---|---|'];
 for (const r of results) {
   const predicted = row(r.model.features).reduce((sum, v, i) => sum + v * w[i], 0);
   // Within 5% either side is as fast.
   const tie = Math.max(r.js, r.wasm) / Math.min(r.js, r.wasm) < 1.05;
   const faster = tie ? 'tie' : r.wasm < r.js ? 'WASM' : 'JS';
-  const picks = predicted > 0 ? 'WASM' : 'JS';
-  if (tie || faster === picks) agree++;
-  lines.push(`| ${r.name} | ${Math.round(r.js - r.wasm)} | ${Math.round(predicted)} | ${faster} | ${picks} |`);
+  const picks = predicted - instantiation > threshold ? 'WASM' : 'JS';
+  const right = tie || faster === picks;
+  if (right) agree++;
+  const loss = right ? 0 : Math.abs(r.js - r.wasm);
+  lost += loss;
+  lines.push(`| ${r.name} | ${Math.round(r.js - r.wasm)} | ${Math.round(predicted)} | ${faster} | ${picks} | ${loss ? `${(loss / 1e6).toFixed(2)} ms` : '—'} |`);
 }
-process.stdout.write(`${lines.join('\n')}\n\n${agree}/${results.length} agree\n`);
+process.stdout.write(`${lines.join('\n')}\n\n${agree}/${results.length} agree; wrong picks lose ${(lost / 1e6).toFixed(2)} ms per run in all\n`);

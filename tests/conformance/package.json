@@ -1,0 +1,18 @@
+{
+  "name": "trioxide-conformance",
+  "private": true,
+  "type": "module",
+  "description": "Conformance smoke (docs/PLAN.md §8): vendored TS libraries built by trioxide, checked against their own tests and the types-stripped build. Set TRIOXIDE_CONFORMANCE=1 to run.",
+  "scripts": {
+    "test": "node --test conformance.test.js"
+  },
+  "devDependencies": {
+    "alea": "1.0.1",
+    "chai": "4.5.0",
+    "pngjs": "7.0.0",
+    "sinon": "22.1.0",
+    "sinon-chai": "3.7.0",
+    "testdouble": "3.20.2",
+    "vitest": "5.0.5"
+  }
+}

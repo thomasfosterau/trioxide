@@ -33,5 +33,6 @@ tests/differential/.out/
 
 # Benchmark output
 benchmarks/.out/
-benchmarks/partition/.out/
-benchmarks/passes/.out/
+
+# Conformance smoke output
+tests/conformance/.out/

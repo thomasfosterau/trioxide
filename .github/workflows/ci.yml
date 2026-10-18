@@ -62,6 +62,10 @@ jobs:
         run: pnpm --filter trioxide test
       - name: dom-app with and without trioxide
         run: pnpm --filter trioxide-example-dom-app test
+      - name: Examples through the Vite plugin, production and dev, against the CLI build
+        env:
+          TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
+        run: pnpm --filter trioxide-example-mixed test
       - name: Differential suite
         env:
           TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
@@ -71,3 +75,8 @@ jobs:
           TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
           TRIOXIDE_EVERY_CLUSTER: '1'
         run: pnpm --filter trioxide-differential exec node --test differential.test.js
+      - name: Conformance smoke (vendored libraries, their tests and the stripped build)
+        env:
+          TRIOXIDE_BIN: ${{ github.workspace }}/target/debug/trioxide
+          TRIOXIDE_CONFORMANCE: '1'
+        run: pnpm --filter trioxide-conformance test
