@@ -5,11 +5,16 @@ input_file: tests/fixtures/analysis/try-finally/input.ts
 ---
 //- input.ts
 // Exceptions can leave a try block anywhere: a catch sees any value assigned in it.
+function risky(n) {
+	if (n > 1) throw new Error("too big");
+	return n;
+}
 export function main() {
 	let stage = 0;
 	try {
 		stage = "started";
-		throw new Error("too big");
+		risky(2);
+		stage = 2;
 	} catch {
 		console.log(
 			stage
@@ -22,7 +27,9 @@ export function main() {
 		);
 	}
 	let cleanup = false;
-	try {} finally {
+	try {
+		risky(0);
+	} finally {
 		cleanup = true;
 	}
 	console.log(

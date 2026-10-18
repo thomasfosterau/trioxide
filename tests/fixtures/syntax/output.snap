@@ -16,6 +16,9 @@ const users = [{
 function cityOf(user) {
 	return user.address?.city ?? "unknown";
 }
+function first(items) {
+	return items[0];
+}
 const DEFAULTS = {
 	retries: 3,
 	timeout: 1e3
@@ -44,7 +47,7 @@ label: for (const i of [
 	}
 }
 export function main() {
-	console.log(users.map(cityOf).join(","), users[0].name);
+	console.log(users.map(cityOf).join(","), first(users).name);
 	console.log(users[1].email?.toUpperCase(), users[0].email.length);
 	console.log(JSON.stringify(configure({
 		timeout: 5,

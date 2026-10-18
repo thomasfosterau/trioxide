@@ -5,6 +5,9 @@ input_file: tests/fixtures/analysis/basics/input.ts
 ---
 //- input.ts
 // Literals, operators, locals, loops over typed arrays, and a closed-world helper.
+function square(x) {
+	return x * x;
+}
 export function sum(values) {
 	let total = 0;
 	for (let i = 0; i < values.length; i++) {
@@ -15,8 +18,7 @@ export function sum(values) {
 export function main() {
 	const data = new Float64Array(4);
 	for (let i = 0; i < data.length; i++) {
-		let x;
-		data[i] = (x = i, x * x) | 0;
+		data[i] = square(i) | 0;
 	}
 	const label = "total: " + sum(data);
 	console.log(label, 2);

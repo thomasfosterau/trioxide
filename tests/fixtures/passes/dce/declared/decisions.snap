@@ -5,8 +5,3 @@ input_file: tests/fixtures/passes/dce/declared/input.ts
 ---
 //- input.ts
 10:9 dce skipped: unused, but its initialiser has effects
-10:18 inline-fn applied
-11:3 inline-fn applied
-6:10 simplify applied
-10:9 simplify applied
-11:3 simplify applied

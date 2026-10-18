@@ -52,7 +52,7 @@ export function main() {
 	];
 	console.log(String(max(versions)), max([]));
 	const stack = new Stack().push("a", "b", "c");
-	console.log(stack.items.pop(), stack.size);
+	console.log(stack.pop(), stack.size);
 	console.log(swap([1, "one"]).join(" "));
 	console.log(4, JSON.stringify(groupBy([
 		1,

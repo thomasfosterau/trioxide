@@ -7,4 +7,3 @@ input_file: tests/fixtures/passes/scalar/declared/input.ts
 10:26 fold applied
 9:9 dce applied
 8:9 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-10:15 inline-fn applied

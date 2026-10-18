@@ -5,11 +5,16 @@ input_file: tests/fixtures/analysis/default-params/input.ts
 ---
 //- input.ts
 // Default parameters replace missing (undefined) arguments.
-export function main() {
-	let name, times, times_1;
-	console.log((name = "world", times = 1, name.repeat(
+function greet(name = "world", times = 1) {
+	return name.repeat(
 		times
 		/*@proven number int*/
-	)), (times_1 = 1, "you".repeat(times_1)), "twice".repeat(2));
-	console.log(0, 3);
+	);
+}
+function optional(value) {
+	return value ?? 0;
+}
+export function main() {
+	console.log(greet(), greet("you"), greet("twice", 2));
+	console.log(optional(), optional(3));
 }

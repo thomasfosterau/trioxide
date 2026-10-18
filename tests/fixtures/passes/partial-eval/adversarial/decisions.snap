@@ -8,72 +8,42 @@ input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 20:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
 36:10 inline skipped: the read may throw (e.g. in its temporal dead zone)
 39:10 inline applied
-97:53 inline skipped: the read may throw (e.g. in its temporal dead zone)
+115:53 inline skipped: the read may throw (e.g. in its temporal dead zone)
 10:10 fold skipped: the comparison's operands have effects
 19:7 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
 19:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 36:10 fold skipped: the expression has effects, so it stays
 36:10 fold skipped: the expression has effects, so it stays
 39:10 fold applied
-65:11 fold applied
-65:25 fold applied
-82:8 fold skipped: the expression has effects, so it stays
-87:12 fold applied
-97:53 fold skipped: the expression has effects, so it stays
-98:51 fold skipped: the expression has effects, so it stays
+76:11 fold applied
+76:25 fold applied
+93:8 fold skipped: the expression has effects, so it stays
+98:12 fold applied
+115:53 fold skipped: the expression has effects, so it stays
+116:51 fold skipped: the expression has effects, so it stays
 3:7 dce applied
 38:1 dce applied
-68:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
-69:12 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
-70:12 partial-eval skipped: the interpreter doesn't model globals
-71:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
-74:8 partial-eval skipped: the call may run code trioxide doesn't see
-78:12 partial-eval skipped: an object in the result is reachable twice (copies would lose that)
-79:12 partial-eval skipped: the result is too big to write out (over 128 values)
-82:8 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
-89:13 partial-eval skipped: the result has holes
-90:13 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
-92:22 partial-eval skipped: the interpreter doesn't model strings with lone surrogates
-92:37 partial-eval skipped: the result has a string with invisible characters
-93:13 partial-eval skipped: evaluating the call takes more than 200000 steps
-88:13 partial-eval applied
-91:13 partial-eval applied
-92:14 partial-eval applied
-27:9 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-88:7 scalar skipped: a key is called as a method (which passes the object as `this`)
-91:7 scalar skipped: a key is called as a method (which passes the object as `this`)
-92:7 scalar skipped: a key is called as a method (which passes the object as `this`)
-98:23 closure-hoist applied
-99:23 closure-hoist applied
-100:23 closure-hoist applied
-69:12 inline-fn applied
-70:12 inline-fn applied
-71:12 inline-fn applied
-74:8 inline-fn applied
-79:12 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-82:8 inline-fn applied
-89:13 inline-fn applied
-90:13 inline-fn applied
-92:22 inline-fn applied
-92:37 inline-fn applied
-68:12 inline-fn applied
-78:12 inline-fn applied
-93:13 inline-fn applied
-5:1 inline-fn applied
-9:1 inline-fn applied
-12:1 inline-fn applied
-15:1 inline-fn applied
-18:1 inline-fn applied
-26:1 inline-fn applied
-35:1 inline-fn applied
-47:1 inline-fn applied
-50:1 inline-fn applied
-53:1 inline-fn applied
-58:1 inline-fn applied
-61:1 inline-fn applied
-65:72 simplify applied
-65:80 simplify applied
-65:88 simplify applied
-19:7 simplify applied
-74:3 simplify applied
-74:8 simplify applied
+79:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+80:12 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
+81:12 partial-eval skipped: the interpreter doesn't model globals
+82:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+85:8 partial-eval skipped: the call may run code trioxide doesn't see
+89:12 partial-eval skipped: an object in the result is reachable twice (copies would lose that)
+90:12 partial-eval skipped: the result is too big to write out (over 128 values)
+93:8 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+100:13 partial-eval skipped: the result has holes
+101:13 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
+103:22 partial-eval skipped: the interpreter doesn't model strings with lone surrogates
+103:37 partial-eval skipped: the result has a string with invisible characters
+104:13 partial-eval skipped: evaluating the call takes more than 200000 steps
+107:16 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+99:13 partial-eval applied
+102:13 partial-eval applied
+103:14 partial-eval applied
+111:13 partial-eval applied
+116:23 closure-hoist applied
+117:23 closure-hoist applied
+119:23 closure-hoist applied
+76:72 simplify applied
+76:80 simplify applied
+76:88 simplify applied

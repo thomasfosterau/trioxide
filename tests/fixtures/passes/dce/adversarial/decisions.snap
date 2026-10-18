@@ -20,9 +20,4 @@ input_file: tests/fixtures/passes/dce/adversarial/input.ts
 56:9 dce skipped: unused, but its initialiser has effects
 57:9 dce skipped: unused, but its initialiser has effects
 58:9 dce skipped: unused, but its initialiser has effects
-5:7 scalar skipped: the literal has accessors or methods
-12:7 scalar skipped: the literal has accessors or methods
-59:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-59:33 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-59:44 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
 39:18 simplify applied

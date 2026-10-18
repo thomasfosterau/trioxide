@@ -46,7 +46,7 @@ function total(shapes) {
 export function main() {
 	const square = new Square(2);
 	console.log(
-		square.side * square.side
+		square.area()
 		/*@proven number int*/
 	);
 	const shapes = [square, new Circle(1)];

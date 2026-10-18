@@ -8,4 +8,3 @@ input_file: tests/fixtures/passes/checks/declared-trusted/input.ts
 4:21 checks applied
 4:33 checks applied
 4:60 checks skipped: evaluating the operand may have effects
-8:15 inline-fn applied

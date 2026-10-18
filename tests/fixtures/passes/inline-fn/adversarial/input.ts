@@ -38,6 +38,17 @@ function find(list: number[], wanted: number): number {
   return -1;
 }
 
+// `return f(…)`: the callee's early returns keep their values.
+function sign(n: number): string {
+  if (n < 0) return "negative";
+  if (n === 0) return "zero";
+  order.push("positive");
+  return "positive";
+}
+function describe(n: number): string {
+  return sign(n);
+}
+
 function guarded(n: number): number {
   try {
     if (n > 1) return n * 10;
@@ -68,6 +79,48 @@ function scaled(v: number): number {
 function second(a: number, b: number): number {
   return b + a * 0;
 }
+
+// Review repros. A reassigned parameter's local must not run before a moved argument.
+function g1(): number {
+  order.push("g");
+  return 1;
+}
+function h1(): number {
+  order.push("h");
+  return 2;
+}
+function reorder(a: number, b: number): number {
+  return a + ((b = b + 1), b);
+}
+
+// The declaration's binding stays in its temporal dead zone while the inlined body runs.
+function peek(): string {
+  try {
+    return String(LATE);
+  } catch (e) {
+    return (e as Error).name;
+  }
+}
+function early(n: number): string {
+  const t = peek();
+  if (n > 100) return "big";
+  return t + n;
+}
+const LATE = early(1);
+
+// An anonymous function argument keeps its empty name.
+function nameOf(callback: () => number): string {
+  const name = callback.name;
+  return "[" + name + "]";
+}
+
+// A call on a nullish receiver throws, even when the method doesn't read `this`.
+class Five {
+  five(): number {
+    return 5;
+  }
+}
+const fives: (Five | undefined)[] = [undefined, new Five()];
 
 // What may not be inlined.
 function self(this: { n: number } | void): number {
@@ -100,6 +153,16 @@ export function main(): void {
   const at = find([4, 5, 6], 6);
   const missing = find([4, 5, 6], 7);
   console.log(at, missing);
+  console.log(describe(-1), describe(0), describe(1));
+  order.length = 0;
+  const r = reorder(g1(), h1());
+  console.log(r, order.join(","), LATE, nameOf(() => 1));
+  try {
+    const p = fives[0] as Five;
+    console.log(p.five());
+  } catch (e) {
+    console.log("caught", (e as Error).name);
+  }
   const big = guarded(2);
   const small = guarded(0);
   console.log(big, small, order.join(","));

@@ -93,15 +93,6 @@ expression: json
           },
           "kind": "skipped",
           "reason": "unused, but a WASM island's glue may call it"
-        },
-        {
-          "pass": "inline-fn",
-          "span": {
-            "start": 659,
-            "end": 679
-          },
-          "kind": "skipped",
-          "reason": "`cellNoise` is a WASM island function (an explicit request stays)"
         }
       ]
     }

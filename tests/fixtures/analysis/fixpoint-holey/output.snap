@@ -8,10 +8,13 @@ input_file: tests/fixtures/analysis/fixpoint-holey/input.ts
 // array loses its length, and remaking it must not bring the length back (it used to, every
 // round, so the analysis never reached a fixed point and reported nothing).
 import { mul1 } from "./kernel.js";
+function holey() {
+	const xs = new Array(3);
+	return xs;
+}
 export function main() {
 	for (const f of [mul1]) {
-		const xs_1 = new Array(3);
-		const xs = xs_1;
+		const xs = holey();
 		f(xs);
 		console.log(xs.length, xs[0], 0 in xs);
 	}

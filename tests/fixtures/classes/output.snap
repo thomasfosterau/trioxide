@@ -52,10 +52,10 @@ export function main() {
 		new Rect(2, 3),
 		Rect.square(4)
 	];
-	for (const shape of shapes) console.log(`${shape.name}#${shape.id} area=${shape.area().toFixed(2)}`);
+	for (const shape of shapes) console.log(shape.describe());
 	const circle = shapes[0];
 	circle.radius = 2;
-	console.log(circle.radius, `${circle.name}#${circle.id} area=${circle.area().toFixed(2)}`);
+	console.log(circle.radius, circle.describe());
 	try {
 		circle.radius = -1;
 	} catch (error) {

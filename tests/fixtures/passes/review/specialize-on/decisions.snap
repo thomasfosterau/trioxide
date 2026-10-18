@@ -19,10 +19,7 @@ input_file: tests/fixtures/passes/review/specialize-on/input.ts
 34:71 fold applied
 33:9 dce applied
 2:1 dce applied
-25:16 inline-fn applied
-34:28 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-34:45 inline-fn skipped: the receiver of `length` isn't a name that stays the same or `this`
-34:83 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+25:16 params applied
 26:7 simplify applied
 26:3 simplify applied
 29:3 simplify applied

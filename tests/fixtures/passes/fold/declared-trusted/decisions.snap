@@ -5,8 +5,4 @@ input_file: tests/fixtures/passes/fold/declared-trusted/input.ts
 ---
 //- input.ts
 4:10 inline applied
-12:15 inline-fn applied
-12:25 inline-fn applied
 4:10 simplify applied
-4:10 simplify applied
-8:10 simplify applied

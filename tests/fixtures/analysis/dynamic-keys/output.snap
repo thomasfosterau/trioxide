@@ -5,6 +5,8 @@ input_file: tests/fixtures/analysis/dynamic-keys/input.ts
 ---
 //- input.ts
 // Computed keys: written keys that can't be named make an object's contents unknown.
+/** Uses a value without printing it (it depends on `Math.random()`). */
+function sink(..._values) {}
 export function main() {
 	console.log(
 		1
@@ -13,7 +15,10 @@ export function main() {
 	const bag = { a: 1 };
 	const dynamic = Math.random() > .5 ? "a" : "b";
 	bag[dynamic] = 5;
-	const _values = [bag.a];
+	sink(
+		bag.a
+		/*@declared number*/
+	);
 	const list = [
 		1,
 		2,

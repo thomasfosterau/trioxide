@@ -19,8 +19,4 @@ input_file: tests/fixtures/passes/partial-eval/basics/input.ts
 33:13 partial-eval applied
 34:15 partial-eval applied
 35:17 partial-eval applied
-32:7 scalar skipped: a key is called as a method (which passes the object as `this`)
-33:7 scalar skipped: a key is called as a method (which passes the object as `this`)
-34:7 scalar skipped: a closure uses the object
-35:7 scalar skipped: a key is called as a method (which passes the object as `this`)
 39:27 closure-hoist applied

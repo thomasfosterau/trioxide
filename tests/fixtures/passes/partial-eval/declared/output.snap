@@ -9,7 +9,7 @@ input_file: tests/fixtures/passes/partial-eval/declared/input.ts
 export function scale(x) {
 	return x * 2 + 1;
 }
-export const SCALED = 41;
+export const SCALED = scale(20);
 export function main() {
 	console.log(SCALED);
 }

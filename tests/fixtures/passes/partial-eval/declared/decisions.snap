@@ -5,5 +5,3 @@ input_file: tests/fixtures/passes/partial-eval/declared/input.ts
 ---
 //- input.ts
 7:23 partial-eval skipped: the call may run code trioxide doesn't see
-7:23 inline-fn applied
-4:10 simplify applied

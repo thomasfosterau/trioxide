@@ -6,8 +6,7 @@ input_file: tests/fixtures/passes/inline-fn/specialize/input.ts
 //- input.ts
 6:26 inline applied
 13:14 inline applied
-17:9 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-3:34 inline-fn applied
+3:34 params applied
 18:15 inline-fn skipped: `scale` is too big to copy (46 nodes; the budget is 40, or 400 for an only call site)
 18:34 inline-fn skipped: `scale` is too big to copy (46 nodes; the budget is 40, or 400 for an only call site)
 18:56 inline-fn skipped: `scale` is too big to copy (46 nodes; the budget is 40, or 400 for an only call site)

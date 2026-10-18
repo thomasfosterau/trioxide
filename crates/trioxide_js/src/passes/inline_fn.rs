@@ -34,11 +34,16 @@
 //! **Removal.** A function every call of which was inlined goes when it has no other reference,
 //! `callers_complete` is usable-true, and it is neither exported nor an island function.
 //!
-//! **Specialisation** (`passes.specialize`): a parameter every caller passes the same literal
-//! is removed from the signature and from every call, and becomes a `const` at the top of the
-//! body (which pass 1 then inlines), so signatures don't keep dead parameters. This needs
-//! every caller known (`callers_complete`), all of them direct calls in this module, and no
-//! use of `arguments`.
+//! **Specialisation** (`passes.specialize`, the [`Params`] pass, which runs whether or not
+//! inlining does): a parameter every caller passes the same literal is removed from the
+//! signature and from every call, and becomes a `const` at the top of the body, so signatures
+//! don't keep dead parameters. (Pass 1, run earlier in the group, has already folded the
+//! parameter's reads where specialisation allows; the syntactic cleanup drops the `const` when
+//! nothing reads it any more.) This needs every caller known (`callers_complete`), all of them
+//! direct calls in this module, and no use of `arguments`.
+//!
+//! **Off by default** (`passes: { "inline-fn": true }` turns it on): V8's optimising tier
+//! already inlines hot calls, so the measured wins are in code that isn't hot yet.
 
 use oxc_allocator::GetAllocator;
 use oxc_allocator::{Allocator, ArenaVec, CloneIn, TakeIn};
@@ -63,7 +68,7 @@ use trioxide_common::{NodeId, NodeRef};
 
 use super::{
     Comments, Decisions, Position,
-    speed::{ForgetIds, Namer, is_island, rescope},
+    speed::{ForgetIds, Namer, is_island, rescope, unnamed},
     track_position,
     util::{Query, Slot, has_dynamic_scope, is_global_name, live_references, small_enough, weak},
 };
@@ -82,6 +87,12 @@ impl Pass for InlineFn {
         "inline-fn"
     }
 
+    /// Off unless `passes` turns it on: V8's optimising tier already inlines and replaces
+    /// non-escaping objects in hot code, where this pass measured no faster (PLAN §4).
+    fn enabled_by_default(&self) -> bool {
+        false
+    }
+
     fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool {
         let query = Query {
             facts: ctx.facts,
@@ -90,12 +101,7 @@ impl Pass for InlineFn {
         if has_dynamic_scope(program, ctx.scoping()) {
             return false;
         }
-        let mut decisions = Decisions::new(self.name());
-        let mut changed = false;
-        if ctx.specialize && drop_constant_parameters(program, ctx, query, &mut decisions) {
-            *ctx.scoping_mut() = rescope(program);
-            changed = true;
-        }
+        let decisions = Decisions::new(self.name());
         let tagged = super::wasm_tags(program);
         let index = Index::build(
             program,
@@ -106,7 +112,7 @@ impl Pass for InlineFn {
             ctx.allocator,
         );
         if index.callees.is_empty() {
-            return decisions.flush(ctx.log) || changed;
+            return decisions.flush(ctx.log);
         }
         let namer = Namer::new(ctx.scoping());
         let mut visitor = Visitor {
@@ -128,10 +134,37 @@ impl Pass for InlineFn {
         } = visitor;
         if decisions.applied > 0 {
             *ctx.scoping_mut() = rescope(program);
-            remove_inlined(program, ctx, &index, &inlined, &mut decisions);
+            if remove_inlined(program, ctx, &index, &inlined, &mut decisions) {
+                *ctx.scoping_mut() = rescope(program);
+            }
+        }
+        decisions.flush(ctx.log)
+    }
+}
+
+/// Specialisation's parameter removal (`"params"`, PLAN §4 pass 5): with `passes.specialize`, a
+/// parameter every caller passes the same literal leaves the signature and the calls. On by
+/// default, but it does nothing unless specialisation is on; it runs before [`InlineFn`].
+pub struct Params;
+
+impl Pass for Params {
+    fn name(&self) -> &'static str {
+        "params"
+    }
+
+    fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool {
+        if !ctx.specialize || has_dynamic_scope(program, ctx.scoping()) {
+            return false;
+        }
+        let query = Query {
+            facts: ctx.facts,
+            module: ctx.module,
+        };
+        let mut decisions = Decisions::new(self.name());
+        if drop_constant_parameters(program, ctx, query, &mut decisions) {
             *ctx.scoping_mut() = rescope(program);
         }
-        decisions.flush(ctx.log) || changed
+        decisions.flush(ctx.log)
     }
 }
 
@@ -908,6 +941,15 @@ impl<'a> Visitor<'a, '_> {
                 if unit.module != self.query.module || !callee.method {
                     return Err(None);
                 }
+                // The call throws on a nullish receiver; the inlined body might not.
+                let receiver = self.query.usable_ty(member.object.node_id());
+                if !receiver.is_some_and(super::util::never_nullish) {
+                    return Err(Some(format!(
+                        "the receiver of `{}` isn't proven to be an object (the call would \
+                         throw on `null` or `undefined`)",
+                        callee.name
+                    )));
+                }
                 if !self.receiver_copyable(&member.object, scoping, call.node_id()) {
                     return Err(Some(format!(
                         "the receiver of `{}` isn't a name that stays the same or `this`",
@@ -1056,11 +1098,13 @@ impl<'a> Visitor<'a, '_> {
         // evaluates, can go straight into that use: nothing moves past it.
         let callee_info = &self.index.callees[&callee];
         if callee_info.single_return && template.params.rest.is_none() {
+            // Every other parameter must be copied: a local (even of a reassigned parameter)
+            // is assigned before the body, so it would run before the moved argument.
             let locals: Vec<usize> = parameters_plan
                 .iter()
                 .enumerate()
-                .filter(|(_, (_, _, mutable, how))| {
-                    !mutable && matches!(how, How::LocalArgument(_))
+                .filter(|(_, (_, _, _, how))| {
+                    !matches!(how, How::CopyArgument(_) | How::CopyUndefined)
                 })
                 .map(|(index, _)| index)
                 .collect();
@@ -1084,6 +1128,7 @@ impl<'a> Visitor<'a, '_> {
                 if let Some(value) = value
                     && uses(value, symbol, scoping) == 1
                     && first_read(value, scoping) == Some(symbol)
+                    && !parameters_plan[*index].2
                     && let How::LocalArgument(position) = parameters_plan[*index].3
                 {
                     parameters_plan[*index].3 = How::CopyArgument(position);
@@ -1141,9 +1186,13 @@ impl<'a> Visitor<'a, '_> {
             let value = match how {
                 How::CopyArgument(at) => Value::Copy(taken[at].take().expect("present")),
                 How::CopyUndefined => Value::Copy(undefined(call.span, scope, ctx)),
-                How::LocalArgument(at) => {
-                    local(taken[at].take().expect("present"), &mut self.namer)
-                }
+                How::LocalArgument(at) => local(
+                    unnamed(
+                        taken[at].take().expect("present"),
+                        &AstBuilder::new(self.allocator),
+                    ),
+                    &mut self.namer,
+                ),
                 How::LocalUndefined => local(undefined(call.span, scope, ctx), &mut self.namer),
                 How::LocalDefault => {
                     let default = template.params.items[position]
@@ -1314,16 +1363,6 @@ impl<'a> Visitor<'a, '_> {
         let simple = callee.simple_returns;
         let template = callee.template.expect("eligible callees have a template");
         let label_base = callee.name.clone();
-        let complex_var = !simple
-            && mode == Mode::Declare
-            && matches!(&statements[index], Statement::VariableDeclaration(declaration) if declaration.kind == VariableDeclarationKind::Var);
-        if complex_var {
-            self.decisions.skipped(
-                span,
-                "a `var` would keep its old value on paths that don't return",
-            );
-            return 1;
-        }
         let call = match &mut statements[index] {
             Statement::ExpressionStatement(expression) => match &mut expression.expression {
                 Expression::CallExpression(call) => call,
@@ -1404,7 +1443,7 @@ impl<'a> Visitor<'a, '_> {
         }
         // The callee's own locals.
         let body = template.body.as_ref().expect("callees have bodies");
-        for symbol in locals(body, ctx.scoping()) {
+        for symbol in locals(body) {
             let name = ctx.scoping().symbol_name(symbol).to_string();
             renames.insert(symbol, self.namer.fresh(&name, scope, ctx.scoping()));
         }
@@ -1434,7 +1473,7 @@ impl<'a> Visitor<'a, '_> {
             (!simple && mode != Mode::Return).then(|| enclosing_free_label(&label_base, ctx));
         // `x = f()` with several returns goes through a result local, assigned at the end.
         let result = match (mode, &label) {
-            (Mode::Assign, Some(_)) => Some(self.namer.fresh(
+            (Mode::Assign | Mode::Declare, Some(_)) => Some(self.namer.fresh(
                 &format!("{label_base}_result"),
                 scope,
                 ctx.scoping(),
@@ -1499,27 +1538,29 @@ impl<'a> Visitor<'a, '_> {
                     unreachable!("matched above");
                 };
                 let mut declaration = declaration.take_in(&ctx.ast);
-                if label.is_some() {
-                    // `let x;` before the block, which assigns it.
-                    if declaration.kind == VariableDeclarationKind::Const {
-                        declaration.kind = VariableDeclarationKind::Let;
+                let value = if label.is_some() {
+                    // The block assigns a fresh `let`; the declaration stays after it, so the
+                    // binding is in its temporal dead zone while the body runs, as before.
+                    let result = result.clone().expect("a result local");
+                    prefix.push(declare(
+                        VariableDeclarationKind::Let,
+                        &result,
+                        None,
+                        span,
+                        ctx,
+                    ));
+                    if let Some(Some(value)) = final_value {
+                        body_statements.push(assign(&result, value, span, ctx));
                     }
-                    declaration.declarations[0].init = None;
-                    // Only the name: the inlined code that assigns it reuses the call's span,
-                    // which must not count as inside the declaration (DCE would see no use).
-                    let declarator = &mut declaration.declarations[0];
-                    declarator.span = declarator.id.span();
-                    prefix.push(Statement::VariableDeclaration(ctx.alloc(declaration)));
-                    if let (Some(Some(value)), Some(target)) = (final_value, &target) {
-                        body_statements.push(assign(target, value, span, ctx));
-                    }
+                    Expression::new_identifier(span, Ident::from_str_in(&result, ctx), ctx)
                 } else {
-                    declaration.declarations[0].init = Some(match final_value {
+                    match final_value {
                         Some(Some(value)) => value,
                         _ => undefined(span, scope, ctx),
-                    });
-                    suffix.push(Statement::VariableDeclaration(ctx.alloc(declaration)));
-                }
+                    }
+                };
+                declaration.declarations[0].init = Some(value);
+                suffix.push(Statement::VariableDeclaration(ctx.alloc(declaration)));
             }
             Mode::Assign => {
                 let target = target.clone().expect("assignments have a target");
@@ -1694,7 +1735,7 @@ fn set_statement_span(statement: &mut Statement<'_>, span: Span) {
 }
 
 /// The bindings a function body declares (outside nested functions), in order.
-fn locals(body: &oxc_ast::ast::FunctionBody<'_>, scoping: &Scoping) -> Vec<SymbolId> {
+fn locals(body: &oxc_ast::ast::FunctionBody<'_>) -> Vec<SymbolId> {
     struct Collect(Vec<SymbolId>);
     impl<'a> Visit<'a> for Collect {
         fn visit_binding_identifier(&mut self, ident: &oxc_ast::ast::BindingIdentifier<'a>) {
@@ -1703,7 +1744,6 @@ fn locals(body: &oxc_ast::ast::FunctionBody<'_>, scoping: &Scoping) -> Vec<Symbo
             }
         }
     }
-    let _ = scoping;
     let mut collect = Collect(Vec::new());
     collect.visit_function_body(body);
     collect.0
@@ -1916,18 +1956,23 @@ impl<'a> VisitMut<'a> for Rename<'_, 'a> {
 
     fn visit_statement(&mut self, statement: &mut Statement<'a>) {
         walk_mut::walk_statement(self, statement);
-        if let Statement::ReturnStatement(ret) = statement {
+        // In the `return f(…)` form, the callee's returns stay returns.
+        let converts = self
+            .mode
+            .as_ref()
+            .is_some_and(|returns| returns.mode != Mode::Return);
+        if converts && let Statement::ReturnStatement(ret) = statement {
             let span = ret.span;
             let value = ret.argument.take();
-            match self.returned(span, value) {
-                Some(replacement) => *statement = replacement,
-                None => if let Statement::ReturnStatement(_) = statement {},
+            if let Some(replacement) = self.returned(span, value) {
+                *statement = replacement;
             }
         }
     }
 }
 
 /// Removes the functions every call of which was inlined, where nothing else needs them.
+/// Returns whether it removed any.
 #[expect(
     clippy::items_after_statements,
     reason = "visitors used only here, next to their use"
@@ -1938,7 +1983,7 @@ fn remove_inlined<'a>(
     index: &Index<'a>,
     inlined: &FxHashSet<NodeId>,
     decisions: &mut Decisions,
-) {
+) -> bool {
     let references = live_references(program, ctx.scoping());
     let mut remove: FxHashMap<Span, Span> = FxHashMap::default();
     for node in inlined {
@@ -1971,7 +2016,7 @@ fn remove_inlined<'a>(
         remove.insert(statement, callee.statement);
     }
     if remove.is_empty() {
-        return;
+        return false;
     }
     struct Remove<'r> {
         targets: &'r FxHashMap<Span, Span>,
@@ -2009,6 +2054,7 @@ fn remove_inlined<'a>(
     for span in visitor.removed {
         decisions.applied_with(span, "removed: every call was inlined");
     }
+    true
 }
 
 /// The span and binding of the function declaration `node`, if it is still in the program.
@@ -2113,7 +2159,6 @@ fn drop_constant_parameters<'a>(
     let tagged = super::wasm_tags(program);
     // Candidates: function symbol → (function node, removable parameter positions and values).
     struct Candidates<'s, 'q> {
-        scoping: &'s Scoping,
         query: Query<'q>,
         keep: &'s Keep,
         tagged: &'s FxHashSet<u32>,
@@ -2161,7 +2206,6 @@ fn drop_constant_parameters<'a>(
             {
                 return;
             }
-            let _ = self.scoping;
             self.found.push((symbol, node, sites.len()));
         }
     }
@@ -2184,7 +2228,6 @@ fn drop_constant_parameters<'a>(
         }
     }
     let mut candidates = Candidates {
-        scoping,
         query,
         keep: ctx.keep,
         tagged: &tagged,

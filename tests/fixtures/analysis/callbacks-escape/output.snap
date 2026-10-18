@@ -11,9 +11,9 @@ function onValue(value) {
 	);
 }
 export function main() {
-	const handlers_0 = onValue;
+	const handlers = [onValue];
 	// Storing in a local array doesn't leak it...
-	const first = handlers_0;
+	const first = handlers[0];
 	// ...but handing it to an unknown function does.
 	if (typeof register === "function") register(first);
 	queueMicrotask(() => onValue(1));

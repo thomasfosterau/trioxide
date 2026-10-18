@@ -7,7 +7,24 @@ input_file: tests/fixtures/passes/closure-hoist/adversarial/input.ts
 // Closures whose identity can be seen, or that capture something, stay where they are.
 const cache = new WeakMap();
 const keep = [];
+// Private names only parse inside their class.
+class Box {
+	#x;
+	constructor(x) {
+		this.#x = x;
+	}
+	twice(other) {
+		const read = (p) => p.#x;
+		return read(this) + read(other);
+	}
+	sum(items) {
+		let t = 0;
+		for (let i = 0; i < 2; i++) t += items.map((p) => p.#x).length;
+		return t;
+	}
+}
 export function main() {
+	console.log(new Box(1).twice(new Box(2)), new Box(1).sum([new Box(1), new Box(2)]));
 	const results = [];
 	let sum = 0;
 	for (let i = 0; i < 3; i++) {

@@ -9,18 +9,4 @@ input_file: tests/fixtures/passes/checks/adversarial/input.ts
 5:18 fold skipped: the comparison's operands have effects
 34:18 fold skipped: the expression has effects, so it stays
 11:9 dce applied
-17:9 scalar skipped: the literal has accessors or methods
 29:9 closure-hoist skipped: the closure captures `calls`
-42:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-42:27 inline-fn applied
-42:40 inline-fn applied
-42:53 inline-fn skipped: `getterChain` contains a closure (its identity and what it captures would change)
-42:68 inline-fn skipped: `typeofEffects` contains a closure (its identity and what it captures would change)
-43:15 inline-fn applied
-43:34 inline-fn applied
-9:1 inline-fn applied
-37:1 inline-fn applied
-12:10 simplify applied
-12:10 simplify applied
-38:10 simplify applied
-38:10 simplify applied

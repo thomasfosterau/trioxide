@@ -17,5 +17,5 @@ export function bump() {
 	return shared.count;
 }
 export function main() {
-	console.log(6, 42, bump());
+	console.log(scale(2, 3), 42, bump());
 }

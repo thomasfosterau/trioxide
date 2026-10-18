@@ -2,8 +2,9 @@
 
 `pnpm --filter trioxide-benchmarks bench` compiles every case in `cases/` twice (types
 stripped only, and with trioxide's JS passes) and times both versions with tinybench, each in
-a process of its own, with V8's defaults and with `--no-opt`. `bench.mjs` describes the
-options (`TRIOXIDE_BIN`, `CASE`, `BENCH_TIME`).
+a process of its own, over several alternating rounds, with V8's defaults and cold
+(`--no-opt --no-maglev`). A case's `trioxide.json` turns on the passes that are off by default.
+`bench.mjs` describes the options (`TRIOXIDE_BIN`, `CASE`, `ROUNDS`, `BENCH_TIME`).
 
 | Case | Pass (PLAN §4) | Measures |
 |------|----------------|----------|

@@ -75,6 +75,7 @@ impl Pass for ClosureHoist {
             callees: FxHashMap::default(),
             candidates: Vec::new(),
             functions: Vec::new(),
+            owners: Vec::new(),
             loops: 0,
             dead: 0,
             opaque: 0,
@@ -164,6 +165,8 @@ struct Candidate {
     top: usize,
     /// The outermost loop around it in its function.
     anchor: Option<Span>,
+    /// The function it is in (`None`: the module).
+    owner: Option<NodeId>,
     /// Why it can't be, from syntax.
     rejected: Option<String>,
 }
@@ -171,7 +174,7 @@ struct Candidate {
 /// Why the facts or the uses don't allow hoisting.
 fn check(
     candidate: &Candidate,
-    callees: &FxHashMap<ReferenceId, Span>,
+    callees: &FxHashMap<ReferenceId, (Span, Option<NodeId>)>,
     query: Query<'_>,
     scoping: &Scoping,
 ) -> Result<(), String> {
@@ -196,9 +199,15 @@ fn check(
         }
         for reference in scoping.get_resolved_reference_ids(symbol) {
             match callees.get(reference) {
-                Some(span) if span.start >= candidate.span.end => {}
+                // Calls in the same function, after the declaration, run after it; a call in
+                // another function (a hoisted declaration, say) might run first.
+                Some((span, owner))
+                    if *owner == candidate.owner && span.start >= candidate.span.end => {}
                 Some(_) => {
-                    return Err("the closure is called before its declaration".into());
+                    return Err(
+                        "the closure is called before its declaration or from another function"
+                            .into(),
+                    );
                 }
                 None => {
                     return Err(
@@ -249,10 +258,12 @@ struct Find<'s, 'q> {
     keep: &'s crate::Keep,
     tagged: &'s FxHashSet<u32>,
     /// References that are direct callees, with their spans.
-    callees: FxHashMap<ReferenceId, Span>,
+    callees: FxHashMap<ReferenceId, (Span, Option<NodeId>)>,
     candidates: Vec<Candidate>,
     /// Enclosing functions: whether each is an island.
     functions: Vec<bool>,
+    /// The enclosing functions' nodes.
+    owners: Vec<NodeId>,
     loops: usize,
     dead: usize,
     opaque: usize,
@@ -305,6 +316,7 @@ impl<'a> Find<'_, '_> {
             base,
             top: self.top,
             anchor: self.anchor,
+            owner: self.owners.last().copied(),
             rejected: problem,
         });
     }
@@ -378,6 +390,11 @@ impl<'a> Visit<'a> for Captures<'_> {
             AstKind::ThisExpression(_) => "`this`",
             AstKind::Super(_) => "`super`",
             AstKind::NewTarget(_) => "`new.target`",
+            AstKind::PrivateIdentifier(_) => {
+                // A private name only parses inside its class.
+                self.stop("the closure uses a private name, which can't leave its class".into());
+                return;
+            }
             _ => return,
         };
         if self.contextual() || matches!(kind, AstKind::Super(_)) {
@@ -475,10 +492,12 @@ impl<'a> Visit<'a> for Find<'_, '_> {
         let dead = self.query.dead(function.node_id());
         self.dead += usize::from(dead);
         self.functions.push(island);
+        self.owners.push(function.node_id());
         let loops = std::mem::take(&mut self.loops);
         let anchor = self.anchor.take();
         let items = std::mem::take(&mut self.items);
         walk::walk_function(self, function, flags);
+        self.owners.pop();
         self.items = items;
         self.anchor = anchor;
         self.loops = loops;
@@ -492,10 +511,12 @@ impl<'a> Visit<'a> for Find<'_, '_> {
         let dead = self.query.dead(arrow.node_id());
         self.dead += usize::from(dead);
         self.functions.push(island);
+        self.owners.push(arrow.node_id());
         let loops = std::mem::take(&mut self.loops);
         let anchor = self.anchor.take();
         let items = std::mem::take(&mut self.items);
         walk::walk_arrow_function_expression(self, arrow);
+        self.owners.pop();
         self.items = items;
         self.anchor = anchor;
         self.loops = loops;
@@ -530,7 +551,8 @@ impl<'a> Visit<'a> for Find<'_, '_> {
             && let Some(reference) = ident.reference_id.get()
             && !call.optional
         {
-            self.callees.insert(reference, ident.span);
+            self.callees
+                .insert(reference, (ident.span, self.owners.last().copied()));
         }
         if let Some(member) = call.callee.get_member_expr()
             && let Some(method) = member.static_property_name()

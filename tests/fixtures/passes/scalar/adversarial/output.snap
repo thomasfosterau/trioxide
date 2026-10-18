@@ -9,6 +9,13 @@ const seen = new WeakSet();
 const log = [];
 export function main() {
 	for (let i = 0; i < 2; i++) {
+		// Not replaced: the function and class are named after their keys.
+		const named = {
+			f: () => 1,
+			k: class {},
+			x: 2
+		};
+		log.push(`${named.f.name} ${named.k.name} ${2}`);
 		// Replaced: only its keys are read and written.
 		let ok_a = i;
 		ok_a *= 3;

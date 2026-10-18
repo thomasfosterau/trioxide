@@ -33,6 +33,9 @@ export function lengthAssign() {
 	}
 	return sum;
 }
+function shrink(b) {
+	b.length = 0;
+}
 export function aliasShrink() {
 	const a = [
 		1,
@@ -40,7 +43,7 @@ export function aliasShrink() {
 		3
 	];
 	const n = a.length;
-	a.length = 0;
+	shrink(a);
 	let sum = 0;
 	for (let i = 0; i < n; i++) {
 		const v = a[i];

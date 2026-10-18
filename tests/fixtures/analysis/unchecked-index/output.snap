@@ -5,6 +5,9 @@ input_file: tests/fixtures/analysis/unchecked-index/input.ts
 ---
 //- input.ts
 // Index reads past the end give undefined, whatever TypeScript's element type says.
+function at(values, index) {
+	return values[index];
+}
 export function main() {
 	const values = [
 		1,
@@ -16,13 +19,13 @@ export function main() {
 		past
 		/*@proven union*/
 	);
-	const tuple_1 = "a";
+	const tuple = [1, "a"];
 	console.log(
-		tuple_1
+		tuple[1]
 		/*@proven union*/
 	);
 	console.log(
-		values[5]
+		at(values, 5)
 		/*@proven union*/
 	);
 }

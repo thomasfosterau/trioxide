@@ -33,9 +33,3 @@ input_file: tests/fixtures/passes/review/specialize/input.ts
 34:71 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 2:1 dce applied
 33:9 closure-hoist applied
-34:28 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-34:45 inline-fn skipped: the receiver of `length` isn't a name that stays the same or `this`
-34:71 inline-fn applied
-34:83 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-33:17 inline-fn applied
-33:40 simplify applied

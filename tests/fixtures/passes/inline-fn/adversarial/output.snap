@@ -14,6 +14,48 @@ function next(tag) {
 function late(a = next("default"), b = 0) {
 	return a + b;
 }
+// `return f(…)`: the callee's early returns keep their values.
+function sign(n) {
+	if (n < 0) return "negative";
+	if (n === 0) return "zero";
+	order.push("positive");
+	return "positive";
+}
+// Review repros. A reassigned parameter's local must not run before a moved argument.
+function g1() {
+	order.push("g");
+	return 1;
+}
+function h1() {
+	order.push("h");
+	return 2;
+}
+// The declaration's binding stays in its temporal dead zone while the inlined body runs.
+function peek() {
+	try {
+		return String(LATE);
+	} catch (e) {
+		return e.name;
+	}
+}
+let early_result;
+early: {
+	const t_1 = peek();
+	early_result = t_1 + 1;
+}
+const LATE = early_result;
+// An anonymous function argument keeps its empty name.
+function nameOf(callback) {
+	const name = callback.name;
+	return "[" + name + "]";
+}
+// A call on a nullish receiver throws, even when the method doesn't read `this`.
+class Five {
+	five() {
+		return 5;
+	}
+}
+const fives = [undefined, new Five()];
 // What may not be inlined.
 function self() {
 	return this ? this.n : -1;
@@ -32,7 +74,7 @@ function fact(n) {
 	return n <= 1 ? 1 : n * fact(n - 1);
 }
 export function main() {
-	let b, a_1, b_1, a_2, a_3, b_2, a_4, b_3;
+	let b, a_1, b_1, a_2, b_2, a_3, a_4, b_3, a_5, b_4;
 	console.log(12, 5);
 	console.log((b = 102, 2 * b + 1), 7);
 	console.log(late(undefined, next("argument")), order.join(","));
@@ -45,7 +87,7 @@ export function main() {
 	for (const value of values) sum_1 += value;
 	const sum = sum_1;
 	console.log(sum);
-	let at;
+	let find_result_1;
 	find: {
 		const list_1 = [
 			4,
@@ -54,13 +96,14 @@ export function main() {
 		];
 		for (let i_2 = 0; i_2 < list_1.length; i_2++) {
 			if (list_1[i_2] === 6) {
-				at = i_2;
+				find_result_1 = i_2;
 				break find;
 			}
 		}
-		at = -1;
+		find_result_1 = -1;
 	}
-	let missing;
+	const at = find_result_1;
+	let find_result_2;
 	find: {
 		const list_2 = [
 			4,
@@ -69,36 +112,49 @@ export function main() {
 		];
 		for (let i_3 = 0; i_3 < list_2.length; i_3++) {
 			if (list_2[i_3] === 7) {
-				missing = i_3;
+				find_result_2 = i_3;
 				break find;
 			}
 		}
-		missing = -1;
+		find_result_2 = -1;
 	}
+	const missing = find_result_2;
 	console.log(at, missing);
-	let big;
+	console.log(sign(-1), sign(0), sign(1));
+	order.length = 0;
+	const r = (a_1 = g1(), b_1 = h1(), a_1 + (b_1 = b_1 + 1, b_1));
+	console.log(4, order.join(","), LATE, nameOf(() => 1));
+	try {
+		const p = fives[0];
+		console.log(p.five());
+	} catch (e) {
+		console.log("caught", e.name);
+	}
+	let guarded_result;
 	guarded: {
 		try {
-			big = 20;
+			guarded_result = 20;
 			break guarded;
 		} finally {
 			order.push("finally");
 		}
-		big = 0;
+		guarded_result = 0;
 	}
-	let small;
+	const big = guarded_result;
+	let guarded_result_1;
 	guarded: {
 		try {
 			order.push("small");
 		} finally {
 			order.push("finally");
 		}
-		small = 0;
+		guarded_result_1 = 0;
 	}
+	const small = guarded_result_1;
 	console.log(big, small, order.join(","));
-	console.log((a_1 = next("a"), b_1 = next("b"), b_1 - a_1), order.join(","));
+	console.log((a_2 = next("a"), b_2 = next("b"), b_2 - a_2), order.join(","));
 	console.log((next("extra"), 1), order.join(","));
-	console.log((a_4 = next("p"), b_3 = (a_3 = next("q"), b_2 = (a_2 = next("r"), 7 + a_2 * 0), b_2 + a_3 * 0), b_3 + a_4 * 0), order.join(","));
+	console.log((a_5 = next("p"), b_4 = (a_4 = next("q"), b_3 = (a_3 = next("r"), 7 + a_3 * 0), b_3 + a_4 * 0), b_4 + a_5 * 0), order.join(","));
 	{
 		console.log(6, 10);
 	}
@@ -106,18 +162,19 @@ export function main() {
 	console.log(order.includes("generator body"), gen.next().value, order.includes("generator body"));
 	console.log(self(), count(), fact(5), 2, typeof later());
 	outer: for (let i = 0; i < 2; i++) {
-		let found;
+		let find_result;
 		find: {
 			const list = [i];
 			const wanted = i;
 			for (let i_1 = 0; i_1 < list.length; i_1++) {
 				if (list[i_1] === wanted) {
-					found = i_1;
+					find_result = i_1;
 					break find;
 				}
 			}
-			found = -1;
+			find_result = -1;
 		}
+		const found = find_result;
 		if (found === 0) continue outer;
 	}
 }

@@ -19,9 +19,6 @@ input_file: tests/fixtures/passes/dce/basics/input.ts
 33:3 dce applied
 5:1 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
 5:1 dce applied
-34:21 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-34:34 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-34:48 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
 3:1 imports applied
 //- util.ts
 3:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)

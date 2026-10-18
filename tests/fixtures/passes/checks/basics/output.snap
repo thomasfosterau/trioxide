@@ -4,17 +4,30 @@ description: tests/fixtures/passes/checks/basics
 input_file: tests/fixtures/passes/checks/basics/input.ts
 ---
 //- input.ts
+function make(x) {
+	return { x };
+}
+function f(n) {
+	return n + 1;
+}
 function chains() {
-	const p = { x: 1 };
+	const p = make(1);
 	const maybe = Math.random() > 2 ? null : p;
 	// p and f are never nullish; maybe may be null.
 	return [
 		p.x,
-		2,
+		f(1),
 		undefined,
 		maybe?.x
 	];
 }
+function coalesce() {
+	// `??` only replaces null and undefined.
+	return [0, "fallback"];
+}
+function guards(value) {
+	return "number";
+}
 export function main() {
-	console.log(chains(), [0, "fallback"], "number", "number");
+	console.log(chains(), coalesce(), guards(3), guards(4));
 }

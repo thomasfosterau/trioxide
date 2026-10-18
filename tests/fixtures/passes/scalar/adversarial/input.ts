@@ -4,6 +4,9 @@ const log: string[] = [];
 
 export function main(): void {
   for (let i = 0; i < 2; i++) {
+    // Not replaced: the function and class are named after their keys.
+    const named = { f: () => 1, k: class {}, x: 2 };
+    log.push(`${named.f.name} ${named.k.name} ${named.x}`);
     // Replaced: only its keys are read and written.
     const ok = { a: i, b: 2 };
     ok.a *= 3;

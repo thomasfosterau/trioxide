@@ -5,6 +5,15 @@ input_file: tests/fixtures/analysis/review-holes/input.ts
 ---
 //- input.ts
 const map_callback = (x) => x * 2;
+function mapped() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	a.length = 5;
+	return a.map(map_callback);
+}
 function sliced() {
 	const a = new Array(3);
 	a[0] = 1;
@@ -34,12 +43,6 @@ function idx() {
 	return a[2];
 }
 export function main() {
-	const a = [
-		1,
-		2,
-		3
-	];
-	a.length = 5;
-	const m = a.map(map_callback);
+	const m = mapped();
 	console.log(m[4], sliced()[1], found(), idx());
 }

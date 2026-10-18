@@ -4,13 +4,16 @@ description: tests/fixtures/analysis/optional-chaining
 input_file: tests/fixtures/analysis/optional-chaining/input.ts
 ---
 //- input.ts
+function second(node) {
+	return node?.next?.value;
+}
 export function main() {
 	const list = {
 		value: 1,
 		next: { value: 2 }
 	};
-	const value = list?.next?.value;
-	console.log(value, undefined);
+	const value = second(list);
+	console.log(value, second(undefined));
 	const fallback = value ?? -1;
 	console.log(
 		fallback

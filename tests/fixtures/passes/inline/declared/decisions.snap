@@ -9,6 +9,3 @@ input_file: tests/fixtures/passes/inline/declared/input.ts
 10:10 fold skipped: the expression's single value is only Declared (trustTypes is off)
 15:10 fold skipped: the expression's single value is only Declared (trustTypes is off)
 19:26 fold skipped: the expression's single value is only Declared (trustTypes is off)
-19:15 inline-fn applied
-19:26 inline-fn applied
-10:10 simplify applied

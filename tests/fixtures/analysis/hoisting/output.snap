@@ -7,7 +7,7 @@ input_file: tests/fixtures/analysis/hoisting/input.ts
 // Hoisted `var`s are `undefined` before their assignment; functions are callable early.
 export function main() {
 	console.log(
-		"early"
+		early()
 		/*@proven string*/
 	);
 	console.log(
@@ -18,6 +18,9 @@ export function main() {
 		5
 		/*@proven number int*/
 	);
+	function early() {
+		return "early";
+	}
 	let count = 0;
 	const bump = () => {
 		count += 1;

@@ -10,6 +10,9 @@ function castAway() {
 	const value = Math.random() > 2 ? { x: 1 } : null;
 	return value?.x;
 }
+function shadowed(undefined) {
+	return 1 === undefined;
+}
 function getterChain() {
 	let reads = 0;
 	const box = { get inner() {
@@ -32,8 +35,10 @@ function typeofEffects() {
 	// The operand has effects, so the comparison stays.
 	return [typeof f() === "number", calls];
 }
+function unknownValue(input) {
+	return typeof input === "string" ? "string" : "other";
+}
 export function main() {
-	let input;
-	console.log(castAway(), true, false, getterChain(), typeofEffects());
-	console.log("string", (input = JSON.parse("1"), typeof input === "string" ? "string" : "other"));
+	console.log(castAway(), shadowed(1), shadowed(2), getterChain(), typeofEffects());
+	console.log(unknownValue("a"), unknownValue(JSON.parse("1")));
 }

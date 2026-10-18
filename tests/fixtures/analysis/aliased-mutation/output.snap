@@ -5,6 +5,9 @@ input_file: tests/fixtures/analysis/aliased-mutation/input.ts
 ---
 //- input.ts
 // Writes through an alias must reach every reader of the same object.
+function poke(target) {
+	target.x = "poked";
+}
 export function main() {
 	const a = { x: 1 };
 	const b = a;
@@ -14,7 +17,7 @@ export function main() {
 		/*@proven union*/
 	);
 	const c = { x: 1 };
-	c.x = "poked";
+	poke(c);
 	console.log(
 		c.x
 		/*@proven union*/
@@ -42,11 +45,11 @@ export function main() {
 		/*@declared number*/
 	);
 	console.log(8);
-	const box_inner = { v: 1 };
-	const inner = box_inner;
+	const box = { inner: { v: 1 } };
+	const inner = box.inner;
 	inner.v = 2;
 	console.log(
-		box_inner.v
+		box.inner.v
 		/*@proven number int*/
 	);
 }

@@ -16,8 +16,6 @@ src/main.ts
       8:17  in `run`: returns values of different types (or a value on some paths only)
       9:27  in `run`: creates an array literal
       10:22  in `run`: reads `SEEDS`, which is defined outside the function (only module-level constants can be read)
-    passes:
-      inline-fn skipped at 20:22: `run` is too big to copy (69 nodes; the budget is 40, or 400 for an only call site)
 
 src/ease.ts
   ease (5:8): JS
@@ -36,7 +34,6 @@ src/kernel.ts
       cost: crossings 24 + marshalling 0 (0 bytes) + instantiation 300000
     passes:
       applied: inline ×2
-      inline-fn skipped at 15:41: `cellNoise` is a WASM island function (an explicit request stays)
   cellNoise (22:8): WASM in island `kernel`
     why: compiled into the island as a callee (its JS version is kept too)
     cost model: benefit 2752706 − cost 300024 = 2452682 > threshold 0

@@ -20,4 +20,4 @@ bench.add(
 );
 await bench.run();
 const { result } = bench.tasks[0];
-console.log(JSON.stringify({ mean: result.throughput.mean, rme: result.latency.rme, check: module.bench() }));
+console.log(JSON.stringify({ mean: result.throughput.mean, check: module.bench() }));

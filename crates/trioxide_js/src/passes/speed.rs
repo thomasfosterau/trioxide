@@ -10,9 +10,15 @@
 //! declaration's span as the declaration's own (a self-reference), so nodes the passes make
 //! for a binding's uses never get a span inside that binding's declaration.
 
-use oxc_ast::{AstKind, ast::Program};
+use oxc_allocator::ArenaVec;
+use oxc_ast::{
+    AstKind,
+    ast::{Expression, NumberBase, Program},
+    builder::AstBuilder,
+};
 use oxc_ast_visit::Visit;
 use oxc_semantic::Scoping;
+use oxc_span::GetSpan;
 use oxc_syntax::{scope::ScopeId, symbol::SymbolId};
 use rustc_hash::FxHashSet;
 use trioxide_common::{NodeId, NodeRef};
@@ -134,6 +140,20 @@ fn sanitize(text: &str) -> String {
         name.insert(0, '_');
     }
     name
+}
+
+/// `value`, ready to initialise a new binding without taking its name: an anonymous function
+/// or class (`() => 1`) gets the name of the binding it is assigned to (`NamedEvaluation`, even
+/// through parentheses), so it becomes `(0, () => 1)`, which keeps its own empty name.
+pub fn unnamed<'a>(value: Expression<'a>, ast: &AstBuilder<'a>) -> Expression<'a> {
+    if !value.is_anonymous_function_definition() {
+        return value;
+    }
+    let span = value.span();
+    let zero = Expression::new_numeric_literal(span, 0.0, None, NumberBase::Decimal, ast);
+    let sequence =
+        Expression::new_sequence_expression(span, ArenaVec::from_iter_in([zero, value], ast), ast);
+    Expression::new_parenthesized_expression(span, sequence, ast)
 }
 
 /// Whether the function `unit` must stay as written: it is compiled into a WASM island (or

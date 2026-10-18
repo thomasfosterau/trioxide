@@ -30,17 +30,6 @@ input_file: tests/fixtures/passes/checks/basics/input.ts
 21:9 dce applied
 22:9 dce applied
 14:9 closure-hoist applied
-13:13 inline-fn applied
-17:17 inline-fn applied
-41:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
-41:25 inline-fn applied
-41:37 inline-fn applied
-41:48 inline-fn applied
-8:1 inline-fn applied
-14:13 inline-fn applied
-20:1 inline-fn applied
-27:1 inline-fn applied
-14:36 simplify applied
 17:25 simplify applied
 24:11 simplify applied
 24:22 simplify applied

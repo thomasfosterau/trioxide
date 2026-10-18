@@ -22,9 +22,12 @@ function make() {
 	class Derived extends Parent {}
 	return new Derived();
 }
+function useOther() {
+	Parent = Other;
+}
 export function main() {
 	const first = make();
-	Parent = Other;
+	useOther();
 	const second = make();
 	// A key trioxide can't know: the call goes to whatever the objects have under it.
 	const key = process.argv.length > 1e3 ? "toString" : "describe";

@@ -1,1 +1,1 @@
-{ "world": "library", "trustTypes": true }
+{"world": "library", "trustTypes": true, "passes": {"scalar": true}}

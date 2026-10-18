@@ -464,6 +464,19 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
         }
     }
 
+    /// Drops the bindings `statements` declare from the current call's locals.
+    fn forget(&mut self, statements: &[Statement<'_>]) {
+        for statement in statements {
+            if let Statement::VariableDeclaration(declaration) = statement {
+                for declarator in &declaration.declarations {
+                    if let BindingPattern::BindingIdentifier(id) = &declarator.id {
+                        self.frame().remove(&id.symbol_id());
+                    }
+                }
+            }
+        }
+    }
+
     fn allocate(&mut self, object: Object) -> Eval<Value> {
         self.step(1)?;
         self.heap.push(object);
@@ -488,7 +501,13 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                 self.expression(&expression.expression)?;
                 Ok(Completion::Normal)
             }
-            Statement::BlockStatement(block) => self.statements(&block.body),
+            Statement::BlockStatement(block) => {
+                let completion = self.statements(&block.body);
+                // Its bindings end with it (and start afresh each loop iteration), so a read
+                // before the declaration next time round finds nothing, as the engine's TDZ.
+                self.forget(&block.body);
+                completion
+            }
             Statement::VariableDeclaration(declaration) => {
                 self.declaration(declaration)?;
                 Ok(Completion::Normal)
@@ -513,6 +532,12 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             Statement::ForStatement(for_statement) => {
                 match &for_statement.init {
                     Some(ForStatementInit::VariableDeclaration(declaration)) => {
+                        // A binding from an earlier run of this loop is gone (its TDZ is back).
+                        for declarator in &declaration.declarations {
+                            if let BindingPattern::BindingIdentifier(id) = &declarator.id {
+                                self.frame().remove(&id.symbol_id());
+                            }
+                        }
                         self.declaration(declaration)?;
                     }
                     Some(init) => {
@@ -1099,6 +1124,8 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                 "charCodeAt" => {
                     let index = match arguments.first() {
                         None | Some(Value::Undefined) => 0.0,
+                        // ToIntegerOrInfinity: NaN is 0.
+                        Some(Value::Number(index)) if index.is_nan() => 0.0,
                         Some(Value::Number(index)) => index.trunc(),
                         _ => return unsupported("`charCodeAt` with this argument"),
                     };
@@ -1136,6 +1163,9 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
     }
 
     fn get(&mut self, object: &Value, key: &PropertyName) -> Eval<Value> {
+        if matches!(key, PropertyName::Name(name) if name == "__proto__") {
+            return unsupported("`__proto__`");
+        }
         match (object, key) {
             (Value::Object(id), _) => match (&self.heap[*id], key) {
                 (Object::Array(elements), PropertyName::Index(index)) => {
@@ -1167,6 +1197,9 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
     }
 
     fn set(&mut self, object: &Value, key: &PropertyName, value: Value) -> Eval<()> {
+        if matches!(key, PropertyName::Name(name) if name == "__proto__") {
+            return unsupported("`__proto__`");
+        }
         let Value::Object(id) = object else {
             return if matches!(object, Value::Undefined | Value::Null) {
                 Err(Stop::Throws)
@@ -1349,11 +1382,6 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
             text.extend(Self::to_string(right)?.iter());
             return self.string(text);
         }
-        let comparison = |less: bool, equal: bool, greater: bool| -> Option<bool> {
-            let _ = (less, equal, greater);
-            None
-        };
-        let _ = comparison;
         Ok(match operator {
             B::StrictEquality => Value::Boolean(strict_equals(left, right)),
             B::StrictInequality => Value::Boolean(!strict_equals(left, right)),

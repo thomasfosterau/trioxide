@@ -13,5 +13,5 @@ export function main() {
 		x: 1,
 		y: 2
 	};
-	console.log(p.x + p.y, 12);
+	console.log(report(p), 12);
 }

@@ -36,8 +36,11 @@ export function table(n) {
 export function run(n) {
 	let s = 0;
 	for (let i = 0; i < n; i++) {
-		const p_x = i;
-		s += hot$wasm(p_x) * 1;
+		const p = {
+			x: i,
+			y: 1
+		};
+		s += hot$wasm(p.x) * 1;
 	}
 	return s;
 }

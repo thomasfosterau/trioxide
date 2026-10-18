@@ -9,14 +9,38 @@ const map_callback_1 = (x) => Object.is(x, -0) ? "-0" : String(x);
 const map_callback = (s) => s.length;
 // Calls partial evaluation must leave alone (or get exactly right).
 let counter = 0;
+function bumped() {
+	counter++;
+	return counter;
+}
+function random() {
+	return Math.random() < 2 ? 1 : 0;
+}
+function now() {
+	return Date.now() > 0 ? 1 : 0;
+}
+function readsLet() {
+	return counter + 1;
+}
+function throws(n) {
+	if (n > 0) throw new Error("no");
+	return n;
+}
 function forever() {
 	let i = 0;
 	while (true) i++;
+}
+function shared() {
+	const row = [1, 2];
+	return [row, row];
 }
 function big() {
 	const out = [];
 	for (let i = 0; i < 1e3; i++) out.push(i);
 	return out;
+}
+function usesLater() {
+	return AFTER + 1;
 }
 function strings() {
 	return [
@@ -27,6 +51,34 @@ function strings() {
 }
 function lone() {
 	return String.fromCharCode(55296) + "x";
+}
+function loneLiteral() {
+	return "\ud83d";
+}
+function invisible() {
+	return "a​b";
+}
+function slow() {
+	let s = 0;
+	for (let i = 0; i < 1e6; i++) s = (s + i) % 7;
+	return s;
+}
+function loopTdz() {
+	let s = 0;
+	for (let i = 0; i < 3; i++) {
+		if (i > 0) s += y;
+		const y = i;
+	}
+	return s;
+}
+function charCode() {
+	return "A".charCodeAt(NaN);
+}
+function holes() {
+	return new Array(3);
+}
+function transcendental() {
+	return Math.sin(1);
 }
 function exact() {
 	return [
@@ -39,23 +91,21 @@ function exact() {
 		-Infinity
 	];
 }
-counter++;
-const C1 = counter;
-const C2 = Math.random() < 2 ? 1 : 0;
-const C3 = Date.now() > 0 ? 1 : 0;
-const C4 = counter + 1;
+const C1 = bumped();
+const C2 = random();
+const C3 = now();
+const C4 = readsLet();
 let C5 = 0;
 try {
-	throw new Error("no");
+	C5 = throws(1);
 } catch {
 	C5 = -1;
 }
-const row_1 = [1, 2];
-const C6 = [row_1, row_1];
+const C6 = shared();
 const C7 = big().length;
 let C8 = 0;
 try {
-	C8 = AFTER + 1;
+	C8 = usesLater();
 } catch {
 	C8 = -1;
 }
@@ -66,8 +116,8 @@ const C10 = [
 	"é",
 	"quote\"s"
 ];
-const C11 = new Array(3);
-const C12 = Math.sin(1);
+const C11 = holes();
+const C12 = transcendental();
 const C13 = [
 	1.4142135623730951,
 	.10000000149011612,
@@ -79,16 +129,22 @@ const C13 = [
 ];
 const C14 = [
 	"\ud800x",
-	"\ud83d",
-	"a​b"
+	loneLiteral(),
+	invisible()
 ];
-let s_1 = 0;
-for (let i_1 = 0; i_1 < 1e6; i_1++) s_1 = (s_1 + i_1) % 7;
-const C15 = s_1;
+const C15 = slow();
+let C16 = "";
+try {
+	C16 = String(loopTdz());
+} catch (e) {
+	C16 = e.name;
+}
+const C18 = 65;
 export function main() {
 	C6[0][0] = 9;
 	console.log(C1, C2, C3, C4, C5, C6[1][0], C7, C8, C9);
 	console.log(C10.map(map_callback).join(","), C11.length, 0 in C11, C12 > .84);
 	console.log(C13.map(map_callback_1).join(","));
+	console.log(C16, C18);
 	console.log(C14.map(map_callback_2).join(","), C15, typeof forever);
 }

@@ -6,7 +6,3 @@ input_file: tests/fixtures/passes/fold/declared/input.ts
 //- input.ts
 5:10 inline skipped: the binding's single value is only Declared (trustTypes is off)
 5:10 fold skipped: the expression's single value is only Declared (trustTypes is off)
-13:15 inline-fn applied
-13:25 inline-fn applied
-5:10 simplify applied
-9:10 simplify applied

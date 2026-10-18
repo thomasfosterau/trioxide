@@ -16,6 +16,9 @@ const viaArrow = (n) => thrower(n);
 const viaBlockArrow = (n) => {
 	return thrower(n) + 1;
 };
+function viaFunction(n) {
+	return viaArrow(n) * 2;
+}
 const writesArrow = (n) => log += n;
 class Checked {
 	value;
@@ -36,7 +39,7 @@ class Static {
 }
 function guarded(n) {
 	try {
-		return viaArrow(n) * 2;
+		return viaFunction(n);
 	} catch {
 		return -1;
 	}

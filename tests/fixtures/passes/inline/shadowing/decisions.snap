@@ -7,14 +7,6 @@ input_file: tests/fixtures/passes/inline/shadowing/input.ts
 7:11 inline applied
 11:11 inline applied
 3:7 dce applied
-15:15 inline-fn applied
-15:34 inline-fn applied
-15:53 inline-fn applied
-5:1 inline-fn applied
-10:1 inline-fn applied
-7:20 simplify applied
-7:27 simplify applied
-7:35 simplify applied
 7:20 simplify applied
 7:27 simplify applied
 7:35 simplify applied

@@ -4,6 +4,27 @@ description: tests/fixtures/analysis/review-expr-c
 input_file: tests/fixtures/analysis/review-expr-c/input.ts
 ---
 //- input.ts
+// Object.prototype pollution through Object.getPrototypeOf.
+function pollute() {
+	const proto = Object.getPrototypeOf({});
+	proto.extra = "polluted";
+}
+function readExtra() {
+	const o = { a: 1 };
+	const e = o.extra;
+	console.log(e);
+}
+// Non-canonical index strings are not array indices.
+function oddKeys() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const k = a["01"];
+	const p = a["+1"];
+	console.log(k, p);
+}
 // Tagged template strings.
 function tag(strings, ...values) {
 	const first = strings[0];
@@ -31,19 +52,9 @@ function plus(x) {
 	return y;
 }
 export function main() {
-	const proto = Object.getPrototypeOf({});
-	proto.extra = "polluted";
-	const o = { a: 1 };
-	const e = o.extra;
-	console.log(e);
-	const a = [
-		1,
-		2,
-		3
-	];
-	const k = a["01"];
-	const p = a["+1"];
-	console.log(k, p);
+	pollute();
+	readExtra();
+	oddKeys();
 	tag`a${1}b`;
 	console.log(undefined);
 	const b = new Box();

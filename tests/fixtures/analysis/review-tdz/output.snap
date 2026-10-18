@@ -4,14 +4,17 @@ description: tests/fixtures/analysis/review-tdz
 input_file: tests/fixtures/analysis/review-tdz/input.ts
 ---
 //- input.ts
+function early() {
+	return late;
+}
 let result = "none";
 try {
-	late;
+	early();
 	result = "no throw";
 } catch {
 	result = "threw";
 }
 const late = 1;
 export function main() {
-	console.log(result, late);
+	console.log(result, early());
 }

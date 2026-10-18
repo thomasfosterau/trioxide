@@ -373,9 +373,15 @@ import's last value use, the TypeScript strip would elide the whole declaration 
 might not run, so a side-effect `import "…"` is added in its place.
 
 **Speed passes** (S5a). All four only rewrite code in their own module, and leave WASM island
-functions, and code proven never to run, alone.
+functions, and code proven never to run, alone. Inlining (`"inline-fn"`) and scalar
+replacement (`"scalar"`) are **off by default**: V8's optimising tiers already inline and
+scalar-replace hot code, and `benchmarks/passes/` measures them neutral or slower there
+(0.82–1.00×) and faster only in cold code (1.19–3.2× with `--no-opt --no-maglev`). Partial
+evaluation and closure hoisting are on. With `passes.specialize`, the `"params"` pass removes
+parameters every caller passes the same literal, whether or not inlining is on.
 - *Inlining (5)*: calls of the module's function declarations and class methods (a method's
-  receiver, a name that is never reassigned or `this`, stands for `this`) when
+  receiver, a name that is never reassigned or `this` (outside derived-class constructors),
+  proven not nullish, stands for `this`) when
   `site_resolution` is complete with that one callee; up to 40 AST nodes, or 400 for a
   callee's only call site (`callers_complete`). A body that is one `return` becomes an
   expression anywhere (temporaries declared at the top of the enclosing statement list);
@@ -387,13 +393,16 @@ functions, and code proven never to run, alone.
   `super`, `eval`, `with`, labels, `var` or private names, generators, async and recursive
   functions, and callees containing a function or class are not inlined. Every call of a
   function inlined, the declaration goes (not exported, `callers_complete` usable-true). With
-  `passes.specialize`, a parameter every caller (all direct calls in the module, no
-  `arguments`, no defaults) passes the same literal leaves the signature and the calls and
-  becomes a `const` (which pass 1 inlines). Callees in other modules are not inlined: the
-  passes see one module's AST at a time.
+  `passes.specialize`, the `params` pass removes a parameter every caller (all direct calls in
+  the module, no `arguments`, no defaults) passes the same literal from the signature and the
+  calls; it becomes a `const` (pass 1, earlier in the group, has already folded its reads
+  where specialisation allows; the cleanup drops the `const` once unread). Callees in other
+  modules are not inlined: the passes see one module's AST at a time.
 - *Scalar replacement (8)*: needs `escapes = None` and a stable shape for the literal's site,
   `points_to` exactly that site at every key use, literal keys present at creation, and no
-  use of the binding but key reads and writes in its own function (`p.x` → `p_x`).
+  use of the binding but key reads and writes in its own function (`p.x` → `p_x`). A literal
+  that holds an anonymous function or class stays (it is named after its key), and so does
+  one with no facts (made by an earlier pass).
 - *Partial evaluation (11)*: a call in module top-level code of a module function, with
   constant arguments, is interpreted (200,000 steps; numbers, strings, booleans, arrays and
   plain objects it creates, earlier module `const`s, the exactly specified parts of `Math`,
@@ -402,8 +411,9 @@ functions, and code proven never to run, alone.
   of fresh objects with no holes. Anything it doesn't model, a throw or running out of fuel
   leaves the call.
 - *Closure hoisting (12)*: a closure that captures nothing (only module-level and global
-  names; no contextual `this`, `arguments`, `super` or `new.target`) with `escapes = None`,
-  that is either a `const` only ever called after its declaration (it becomes a top-level
+  names; no contextual `this`, `arguments`, `super` or `new.target`; no private names, which
+  only parse inside their class) with `escapes = None`, that is either a `const` only ever
+  called after its declaration, from its own function (it becomes a top-level
   function declaration, which pass 5 may then inline) or a callback argument of a call at
   which only it runs (`xs.map((x) => …)` on a proven array). A callback stays an arrow, in a
   `const` at the top of the module when the module has no imports or re-exports (an import

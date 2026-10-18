@@ -1,18 +1,22 @@
 // Runtime benchmarks of trioxide's JS passes (docs/PLAN.md §8): every case in cases/ is
 // compiled twice, types stripped only (`trioxide strip`) and optimised (`trioxide build
-// --emit=js --no-wasm`), and each version's `bench()` is timed with tinybench in a process of
-// its own (worker.mjs), so one version's JIT state can't skew the other's. A case that exports
-// `measure = "init"` is timed by evaluating the whole module (fresh imports) instead, which is
-// where compile-time partial evaluation pays off.
+// --emit=js --no-wasm`, with the case's trioxide.json, which turns on the passes that are off
+// by default), and each version's `bench()` is timed with tinybench in a process of its own
+// (worker.mjs), so one version's JIT state can't skew the other's. Each engine configuration
+// runs ROUNDS rounds, alternating which version goes first; the table reports the median
+// throughput of each version and the median and range of the per-round speedups.
 //
-// Every case runs under two engine configurations: V8's defaults, whose optimising tier
-// already inlines small functions and replaces non-escaping objects in hot loops, and
-// `--no-opt` (interpreter and baseline compiler only), which is where code runs before it is
-// hot, or when it never gets hot.
+// Engine configurations: V8's defaults, whose optimising tiers already inline small functions
+// and replace non-escaping objects in hot loops, and `--no-opt --no-maglev` (interpreter and
+// baseline compiler only), which is how code runs before it is hot, or when it never gets hot.
+//
+// A case that exports `measure = "init"` is timed by importing the module afresh (a new URL
+// each time), which is where compile-time partial evaluation pays off. That time includes
+// reading and parsing the file, so the optimised version's bigger literal counts against it.
 //
 // Set TRIOXIDE_BIN to use a prebuilt binary; otherwise `cargo build -p trioxide_cli` runs
-// first. CASE filters cases by substring; BENCH_TIME sets the milliseconds per task (default
-// 1000).
+// first. CASE filters cases by substring; ROUNDS (default 5) and BENCH_TIME (milliseconds per
+// sample, default 500) trade time for precision.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -23,10 +27,11 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
 const out = path.join(here, '.out');
-const time = process.env.BENCH_TIME ?? '1000';
+const time = process.env.BENCH_TIME ?? '500';
+const rounds = Number(process.env.ROUNDS ?? 5);
 const engines = [
   { name: 'default', flags: [] },
-  { name: '--no-opt', flags: ['--no-opt'] },
+  { name: 'cold', flags: ['--no-opt', '--no-maglev'] },
 ];
 
 let trioxide = process.env.TRIOXIDE_BIN;
@@ -55,6 +60,12 @@ function time1(flags, entry, mode) {
   return JSON.parse(output);
 }
 
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
 const rows = [];
 for (const name of readdirSync(path.join(here, 'cases')).sort()) {
   if (process.env.CASE && !name.includes(process.env.CASE)) continue;
@@ -63,17 +74,26 @@ for (const name of readdirSync(path.join(here, 'cases')).sort()) {
     ? 'init'
     : 'bench';
   for (const engine of engines) {
-    const before = time1(engine.flags, files.original, mode);
-    const after = time1(engine.flags, files.optimised, mode);
-    assert.equal(after.check, before.check, `${name}: the versions disagree`);
+    const samples = { original: [], optimised: [] };
+    const ratios = [];
+    for (let round = 0; round < rounds; round++) {
+      const order = round % 2 === 0 ? ['original', 'optimised'] : ['optimised', 'original'];
+      const results = {};
+      for (const version of order) {
+        results[version] = time1(engine.flags, files[version], mode);
+        samples[version].push(results[version].mean);
+      }
+      assert.equal(results.optimised.check, results.original.check, `${name}: the versions disagree`);
+      ratios.push(results.optimised.mean / results.original.mean);
+    }
     rows.push({
       case: name,
       engine: engine.name,
       measures: mode === 'init' ? 'module evaluation' : 'bench()',
-      'original (ops/s)': Math.round(before.mean),
-      'optimised (ops/s)': Math.round(after.mean),
-      speedup: `${(after.mean / before.mean).toFixed(2)}×`,
-      'rme %': `${before.rme.toFixed(1)} / ${after.rme.toFixed(1)}`,
+      'original (ops/s)': Math.round(median(samples.original)),
+      'optimised (ops/s)': Math.round(median(samples.optimised)),
+      speedup: `${median(ratios).toFixed(2)}×`,
+      range: `${Math.min(...ratios).toFixed(2)}–${Math.max(...ratios).toFixed(2)}×`,
     });
   }
 }

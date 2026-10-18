@@ -1,1 +1,1 @@
-{ "passes": { "specialize": true } }
+{"passes": {"specialize": true, "inline-fn": true}}

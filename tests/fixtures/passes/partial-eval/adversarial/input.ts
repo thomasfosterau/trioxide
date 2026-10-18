@@ -55,6 +55,17 @@ function slow(): number {
   for (let i = 0; i < 1e6; i++) s = (s + i) % 7;
   return s;
 }
+function loopTdz(): number {
+  let s = 0;
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) s += y;
+    const y = i;
+  }
+  return s;
+}
+function charCode(): number {
+  return "A".charCodeAt(NaN);
+}
 function holes(): number[] {
   return new Array(3);
 }
@@ -91,11 +102,19 @@ const C12 = transcendental();
 const C13 = exact();
 const C14 = [lone(), loneLiteral(), invisible()];
 const C15 = slow();
+let C16 = "";
+try {
+  C16 = String(loopTdz());
+} catch (e) {
+  C16 = (e as Error).name;
+}
+const C18 = charCode();
 
 export function main(): void {
   C6[0][0] = 9;
   console.log(C1, C2, C3, C4, C5, C6[1][0], C7, C8, C9);
   console.log(C10.map((s) => s.length).join(","), C11.length, 0 in C11, C12 > 0.84);
   console.log(C13.map((x) => (Object.is(x, -0) ? "-0" : String(x))).join(","));
+  console.log(C16, C18);
   console.log(C14.map((s) => s.length + ":" + s.charCodeAt(0)).join(","), C15, typeof forever);
 }

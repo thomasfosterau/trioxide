@@ -13,4 +13,3 @@ input_file: tests/fixtures/passes/review/island-fallback/input.ts
 10:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 10:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 4:1 dce skipped: unused, but a WASM island's glue may call it
-16:10 inline-fn skipped: `hot` is a WASM island function (an explicit request stays)

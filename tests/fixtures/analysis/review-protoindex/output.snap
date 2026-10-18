@@ -4,6 +4,10 @@ description: tests/fixtures/analysis/review-protoindex
 input_file: tests/fixtures/analysis/review-protoindex/input.ts
 ---
 //- input.ts
+function patch() {
+	const p = Object.getPrototypeOf(Object.getPrototypeOf([]));
+	p[1] = "hole";
+}
 function read() {
 	const a = [
 		1,
@@ -26,7 +30,6 @@ function inbounds() {
 	return t;
 }
 export function main() {
-	const p = Object.getPrototypeOf(Object.getPrototypeOf([]));
-	p[1] = "hole";
+	patch();
 	console.log(read(), inbounds());
 }

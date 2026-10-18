@@ -25,8 +25,4 @@ input_file: tests/fixtures/passes/inline/constants/input.ts
 22:15 fold applied
 14:7 dce applied
 15:7 dce applied
-27:63 inline-fn applied
-17:1 inline-fn applied
-18:10 simplify applied
-18:10 simplify applied
 //- config.ts

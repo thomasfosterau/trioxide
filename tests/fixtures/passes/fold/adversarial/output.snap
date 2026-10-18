@@ -17,12 +17,40 @@ const coercing = { valueOf() {
 	console.log("valueOf ran");
 	return 2;
 } };
+function getters() {
+	// A getter runs on every read: the read stays.
+	return counter.value + counter.value;
+}
+function primitive() {
+	// `+` runs valueOf.
+	return +coercing * 1;
+}
 function hoisting() {
 	// The branch never runs, but its `var` is visible outside it.
 	if (Math.random() > 2) {
 		var hoisted = 1;
 	}
 	return hoisted;
+}
+function shadowedNames(NaN, Infinity, Math) {
+	// NaN, Infinity and Math are parameters: folds must not lean on the globals.
+	return [
+		0 / 0,
+		1 / 0,
+		-(1 / 0),
+		Math.floor(2.5),
+		NaN,
+		Infinity
+	];
+}
+function negativeZero() {
+	// max(-0, 0) is 0, min(0, -0) is -0.
+	return [
+		Math.max(-0, 0),
+		Math.min(0, -0),
+		Math.max(0, -0),
+		Math.abs(-0)
+	];
 }
 function sideEffects() {
 	let n = 0;
@@ -33,20 +61,7 @@ function sideEffects() {
 	return 5;
 }
 export function main() {
-	let Math_1;
-	console.log(counter.value + counter.value, counter.reads, +coercing * 1, hoisting());
-	console.log((Math_1 = { floor: (x) => x * 10 }, [
-		0 / 0,
-		1 / 0,
-		-Infinity,
-		Math_1.floor(2.5),
-		1,
-		2
-	]));
-	console.log([
-		Math.max(-0, 0),
-		Math.min(0, -0),
-		Math.max(0, -0),
-		Math.abs(-0)
-	].map(map_callback), sideEffects());
+	console.log(getters(), counter.reads, primitive(), hoisting());
+	console.log(shadowedNames(1, 2, { floor: (x) => x * 10 }));
+	console.log(negativeZero().map(map_callback), sideEffects());
 }

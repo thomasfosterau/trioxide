@@ -43,6 +43,10 @@ function viaChain() {
 		return "threw";
 	}
 }
+function viaEval() {
+	// An indirect eval can't see `local`.
+	return (0, eval)("typeof local");
+}
 function viaTypeof() {
 	try {
 		// @ts-ignore
@@ -52,5 +56,5 @@ function viaTypeof() {
 	}
 }
 export function main() {
-	console.log(viaLiteral(), viaConditional(), viaCoalesce(), viaChain(), (0, eval)("typeof local"), viaTypeof());
+	console.log(viaLiteral(), viaConditional(), viaCoalesce(), viaChain(), viaEval(), viaTypeof());
 }

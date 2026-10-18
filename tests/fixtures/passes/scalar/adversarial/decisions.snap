@@ -4,25 +4,27 @@ description: tests/fixtures/passes/scalar/adversarial
 input_file: tests/fixtures/passes/scalar/adversarial/input.ts
 ---
 //- input.ts
-45:9 checks skipped: the left operand's type is only Declared (trustTypes is off)
-58:9 checks applied
-42:16 fold applied
-8:11 scalar applied
-11:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-13:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-15:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-17:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-18:11 scalar skipped: the literal spreads another object
-19:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-21:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-23:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+48:9 checks skipped: the left operand's type is only Declared (trustTypes is off)
+61:9 checks applied
+9:49 fold applied
+45:16 fold applied
+8:11 scalar skipped: a key holds an anonymous function or class (named after the key)
+11:11 scalar applied
+14:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+16:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+18:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+20:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+21:11 scalar skipped: the literal spreads another object
+22:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+24:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
 26:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-28:11 scalar skipped: the literal has accessors or methods
-29:11 scalar skipped: the literal has accessors or methods
-31:11 scalar skipped: the literal has a computed key
-33:11 scalar applied
-34:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
-38:11 scalar skipped: a closure uses the object
-39:11 closure-hoist skipped: the closure captures `viaClosure`
-31:25 simplify applied
-8:11 simplify applied
+29:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+31:11 scalar skipped: the literal has accessors or methods
+32:11 scalar skipped: the literal has accessors or methods
+34:11 scalar skipped: the literal has a computed key
+36:11 scalar applied
+37:11 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+41:11 scalar skipped: a closure uses the object
+42:11 closure-hoist skipped: the closure captures `viaClosure`
+34:25 simplify applied
+11:11 simplify applied

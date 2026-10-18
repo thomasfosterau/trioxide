@@ -20,13 +20,17 @@
 //!
 //! - [`PartialEval`] (`"partial-eval"`, pass 11): top-level calls with constant arguments
 //!   evaluated by a fuel-bounded interpreter and replaced with the literal they return.
-//! - [`Scalar`] (`"scalar"`, pass 8): object and array literals that never leave their
-//!   function become one local per key.
+//! - [`Scalar`] (`"scalar"`, pass 8, off by default): object and array literals that never
+//!   leave their function become one local per key.
 //! - [`ClosureHoist`] (`"closure-hoist"`, pass 12): closures that capture nothing and whose
 //!   identity can't be seen are created once.
-//! - [`InlineFn`] (`"inline-fn"`, pass 5): calls of small or single-call-site functions and
-//!   methods become their bodies; with `passes.specialize`, parameters every caller passes the
-//!   same literal leave the signature.
+//! - [`Params`] (`"params"`): with `passes.specialize`, parameters every caller passes the
+//!   same literal leave the signature and the calls.
+//! - [`InlineFn`] (`"inline-fn"`, pass 5, off by default): calls of small or single-call-site
+//!   functions and methods become their bodies.
+//!
+//! `inline-fn` and `scalar` are off unless `passes` turns them on: V8's optimising tier does
+//! both itself in hot code, so they only measured faster in code that isn't hot yet.
 //!
 //! Then a syntactic cleanup group, run to a fixed point without reading facts:
 //! [`Simplify`] (`"simplify"`) folds what the first group left constant with
@@ -83,7 +87,7 @@ pub use dce::Dce;
 pub use fold::Fold;
 pub use imports::{KeepImports, RecordImports};
 pub use inline::Inline;
-pub use inline_fn::InlineFn;
+pub use inline_fn::{InlineFn, Params};
 pub use partial_eval::PartialEval;
 pub use scalar::Scalar;
 pub use simplify::Simplify;
@@ -138,6 +142,7 @@ pub fn default_groups() -> Vec<PassGroup> {
                 Box::new(PartialEval),
                 Box::new(Scalar),
                 Box::new(ClosureHoist),
+                Box::new(Params),
                 Box::new(InlineFn),
             ],
             fixpoint: false,

@@ -20,15 +20,18 @@
 //! use of one is rejected too (and with all keys set at creation, no key is read before it is
 //! written).
 //!
+//! Off by default (`passes: { "scalar": true }` turns it on): V8's optimising tier already
+//! replaces such objects in hot code, so the measured wins are in code that isn't hot yet.
+//!
 //! The binding is never reassigned (`let` too). The locals are `const` unless a key is
 //! written, and their names are the binding's and the key's (`p_x`), fresh where taken.
 
 use oxc_allocator::{ArenaVec, TakeIn};
 use oxc_ast::ast::{
-    ArrayExpressionElement, AssignmentOperator, AssignmentTarget, BindingPattern,
-    ComputedMemberExpression, Expression, Ident, IdentifierReference, ObjectPropertyKind, Program,
-    PropertyKey, PropertyKind, SimpleAssignmentTarget, Statement, StaticMemberExpression,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    ArrayExpressionElement, AssignmentTarget, BindingPattern, ComputedMemberExpression, Expression,
+    Ident, IdentifierReference, ObjectPropertyKind, Program, PropertyKey, PropertyKind,
+    SimpleAssignmentTarget, Statement, StaticMemberExpression, VariableDeclaration,
+    VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast::builder::AstBuilder;
 use oxc_ast_visit::{Visit, VisitMut, walk, walk_mut};
@@ -52,6 +55,12 @@ pub struct Scalar;
 impl Pass for Scalar {
     fn name(&self) -> &'static str {
         "scalar"
+    }
+
+    /// Off unless `passes` turns it on: V8's optimising tier already inlines and replaces
+    /// non-escaping objects in hot code, where this pass measured no faster (PLAN §4).
+    fn enabled_by_default(&self) -> bool {
+        false
     }
 
     fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool {
@@ -136,7 +145,9 @@ impl Scalar {
         if scoping.symbol_is_mutated(symbol) {
             return Some("the binding is reassigned".into());
         }
-        let site = query.node(candidate.site)?;
+        let Some(site) = query.node(candidate.site) else {
+            return Some("the literal has no facts (an earlier pass made it)".into());
+        };
         let Some(allocation) = query.facts.allocation(site) else {
             return Some("the analysis has no facts about the literal".into());
         };
@@ -212,6 +223,10 @@ fn literal_keys(init: &Expression<'_>) -> Result<Vec<String>, &'static str> {
                 }
                 if keys.contains(&key) {
                     return Err("the literal repeats a key");
+                }
+                if property.value.is_anonymous_function_definition() {
+                    // It is named after its key; a local would give it the local's name.
+                    return Err("a key holds an anonymous function or class (named after the key)");
                 }
                 keys.push(key);
             }
@@ -449,7 +464,6 @@ impl<'a> Visit<'a> for Find<'_, '_> {
                     | AssignmentTarget::PrivateFieldExpression(_)
             )));
         }
-        let _ = AssignmentOperator::Assign;
         self.visit_expression(&assignment.right);
     }
 

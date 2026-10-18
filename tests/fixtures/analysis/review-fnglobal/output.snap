@@ -8,7 +8,10 @@ function patch() {
 	const g = Function("return this")();
 	g.Math.floor = () => "patched";
 }
+function use(x) {
+	return Math.floor(x);
+}
 export function main() {
 	patch();
-	console.log(Math.floor(1.5));
+	console.log(use(1.5));
 }

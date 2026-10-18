@@ -14,9 +14,6 @@ input_file: tests/fixtures/passes/inline/adversarial/input.ts
 42:26 fold skipped: the expression's single value is only Declared (trustTypes is off)
 43:38 fold skipped: the expression's single value is only Declared (trustTypes is off)
 26:16 partial-eval skipped: the call may run code trioxide doesn't see
-29:7 scalar skipped: the literal has accessors or methods
-26:16 inline-fn applied
-18:1 inline-fn applied
 2:1 imports applied
 //- side.ts
 //- cycle-a.ts
