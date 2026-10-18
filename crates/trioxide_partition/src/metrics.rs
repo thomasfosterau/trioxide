@@ -516,19 +516,27 @@ impl Walker<'_, '_> {
     /// Whether the Rust backend computes `expression` as an int32: it is a numeric literal
     /// (folded at compile time), or the analysis proves the value is one, and so every local
     /// it reads (the backend types a local by its binding's range, not by the range at each
-    /// use).
+    /// use). `+`, `-` and `*` run on int32s only when both operands do, so their operands
+    /// must qualify too (`(y * width + x) * 4` is float arithmetic when `y * width` has no
+    /// int32 range, whatever the sum's range).
     fn int32(&self, expression: &Expression<'_>) -> bool {
-        if matches!(
-            expression.get_inner_expression(),
-            Expression::NumericLiteral(_)
-        ) {
+        let inner = expression.get_inner_expression();
+        if matches!(inner, Expression::NumericLiteral(_)) {
             return true;
         }
-        let fact = self
-            .facts
-            .range(self.node(expression.get_inner_expression().node_id()));
+        let fact = self.facts.range(self.node(inner.node_id()));
         if !(self.facts.is_usable(fact.trust) && is_int32(fact.value)) {
             return false;
+        }
+        if let Expression::BinaryExpression(binary) = inner
+            && matches!(
+                binary.operator,
+                BinaryOperator::Addition
+                    | BinaryOperator::Subtraction
+                    | BinaryOperator::Multiplication
+            )
+        {
+            return self.int32(&binary.left) && self.int32(&binary.right);
         }
         let mut locals = Int32Locals {
             walker: self,
