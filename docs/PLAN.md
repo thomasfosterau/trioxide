@@ -396,7 +396,11 @@ read `length` once themselves where the loop facts allow).
   (no `this`/`arguments`/`new.target` of their own, no self-reference, a body that is an
   expression or ends in its only `return`). Fusing interleaves callbacks, so it needs every
   callback free of writes, throws and unknown calls, or exactly one effectful callback that is
-  first (the others reading no mutable state) or last (and unable to reach the array). Hole
+  first (the others reading no mutable state) or last (and unable to reach the array); before a
+  short-circuiting terminal (`some`, `every`, `find`, `findIndex`, `includes`) every stage must
+  be free of effects, since the loop stops early. The result goes to a fresh temporary and the
+  original declaration follows the loop (`const total = result;`), keeping its TDZ and
+  all-or-nothing assignment when a callback throws. Hole
   semantics are kept with an `i in array` guard unless the arrays never have holes and no
   callback can make one; a `map` stage keeps holes, and a chain that would hand one to `find`,
   `findIndex` or `includes` stays. The range is fixed at the start and elements are read per
@@ -406,23 +410,28 @@ read `length` once themselves where the loop facts allow).
 - *`for…of` (7)*: over a plain array with intact builtins it becomes an indexed loop that
   re-reads `length` each step (once, when the loop facts show no resize), declares the head
   binding in the body (per-iteration, any pattern), and keeps labels. `[...a]` and
-  `[...a, ...b]` over arrays that never have holes become `slice`/`concat`. Deviation: `f(...a)`
-  is only written out for tuples (`Declared`, so with `trustTypes`): engines already compile a
-  spread call of a packed array like `apply`, so there is nothing to gain for arrays.
+  `[...a, ...b]` over arrays that never have holes become `slice`/`concat`. When the body
+  declares the array's name the array goes to a temporary in the head. A destructuring head
+  needs elements that are never nullish. Deviation: spread calls (`f(...a)`) stay: engines
+  already compile a spread call of a packed array like `apply`, and tuples can be resized.
 - *LICM (9)*: hoists `LoopFacts::invariant` expressions that read a property or call
   something into the `for` head (`for (let i = 0, itemsLength = items.length; …)`) or a `const`
   before the loop. An invariant of a `for`/`while` test is evaluated by the first test anyway;
-  one in the body moves only if it reads no binding the test reads (which the test could
-  narrow) and calls no program function (termination isn't proven, so a zero-trip loop mustn't
-  start calling it). `a.length` of a binding nothing reassigns, holding only arrays the loop
+  one in the body moves only if it cannot throw (literals, number-typed bindings, arithmetic,
+  unpatched `Math.*`), since a zero-trip loop must not start evaluating it. `a.length` of a
+  binding declared outside the loop that nothing reassigns, holding only arrays the loop
   doesn't resize (complete only without `resizes_untracked`), is hoisted too, since the
-  analysis leaves it out of `invariant` whenever the loop writes an object. Deviation: pure
+  analysis leaves it out of `invariant` whenever the loop writes an object; not in loops that
+  `await` or `yield`, where other code can resize the array. Loops with a `const` head are
+  left alone, and names for a `var` head are fresh in the whole function. Deviation: pure
   arithmetic over locals stays where it is (engines hoist it themselves; naming it costs
   readability).
 - *Hidden-class stabilisation (10)*: for a base class whose shape is `Proven` and whose
-  instances' keys nobody observes (`instance_keys_observed`), properties instances get late or
+  instances' keys nobody observes (`instance_keys_observed`; an observer operand with unknown
+  points-to, or a spread argument to one, counts as observing every class), properties instances get late or
   only on some constructor paths become class fields initialised to `undefined` (unless on the
-  prototype chain, where a field would hide the inherited one), and `delete o.p;` of such an
+  prototype chain, where a field would hide the inherited one), placed before the first own
+  field so no initialiser's write is overwritten, and `delete o.p;` of such an
   instance becomes `o.p = undefined;`. Deviation: array element kinds aren't touched.
 
 **Speed passes** (S5a). All four only rewrite code in their own module, and leave WASM island
