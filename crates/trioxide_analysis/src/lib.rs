@@ -172,7 +172,7 @@ pub fn analyze(
     stats.build_time = build_time;
     stats.summary_time = summarising.elapsed();
     // The tables are large and owe nothing to the caller: free them off its thread.
-    std::thread::spawn(move || drop(results));
+    threads::drop_later(results);
     world.drop_in_parallel(threads);
     Analysis {
         facts,

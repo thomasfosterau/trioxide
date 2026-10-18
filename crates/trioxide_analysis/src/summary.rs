@@ -39,7 +39,8 @@ pub fn facts(
         return facts;
     }
     // The rest doesn't need the node facts: work it out alongside.
-    let shared = crate::threads::Shared((world, results));
+    // SAFETY: the world and the results are only read until the scope below ends.
+    let shared = unsafe { crate::threads::Shared::new((world, results)) };
     let (modules, (graph, effects), (symbols, (allocations, shapes))) =
         std::thread::scope(|scope| {
             let calls = scope.spawn(|| {
@@ -77,10 +78,18 @@ pub fn facts(
     for (symbol, fact) in symbols {
         facts.set_symbol_ty(symbol, fact);
     }
+    // An access two units recorded (a nested unit's, say) is only as trusted as the weaker.
+    let mut in_bounds: FxHashMap<NodeRef, Trust> = FxHashMap::default();
     for output in results.outputs.values() {
         for (&node, &trust) in &output.in_bounds {
-            facts.set_in_bounds(node, trust);
+            in_bounds
+                .entry(node)
+                .and_modify(|old| *old = (*old).min(trust))
+                .or_insert(trust);
         }
+    }
+    for (node, trust) in in_bounds {
+        facts.set_in_bounds(node, trust);
     }
     let summaries: FxHashMap<NodeRef, (Effects, Effects)> = effects.into_iter().collect();
     for (&unit, &(proven, declared)) in &summaries {
@@ -219,7 +228,8 @@ type ModuleFacts = (
 /// recorded (joined where two units recorded the same node), materialized; the facts of its
 /// private locals; and what its units are.
 fn node_types(world: &World<'_>, results: &Results, threads: usize) -> Vec<ModuleFacts> {
-    let shared = crate::threads::Shared((world, results));
+    // SAFETY: the world and the results are only read until `map_ranges` returns.
+    let shared = unsafe { crate::threads::Shared::new((world, results)) };
     crate::threads::map_ranges(world.modules.len(), threads, |range| {
         let (world, results) = shared.get();
         let mut out = Vec::with_capacity(range.len());
@@ -409,7 +419,8 @@ fn usage_facts(
     summaries: &FxHashMap<NodeRef, (Effects, Effects)>,
     threads: usize,
 ) {
-    let shared = crate::threads::Shared((world, results, graph, summaries));
+    // SAFETY: these are only read until `map_ranges` returns.
+    let shared = unsafe { crate::threads::Shared::new((world, results, graph, summaries)) };
     let modules = crate::threads::map_ranges(world.modules.len(), threads, |range| {
         let (world, results, graph, summaries) = shared.get();
         world.modules[range]
@@ -433,7 +444,9 @@ fn usage_facts(
     }
     // Effects first: invariance needs them.
     let invariants = {
-        let shared = crate::threads::Shared((&*facts, world, &volatile, &pending_loops));
+        // SAFETY: these are only read until `map_ranges` returns.
+        let shared =
+            unsafe { crate::threads::Shared::new((&*facts, world, &volatile, &pending_loops)) };
         crate::threads::map_ranges(pending_loops.len(), threads, |range| {
             let (facts, world, volatile, pending_loops) = shared.get();
             pending_loops[range]

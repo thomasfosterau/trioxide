@@ -10,19 +10,16 @@
 //! snapshot, so they run on as many threads as there are; the facts depend on the chunk size,
 //! never on the threads or their timing.
 
-use std::sync::{
-    Mutex,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::Mutex;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_common::NodeRef;
 use trioxide_types::{SharedTypeQueries, Type, TypeOracle};
 
 use super::{
-    Analyzer, ChunkDeps, Dep, Escape, MAX_ROUNDS, Output, Results, SATURATE_AFTER, State, Stats,
-    Types, import_cycles, lexicals, open_modules, patched_builtins,
-    tables::{Op, OpCx, Tables, agrees, entries, install, install_all},
+    Analyzer, ChunkDeps, Dep, Escape, MAX_ROUNDS, Output, Results, State, Stats, Types,
+    import_cycles, lexicals, open_modules, patched_builtins,
+    tables::{Op, OpCx, Slot, SlotChanges, Tables, agrees, entries, install, install_all},
 };
 use crate::{
     AnalysisOptions,
@@ -76,16 +73,24 @@ impl Chunk {
     /// changed that saw something else.
     fn take_dirty(&mut self, changed: &FxHashSet<Dep>, state: &State) -> FxHashSet<NodeRef> {
         let mut dirty = std::mem::take(&mut self.pending);
-        if !changed.is_empty() {
-            for (dep, units) in &self.readers {
-                if !changed.contains(dep) {
-                    continue;
+        let mut visit = |dep: &Dep, units: &Vec<NodeRef>| {
+            let agreed = agrees(&self.last_own, *dep, state);
+            for &unit in units {
+                if !(agreed && self.last_reads.contains(&(*dep, unit))) {
+                    dirty.insert(unit);
                 }
-                let agreed = agrees(&self.last_own, *dep, state);
-                for &unit in units {
-                    if !(agreed && self.last_reads.contains(&(*dep, unit))) {
-                        dirty.insert(unit);
-                    }
+            }
+        };
+        if changed.len() < self.readers.len() {
+            for dep in changed {
+                if let Some(units) = self.readers.get(dep) {
+                    visit(dep, units);
+                }
+            }
+        } else {
+            for (dep, units) in &self.readers {
+                if changed.contains(dep) {
+                    visit(dep, units);
                 }
             }
         }
@@ -102,6 +107,8 @@ struct Swept {
     entries: Vec<Dep>,
     /// Entries its writes changed.
     changed: FxHashSet<Dep>,
+    /// Heap properties they changed.
+    changed_slots: FxHashSet<Slot>,
     stats: Stats,
 }
 
@@ -112,6 +119,7 @@ impl Swept {
             own: State::default(),
             entries: Vec::new(),
             changed: FxHashSet::default(),
+            changed_slots: FxHashSet::default(),
             stats: Stats::default(),
         }
     }
@@ -141,19 +149,47 @@ struct SweepInput<'r, 'a> {
     patched: &'r FxHashSet<String>,
     open_modules: &'r FxHashSet<trioxide_common::ModuleId>,
     lexicals: &'r FxHashMap<NodeRef, Vec<oxc_syntax::symbol::SymbolId>>,
+    instance_fields: &'r FxHashMap<NodeRef, FxHashSet<String>>,
+    optimistic: bool,
     import_cycles: &'r [usize],
     state: &'r State,
-    changed: &'r FxHashSet<Dep>,
-    round: usize,
+    /// How many merges changed each entry so far.
+    changes: &'r FxHashMap<Dep, u32>,
+    slot_changes: &'r SlotChanges,
 }
 
-/// One sweep of one chunk: finds its dirty units and runs them.
-fn sweep_chunk(input: &SweepInput<'_, '_>, chunk: &mut Chunk, mut types: Types<'_>) -> Swept {
-    let dirty = chunk.take_dirty(input.changed, input.state);
+/// Takes every chunk's dirty units for this sweep, and says whether any of them is a unit
+/// its callers have reached: one that may call the functions still waiting for a caller.
+fn take_dirty(
+    chunks: &mut [Chunk],
+    world: &World<'_>,
+    changed: &FxHashSet<Dep>,
+    state: &State,
+) -> (Vec<FxHashSet<NodeRef>>, bool) {
+    let tables = Tables::overlay(state);
+    let dirty: Vec<FxHashSet<NodeRef>> = chunks
+        .iter_mut()
+        .map(|chunk| chunk.take_dirty(changed, state))
+        .collect();
+    let busy = dirty
+        .iter()
+        .flatten()
+        .any(|&unit| !super::uncalled(world, &tables, world.unit(unit)));
+    (dirty, busy)
+}
+
+/// One sweep of one chunk: runs its `dirty` units.
+fn sweep_chunk(
+    input: &SweepInput<'_, '_>,
+    chunk: &mut Chunk,
+    dirty: FxHashSet<NodeRef>,
+    busy: bool,
+    mut types: Types<'_>,
+) -> Swept {
     if dirty.is_empty() {
         return Swept::idle();
     }
-    let ran = run_units(input, chunk, dirty, types.reborrow());
+    let ran = run_units(input, chunk, dirty, busy, types.reborrow());
     chunk.pending = ran.dirty;
     chunk.last_own = ran.own.clone();
     chunk.last_reads.clear();
@@ -172,6 +208,7 @@ fn sweep_chunk(input: &SweepInput<'_, '_>, chunk: &mut Chunk, mut types: Types<'
         own: ran.own,
         entries,
         changed: ran.changed,
+        changed_slots: ran.changed_slots,
         stats: ran.stats,
     }
 }
@@ -182,6 +219,7 @@ struct Ran {
     log: Vec<Op>,
     op_reads: FxHashSet<Dep>,
     changed: FxHashSet<Dep>,
+    changed_slots: FxHashSet<Slot>,
     reads: FxHashMap<Dep, Vec<NodeRef>>,
     dirty: FxHashSet<NodeRef>,
     stats: Stats,
@@ -192,6 +230,7 @@ fn run_units<'w>(
     input: &'w SweepInput<'w, '_>,
     chunk: &'w mut Chunk,
     dirty: FxHashSet<NodeRef>,
+    busy: bool,
     types: Types<'w>,
 ) -> Ran {
     let mut analyzer = Analyzer {
@@ -201,12 +240,16 @@ fn run_units<'w>(
         patched: input.patched,
         open_modules: input.open_modules,
         lexicals: input.lexicals,
+        instance_fields: input.instance_fields,
+        optimistic: input.optimistic,
         import_cycles: input.import_cycles,
-        round: input.round,
+        changes: input.changes,
+        slot_changes: input.slot_changes,
         tables: Tables::overlay(input.state),
         log: Vec::new(),
         op_reads: FxHashSet::default(),
         changed: FxHashSet::default(),
+        changed_slots: FxHashSet::default(),
         output: Output::default(),
         outputs: &mut chunk.outputs,
         deps: std::cell::RefCell::new(ChunkDeps {
@@ -228,9 +271,10 @@ fn run_units<'w>(
             continue;
         }
         let info = input.world.unit(unit);
-        // In the first sweep, a function no caller has reached yet would only run on
-        // `never` arguments, and again once one does: it waits a sweep for its callers.
-        if input.round == 0 && analyzer.uncalled(info) {
+        // A function no caller has reached yet would only run on `never` arguments, and again
+        // once one does: it waits while units that may call it run (their calls in other
+        // chunks are only seen at the merge). With nothing else left to run, it runs as it is.
+        if busy && analyzer.uncalled(info) {
             deferred.push(unit);
             continue;
         }
@@ -244,6 +288,7 @@ fn run_units<'w>(
         log: analyzer.log,
         op_reads: analyzer.op_reads,
         changed: analyzer.changed,
+        changed_slots: analyzer.changed_slots,
         reads: deps.reads,
         dirty: deps.dirty,
         stats: analyzer.stats,
@@ -263,6 +308,8 @@ pub fn run(
     let patched = patched_builtins(world);
     let open_modules = open_modules(world, options);
     let lexicals = lexicals(world);
+    let instance_fields = super::instance_fields(world);
+    let mut optimistic = true;
     let import_cycles = import_cycles(world);
     let size = match options.chunk_units {
         0 => DEFAULT_CHUNK_UNITS,
@@ -277,6 +324,9 @@ pub fn run(
 
     let mut state = State::default();
     let mut changed: FxHashSet<Dep> = FxHashSet::default();
+    let mut changes: FxHashMap<Dep, u32> = FxHashMap::default();
+    let mut slot_changes = SlotChanges::default();
+    let saturate_after = super::saturate_after(options);
     let mut stats = Stats {
         units: world.unit_order.len(),
         chunks: chunks.len(),
@@ -295,20 +345,26 @@ pub fn run(
             patched: &patched,
             open_modules: &open_modules,
             lexicals: &lexicals,
+            instance_fields: &instance_fields,
+            optimistic,
             import_cycles: &import_cycles,
             state: &state,
-            changed: &changed,
-            round,
+            changes: &changes,
+            slot_changes: &slot_changes,
         };
+        let (dirty, busy) = take_dirty(&mut chunks, world, &changed, &state);
         let swept: Vec<Swept> = if shared_types {
             let shared = oracle
                 .shared()
                 .expect("the oracle answered from threads before");
-            sweep_shared(&input, &mut chunks, shared, threads)
+            sweep_shared(&input, &mut chunks, dirty, busy, shared, threads)
         } else {
             chunks
                 .iter_mut()
-                .map(|chunk| sweep_chunk(&input, chunk, Types::Exclusive(&mut *oracle)))
+                .zip(dirty)
+                .map(|(chunk, dirty)| {
+                    sweep_chunk(&input, chunk, dirty, busy, Types::Exclusive(&mut *oracle))
+                })
                 .collect()
         };
         let ran = swept.iter().any(|swept| swept.stats.interpretations > 0);
@@ -316,8 +372,27 @@ pub fn run(
             stats.interpretations += swept.stats.interpretations;
             stats.oracle_queries += swept.stats.oracle_queries;
             stats.oracle_time += swept.stats.oracle_time;
+            saturated += swept.stats.saturated;
         }
         if !ran {
+            if optimistic {
+                // Settled with unwritten fields read as `never`: from here they read as
+                // missing, and the units that read one run again.
+                optimistic = false;
+                let mut again = false;
+                for chunk in &mut chunks {
+                    for (&unit, output) in &chunk.outputs {
+                        if output.optimistic {
+                            chunk.pending.insert(unit);
+                            again = true;
+                        }
+                    }
+                }
+                if again {
+                    changed.clear();
+                    continue;
+                }
+            }
             converged = true;
             break;
         }
@@ -330,13 +405,15 @@ pub fn run(
         let cx = OpCx {
             world,
             links,
-            round,
+            changes: &changes,
+            slot_changes: &slot_changes,
         };
         let mut merged: FxHashSet<Dep> = FxHashSet::with_capacity_and_hasher(
             swept.iter().map(|swept| swept.entries.len()).sum(),
             rustc_hash::FxBuildHasher,
         );
         let mut next_changed: FxHashSet<Dep> = FxHashSet::default();
+        let mut next_slots: FxHashSet<Slot> = FxHashSet::default();
         // When no two chunks share an entry, no chunk replays, so every chunk is fast.
         let mut all_fast = true;
         for swept in &swept {
@@ -350,6 +427,7 @@ pub fn run(
             let mut changes = Vec::with_capacity(swept.len());
             for swept in swept {
                 changes.push(swept.changed);
+                next_slots.extend(swept.changed_slots);
                 owns.push(swept.own);
                 spent.push(swept.log);
             }
@@ -371,6 +449,7 @@ pub fn run(
                 if swept.entries.iter().all(|dep| !merged.contains(dep)) {
                     install(swept.own, &mut global.own);
                     next_changed.extend(swept.changed);
+                    next_slots.extend(swept.changed_slots);
                 } else {
                     for op in &swept.log {
                         global.apply(cx, op);
@@ -378,6 +457,7 @@ pub fn run(
                     merged.extend(global.touched.iter().copied());
                     merged.extend(global.reads.drain(..));
                     next_changed.extend(global.touched.drain(..));
+                    next_slots.extend(global.touched_slots.drain(..));
                 }
                 merged.extend(swept.entries);
                 spent.push(swept.log);
@@ -393,12 +473,13 @@ pub fn run(
         }
         next_changed.extend(global.touched.drain(..));
         global.reads.clear();
-        let saturate_after = match options.saturate_after {
-            0 => SATURATE_AFTER,
-            rounds => rounds,
-        };
-        if round >= saturate_after {
-            give_up_changed(&mut global, cx, &mut next_changed);
+        give_up_changed(&mut global, cx, &mut next_changed, saturate_after);
+        for &dep in &next_changed {
+            *changes.entry(dep).or_default() += 1;
+        }
+        global.touched_slots.clear();
+        for slot in next_slots {
+            slot_changes.count(slot);
         }
         changed = next_changed;
         saturated += global.given_up;
@@ -414,7 +495,7 @@ pub fn run(
         outputs.extend(std::mem::take(&mut chunk.outputs));
     }
     // The bookkeeping is big and done with: free it off this thread.
-    std::thread::spawn(move || drop((spent_logs, chunks)));
+    crate::threads::drop_later((spent_logs, chunks));
     Results {
         state,
         outputs,
@@ -423,14 +504,26 @@ pub fn run(
     }
 }
 
-/// Gives up every entry the merge changed (see [`SATURATE_AFTER`]), in a fixed order, and
-/// the ones that changes, until none is left; what changed goes into `changed`.
-fn give_up_changed(global: &mut Tables<'_>, cx: OpCx<'_, '_>, changed: &mut FxHashSet<Dep>) {
+/// Gives up every entry the merge changed that had changed in `saturate_after` merges before
+/// (see [`SATURATE_AFTER`]), in a fixed order, and the ones that changes that had too, until
+/// none is left; what changed goes into `changed`.
+fn give_up_changed(
+    global: &mut Tables<'_>,
+    cx: OpCx<'_, '_>,
+    changed: &mut FxHashSet<Dep>,
+    saturate_after: u32,
+) {
     let mut done: FxHashSet<Dep> = FxHashSet::default();
     loop {
         let mut pending: Vec<Dep> = changed
             .iter()
-            .filter(|dep| !done.contains(dep))
+            .filter(|dep| {
+                !done.contains(dep)
+                    && cx
+                        .changes
+                        .get(dep)
+                        .is_some_and(|&count| count >= saturate_after)
+            })
             .copied()
             .collect();
         if pending.is_empty() {
@@ -447,75 +540,132 @@ fn give_up_changed(global: &mut Tables<'_>, cx: OpCx<'_, '_>, changed: &mut FxHa
 
 /// Sweeps every chunk on the oracle's workers (at most `threads` of them), returning what
 /// each did, in chunk order.
+///
+/// Each worker holds a checker of its own and sweeps one contiguous run of chunks, in order.
+/// The runs are cut from the chunks' dirty units alone, so which checker answers a chunk's
+/// TypeScript questions, and after which others, never depends on how the threads run (a
+/// checker's answers can depend on what it was asked before).
 fn sweep_shared(
     input: &SweepInput<'_, '_>,
     chunks: &mut [Chunk],
+    dirty: Vec<FxHashSet<NodeRef>>,
+    busy: bool,
     shared: &dyn SharedTypeQueries,
     threads: usize,
 ) -> Vec<Swept> {
     if threads <= 1 || shared.workers() <= 1 || chunks.len() <= 1 {
         return chunks
             .iter_mut()
-            .map(|chunk| sweep_chunk(input, chunk, Types::Shared(shared)))
+            .zip(dirty)
+            .map(|(chunk, dirty)| sweep_chunk(input, chunk, dirty, busy, Types::Shared(shared)))
             .collect();
     }
-    let work: Vec<Mutex<Option<&mut Chunk>>> = chunks
-        .iter_mut()
-        .map(|chunk| Mutex::new(Some(chunk)))
-        .collect();
-    let slots: Vec<Mutex<Option<Swept>>> = work.iter().map(|_| Mutex::new(None)).collect();
-    let workers = threads.min(shared.workers());
-    // Each worker owns a contiguous run of chunks, so a module's queries go to the same
-    // checker every sweep (a checker answers faster about files it has checked); a worker
-    // that runs out takes chunks from the end of the others' runs.
-    let share = work.len().div_ceil(workers);
-    let next: Vec<AtomicUsize> = (0..workers)
-        .map(|worker| AtomicUsize::new(worker * share))
-        .collect();
-    let input = Shared(input);
+    let workers = threads.min(shared.workers()).min(chunks.len());
+    let runs = cut(&dirty, workers);
+    let mut work: Vec<Mutex<Run<'_>>> = Vec::with_capacity(workers);
+    let mut rest = chunks;
+    let mut dirty = dirty.into_iter();
+    for len in runs {
+        let (run, tail) = rest.split_at_mut(len);
+        rest = tail;
+        work.push(Mutex::new(Run {
+            chunks: run,
+            dirty: dirty.by_ref().take(len).collect(),
+            swept: Vec::new(),
+        }));
+    }
+    // SAFETY: the world, the links and the sweep's tables are only read while the workers
+    // run; each worker writes only to its own chunks (behind `work`'s mutexes).
+    let input = unsafe { Shared::new(input) };
     shared.run_workers(&|worker, queries| {
-        if worker >= workers {
+        let Some(run) = work.get(worker) else {
             return;
-        }
-        let input = input.get();
-        let mut sweep = |at: usize| {
-            let Some(chunk) = work[at]
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take()
-            else {
-                return;
-            };
-            let swept = sweep_chunk(input, chunk, Types::Worker(&mut *queries));
-            *slots[at]
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(swept);
         };
-        let end = ((worker + 1) * share).min(work.len());
-        loop {
-            let at = next[worker].fetch_add(1, Ordering::Relaxed);
-            if at >= end {
-                break;
-            }
-            sweep(at);
-        }
-        // Help the others, from the back of their runs.
-        for other in (0..workers).filter(|&other| other != worker) {
-            let end = ((other + 1) * share).min(work.len());
-            for at in (other * share..end).rev() {
-                if next[other].load(Ordering::Relaxed) > at {
-                    break;
-                }
-                sweep(at);
-            }
+        let input = input.get();
+        let mut run = run
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Run {
+            chunks,
+            dirty,
+            swept,
+        } = &mut *run;
+        for (chunk, dirty) in chunks.iter_mut().zip(std::mem::take(dirty)) {
+            swept.push(sweep_chunk(
+                input,
+                chunk,
+                dirty,
+                busy,
+                Types::Worker(&mut *queries),
+            ));
         }
     });
-    slots
-        .into_iter()
-        .map(|slot| {
-            slot.into_inner()
+    work.into_iter()
+        .flat_map(|run| {
+            run.into_inner()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .expect("every chunk was swept")
+                .swept
         })
         .collect()
+}
+
+/// One worker's chunks in a sweep, and what sweeping them did.
+struct Run<'c> {
+    chunks: &'c mut [Chunk],
+    dirty: Vec<FxHashSet<NodeRef>>,
+    swept: Vec<Swept>,
+}
+
+/// The lengths of `workers` contiguous runs of chunks with about as many dirty units each
+/// (every chunk counts one more, for the cost of looking at it).
+fn cut(dirty: &[FxHashSet<NodeRef>], workers: usize) -> Vec<usize> {
+    let weight = |dirty: &FxHashSet<NodeRef>| dirty.len() + 1;
+    let total: usize = dirty.iter().map(weight).sum();
+    let mut runs = Vec::with_capacity(workers);
+    let (mut start, mut sum) = (0, 0);
+    for (at, chunk) in dirty.iter().enumerate() {
+        sum += weight(chunk);
+        let later_runs = workers - runs.len() - 1;
+        let left = dirty.len() - at - 1;
+        // Cut once this run has its share, or when each later run needs what is left.
+        if later_runs > 0 && (left == later_runs || sum * workers >= total * (runs.len() + 1)) {
+            runs.push(at + 1 - start);
+            start = at + 1;
+        }
+    }
+    runs.push(dirty.len() - start);
+    runs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dirty(sizes: &[usize]) -> Vec<FxHashSet<NodeRef>> {
+        let mut next = 0;
+        sizes
+            .iter()
+            .map(|&size| {
+                (0..size)
+                    .map(|_| {
+                        next += 1;
+                        NodeRef {
+                            module: trioxide_common::ModuleId::new(0),
+                            node: oxc_syntax::node::NodeId::from_usize(next),
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn runs_share_the_dirty_units() {
+        assert_eq!(cut(&dirty(&[3, 3, 3, 3]), 2), [2, 2]);
+        assert_eq!(cut(&dirty(&[9, 0, 0, 1, 1, 1]), 2), [1, 5]);
+        // Every run gets a chunk, however the units fall.
+        assert_eq!(cut(&dirty(&[0, 0, 0, 20]), 4), [1, 1, 1, 1]);
+        assert_eq!(cut(&dirty(&[20, 0, 0, 0]), 4), [1, 1, 1, 1]);
+        assert_eq!(cut(&dirty(&[1, 1, 1]), 1), [3]);
+    }
 }

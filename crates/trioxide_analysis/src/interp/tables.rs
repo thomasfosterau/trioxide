@@ -48,12 +48,58 @@ pub enum Op {
     GiveUp(Dep),
 }
 
+/// A property of a heap entry, or its elements (`None`).
+pub type Slot = (AllocId, Option<String>);
+
+/// How many merges changed each heap property and each entry's elements.
+#[derive(Default)]
+pub struct SlotChanges {
+    props: FxHashMap<AllocId, FxHashMap<String, u32>>,
+    elems: FxHashMap<AllocId, u32>,
+}
+
+impl SlotChanges {
+    /// Counts one more merge that changed `slot`.
+    pub fn count(&mut self, (site, key): Slot) {
+        let count = match key {
+            Some(key) => self.props.entry(site).or_default().entry(key).or_default(),
+            None => self.elems.entry(site).or_default(),
+        };
+        *count += 1;
+    }
+}
+
 /// What applying an op needs besides the tables.
 #[derive(Clone, Copy)]
 pub struct OpCx<'w, 'a> {
     pub world: &'w World<'a>,
     pub links: &'w Links,
-    pub round: usize,
+    /// How many merges before this one changed each entry.
+    pub changes: &'w FxHashMap<Dep, u32>,
+    /// The same for each heap property: they widen one by one.
+    pub slot_changes: &'w SlotChanges,
+}
+
+impl OpCx<'_, '_> {
+    /// Whether joins into `dep` widen: it changed in [`WIDEN_AFTER`] merges already.
+    fn widens(&self, dep: Dep) -> bool {
+        self.changes
+            .get(&dep)
+            .is_some_and(|&count| count >= WIDEN_AFTER)
+    }
+
+    /// [`Self::widens`] for property `key` of `site` (its elements if `None`).
+    fn widens_slot(&self, site: AllocId, key: Option<&str>) -> bool {
+        let count = match key {
+            Some(key) => self
+                .slot_changes
+                .props
+                .get(&site)
+                .and_then(|props| props.get(key)),
+            None => self.slot_changes.elems.get(&site),
+        };
+        count.is_some_and(|&count| count >= WIDEN_AFTER)
+    }
 }
 
 /// The tables, possibly as an overlay on a snapshot.
@@ -63,6 +109,8 @@ pub struct Tables<'s> {
     pub own: State,
     /// Entries whose value changed, in order, since last drained.
     pub touched: Vec<Dep>,
+    /// Heap properties (and elements) whose value changed, since last drained.
+    pub touched_slots: Vec<Slot>,
     /// Entries read while applying ops (escaping a namespace reads its exports).
     pub reads: Vec<Dep>,
     /// Entries given up so far.
@@ -76,6 +124,7 @@ impl<'s> Tables<'s> {
             base: None,
             own: state,
             touched: Vec::new(),
+            touched_slots: Vec::new(),
             reads: Vec::new(),
             given_up: 0,
         }
@@ -87,6 +136,7 @@ impl<'s> Tables<'s> {
             base: Some(base),
             own: State::default(),
             touched: Vec::new(),
+            touched_slots: Vec::new(),
             reads: Vec::new(),
             given_up: 0,
         }
@@ -171,7 +221,7 @@ impl<'s> Tables<'s> {
                     base.and_then(|base| base.symbols.get(symbol).cloned())
                         .unwrap_or_else(Val::never)
                 });
-                if join_into(cx.round, slot, value) {
+                if join_into(cx.widens(Dep::Symbol(*symbol)), slot, value) {
                     self.touched.push(Dep::Symbol(*symbol));
                 }
             }
@@ -181,7 +231,7 @@ impl<'s> Tables<'s> {
                     base.and_then(|base| base.returns.get(unit).cloned())
                         .unwrap_or_else(Val::never)
                 });
-                if join_into(cx.round, slot, value) {
+                if join_into(cx.widens(Dep::Return(*unit)), slot, value) {
                     self.touched.push(Dep::Return(*unit));
                 }
             }
@@ -191,7 +241,7 @@ impl<'s> Tables<'s> {
                     base.and_then(|base| base.this.get(unit).cloned())
                         .unwrap_or_else(Val::never)
                 });
-                if join_into(cx.round, slot, value) {
+                if join_into(cx.widens(Dep::This(*unit)), slot, value) {
                     self.touched.push(Dep::This(*unit));
                 }
             }
@@ -206,7 +256,7 @@ impl<'s> Tables<'s> {
                     params.resize_with(index + 1, Val::never);
                     changed = true;
                 }
-                if join_into(cx.round, &mut params[*index], value) || changed {
+                if join_into(cx.widens(Dep::Params(*unit)), &mut params[*index], value) || changed {
                     self.touched.push(Dep::Params(*unit));
                 }
             }
@@ -216,7 +266,7 @@ impl<'s> Tables<'s> {
                     base.and_then(|base| base.supers.get(class).cloned())
                         .unwrap_or_else(Val::never)
                 });
-                if join_into(cx.round, slot, value) {
+                if join_into(cx.widens(Dep::Super(*class)), slot, value) {
                     self.touched.push(Dep::Super(*class));
                     // A class unknown code already reaches exposes its new parent too.
                     let level = self.obj(*class).map_or(Escape::None, |obj| obj.escape);
@@ -237,7 +287,7 @@ impl<'s> Tables<'s> {
                     base.and_then(|base| base.defaults.get(node).cloned())
                         .unwrap_or_else(Val::never)
                 });
-                if join_into(cx.round, slot, value) {
+                if join_into(cx.widens(Dep::Default(*node)), slot, value) {
                     self.touched.push(Dep::Default(*node));
                 }
             }
@@ -262,13 +312,15 @@ impl<'s> Tables<'s> {
                 creating,
             } => self.store_prop(cx, *site, key, value, *creating),
             Op::StoreElem(site, value) => {
+                let widen = cx.widens_slot(*site, None);
                 let Some(obj) = self.obj_mut(*site) else {
                     return;
                 };
-                let changed = join_into(cx.round, &mut obj.elem, value);
+                let changed = join_into(widen, &mut obj.elem, value);
                 let level = obj.escape.max(Escape::Known);
                 if changed {
                     self.touched.push(Dep::Heap(*site));
+                    self.touched_slots.push((*site, None));
                 }
                 self.escape(cx, &value.pts, level);
             }
@@ -330,6 +382,7 @@ impl<'s> Tables<'s> {
         value: &Val,
         creating: bool,
     ) {
+        let widen = cx.widens_slot(site, Some(key));
         let Some(obj) = self.obj_mut(site) else {
             return;
         };
@@ -339,7 +392,8 @@ impl<'s> Tables<'s> {
             changed = true;
         }
         let slot = obj.props.entry(key.to_string()).or_insert_with(Val::never);
-        changed |= join_into(cx.round, slot, value);
+        let joined = join_into(widen, slot, value);
+        changed |= joined;
         // A key the object didn't have when it was made (even if the code that made it adds
         // it, it does so later): its shape changes.
         if !creating && !obj.present.contains(key) && obj.added.insert(key.to_string()) {
@@ -348,6 +402,9 @@ impl<'s> Tables<'s> {
         let level = obj.escape.max(Escape::Known);
         if changed {
             self.touched.push(Dep::Heap(site));
+        }
+        if joined {
+            self.touched_slots.push((site, Some(key.to_string())));
         }
         self.escape(cx, &value.pts, level);
     }
@@ -683,13 +740,14 @@ fn same<T: PartialEq>(own: Option<&T>, global: Option<&T>) -> bool {
     own.is_some() && own == global
 }
 
-/// Joins into a whole-program table entry, noting whether it changed.
-pub fn join_into(round: usize, slot: &mut Val, value: &Val) -> bool {
+/// Joins into a whole-program table entry, widening its numbers if `widen`, and notes whether
+/// it changed.
+pub fn join_into(widen: bool, slot: &mut Val, value: &Val) -> bool {
     if slot == value || (value.ty == Type::Never && value.pts.is_none()) {
         return false;
     }
     let mut joined = slot.join(value);
-    if round >= WIDEN_AFTER {
+    if widen {
         joined.ty = numeric::widen_type(&slot.ty, &joined.ty);
     }
     if joined == *slot {

@@ -63,15 +63,24 @@ const LIB_OBJECTS: [&str; 16] = [
     "Error",
 ];
 
-/// Rounds after which numeric facts in the whole-program tables are widened.
-const WIDEN_AFTER: usize = 3;
+/// Merges an entry of the whole-program tables may change in before its numbers are widened.
+const WIDEN_AFTER: u32 = 3;
 /// Rounds after which the analysis gives up and reports nothing.
 const MAX_ROUNDS: usize = 40;
 
-/// After this many rounds, a whole-program entry that still changes is given up: set to "any
+/// A whole-program entry that changes in more merges than this is given up: set to "any
 /// value" (and its objects to "anything may happen to them"), which nothing can change
-/// further, so the run reaches a (less precise) fixed point.
-const SATURATE_AFTER: usize = 20;
+/// further, so the run reaches a (less precise) fixed point. Counted per entry, like
+/// [`WIDEN_AFTER`], so neither depends on how many sweeps the chunking takes.
+const SATURATE_AFTER: u32 = 20;
+/// [`SATURATE_AFTER`], or what the options say instead.
+fn saturate_after(options: &AnalysisOptions) -> u32 {
+    match options.saturate_after {
+        0 => SATURATE_AFTER,
+        merges => u32::try_from(merges).unwrap_or(u32::MAX),
+    }
+}
+
 /// Loop iterations after which loop-carried numbers are widened.
 const LOOP_WIDEN_AFTER: usize = 2;
 /// Loop iterations after which the loop's environment is abandoned to `Unknown`.
@@ -455,9 +464,14 @@ pub struct Output {
     pub in_bounds: FxHashMap<NodeRef, Trust>,
     /// Per-unit effects and edges.
     pub units: FxHashMap<NodeRef, UnitRecord>,
-    /// Every value the unit's private locals held, over all its runs: the table entry they
-    /// would have, kept with the unit since only it writes and reads them.
+    /// Every value the unit's private locals held in its last run (they never reach the
+    /// shared tables). That run saw the final tables, so it is all they can hold; earlier runs
+    /// on less complete tables don't count.
     pub symbols: FxHashMap<SymbolRef, Val>,
+    /// The last run read a declared instance field before anything wrote it, as `never`:
+    /// another chunk's initialiser may write it in the same sweep, but if nothing ever does,
+    /// the unit runs again once the sweeps settle and reads it as missing.
+    pub optimistic: bool,
     /// Where each of the unit's loops settled in its last run, by loop node: the next run
     /// starts them there.
     loop_heads: FxHashMap<NodeId, Settled>,
@@ -468,6 +482,8 @@ impl Output {
         self.nodes.clear();
         self.in_bounds.clear();
         self.units.clear();
+        self.symbols.clear();
+        self.optimistic = false;
     }
 }
 
@@ -636,6 +652,34 @@ fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
 }
 
 /// Every unit's own lexical bindings.
+/// The instance fields of each class: its own (non-`declare`) field declarations, its
+/// parameter properties and what its constructor assigns.
+fn instance_fields(world: &World<'_>) -> FxHashMap<NodeRef, FxHashSet<String>> {
+    world
+        .classes
+        .iter()
+        .map(|(&class, info)| {
+            let mut fields: FxHashSet<String> = info
+                .class
+                .body
+                .body
+                .iter()
+                .filter_map(|element| match element {
+                    oxc_ast::ast::ClassElement::PropertyDefinition(property)
+                        if !property.r#static && !property.declare =>
+                    {
+                        crate::world::static_key(&property.key, property.computed)
+                    }
+                    _ => None,
+                })
+                .collect();
+            fields.extend(crate::shapes::definite_fields(world, class));
+            fields.extend(crate::shapes::constructor_assigned(world, class));
+            (class, fields)
+        })
+        .collect()
+}
+
 fn lexicals(world: &World<'_>) -> FxHashMap<NodeRef, Vec<SymbolId>> {
     let mut lexicals: FxHashMap<NodeRef, Vec<SymbolId>> = FxHashMap::default();
     for module in &world.modules {
@@ -866,14 +910,18 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub options: &'w AnalysisOptions,
     /// Builtin namespaces whose models are off.
     pub patched: &'w FxHashSet<String>,
-    /// The sweep.
-    pub round: usize,
+    /// How many merges changed each entry so far.
+    changes: &'w FxHashMap<Dep, u32>,
+    /// How many merges changed each heap property so far.
+    slot_changes: &'w tables::SlotChanges,
     tables: tables::Tables<'w>,
     log: Vec<tables::Op>,
     /// Entries the logged writes read (other than the ones they wrote).
     op_reads: FxHashSet<Dep>,
     /// Entries the logged writes changed.
     changed: FxHashSet<Dep>,
+    /// Heap properties they changed.
+    changed_slots: FxHashSet<tables::Slot>,
     /// The current unit's recordings.
     pub output: Output,
     /// Each of the chunk's units' last recordings.
@@ -888,6 +936,11 @@ pub(crate) struct Analyzer<'w, 'a> {
     pub lexicals: &'w FxHashMap<NodeRef, Vec<SymbolId>>,
     /// Each module's strongly connected component of the import graph (by module index).
     pub import_cycles: &'w [usize],
+    /// The instance fields each class declares or its constructor assigns.
+    pub instance_fields: &'w FxHashMap<NodeRef, FxHashSet<String>>,
+    /// Whether a declared instance field nobody has written yet reads as `never`, not as
+    /// missing: true until the sweeps first settle (see [`Output::optimistic`]).
+    pub optimistic: bool,
     stats: Stats,
 }
 
@@ -1251,9 +1304,12 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let cx = tables::OpCx {
             world: self.world,
             links: self.links,
-            round: self.round,
+            changes: self.changes,
+            slot_changes: self.slot_changes,
         };
         self.tables.apply(cx, &op);
+        self.changed_slots
+            .extend(self.tables.touched_slots.drain(..));
         // A write that changed nothing here changes nothing in the merged tables either: they
         // hold at least what this chunk saw. Flag updates depend on the entry, so they always
         // replay.
@@ -1387,11 +1443,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
     /// Whether `unit` is a function that no known caller has called yet and that unknown
     /// code can't call.
     fn uncalled(&self, unit: &Unit<'a>) -> bool {
-        matches!(unit.body, Body::Function(_) | Body::Arrow(_))
-            && self.tables.this(unit.id).is_none()
-            && self.tables.params(unit.id).is_none()
-            && !self.tables.spread_called(unit.id)
-            && !unit_open(self.world, &self.tables, unit)
+        uncalled(self.world, &self.tables, unit)
     }
 
     pub fn is_open(&self, unit: &Unit<'a>) -> bool {
@@ -1896,15 +1948,14 @@ impl Cx<'_, '_, '_> {
         let symbol = self.module.symbol(symbol);
         if private_local(&info, self.unit.id) {
             // Only this unit (and the facts) ever read it.
-            let round = self.an.round;
             let slot = self
                 .an
                 .output
                 .symbols
                 .entry(symbol)
                 .or_insert_with(Val::never);
-            if tables::join_into(round, slot, &value) {
-                self.an.touch(Dep::Symbol(symbol));
+            if slot != &value {
+                *slot = slot.join(&value);
             }
         } else {
             self.an.join_symbol(symbol, &value);
@@ -1917,7 +1968,6 @@ impl Cx<'_, '_, '_> {
         let info = self.module.info(symbol);
         let symbol = self.module.symbol(symbol);
         if private_local(info, self.unit.id) {
-            self.an.read(Dep::Symbol(symbol));
             return self.an.output.symbols.get(&symbol).cloned();
         }
         self.an.symbol_value(symbol).cloned()
@@ -2057,6 +2107,18 @@ pub fn unit_open(world: &World<'_>, view: &impl EscapeView, unit: &Unit<'_>) -> 
             false
         }
     }
+}
+
+/// Whether `unit` is a function (or a class's field initialisers) that no known caller (or
+/// `new`) has reached yet and that unknown code can't call, as `tables` say.
+fn uncalled(world: &World<'_>, tables: &tables::Tables<'_>, unit: &Unit<'_>) -> bool {
+    matches!(
+        unit.body,
+        Body::Function(_) | Body::Arrow(_) | Body::ClassInit(_)
+    ) && tables.this(unit.id).is_none()
+        && tables.params(unit.id).is_none()
+        && !tables.spread_called(unit.id)
+        && !unit_open(world, tables, unit)
 }
 
 /// Whether unknown code may construct the class or reach its instances or prototype.

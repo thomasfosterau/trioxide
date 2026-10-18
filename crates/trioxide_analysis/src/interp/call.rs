@@ -899,6 +899,15 @@ impl<'a> Cx<'_, '_, 'a> {
         site: NodeId,
         trust: Trust,
     ) -> Val {
+        // No value reaches the call (an argument has none yet): it doesn't happen.
+        if args
+            .values
+            .iter()
+            .chain(receiver)
+            .any(super::expr::is_never)
+        {
+            return Val::never();
+        }
         let effects = builtin.effects;
         let declared_only = trust != Trust::Proven;
         if effects.writes_receiver || effects.writes_other {

@@ -627,6 +627,11 @@ fn convert_flags(ty: P<tsrs_checker::Type>) -> TsTypeFlags {
 
 impl SharedTypeQueries for TsrsOracle {
     fn type_at(&self, module: ModuleId, span: Span) -> Option<Type> {
+        // After a panic the checkers may be inconsistent: nothing they say counts until the
+        // rebuild (which the next exclusive use does).
+        if self.shared_panicked.load(Ordering::Relaxed) {
+            return None;
+        }
         let program = self.live.as_ref()?.program;
         let file = program.get_source_file(&self.modules.get(&module)?.path)?;
         let node = self.node_in(file, span)?;
@@ -687,6 +692,10 @@ struct BoundQueries<'q> {
 impl CheckerQueries for BoundQueries<'_> {
     fn type_at(&mut self, module: ModuleId, span: Span) -> Option<Type> {
         let oracle = self.oracle;
+        // As for the shared view: a panic on any worker leaves nothing to trust.
+        if oracle.shared_panicked.load(Ordering::Relaxed) {
+            return None;
+        }
         let program = oracle.live.as_ref()?.program;
         let file = program.get_source_file(&oracle.modules.get(&module)?.path)?;
         let node = oracle.node_in(file, span)?;

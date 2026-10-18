@@ -1865,6 +1865,19 @@ impl<'a> Cx<'_, '_, 'a> {
             }
             return value.join(&self.inherited(site, &obj, key, receiver, node, depth));
         }
+        // A field the class sets up that nothing wrote yet: its initialiser may run in
+        // another chunk of this sweep. Until the sweeps settle, nothing is known yet.
+        if self.an.optimistic
+            && let ObjKind::Instance(class) = obj.kind
+            && self
+                .an
+                .instance_fields
+                .get(&class)
+                .is_some_and(|fields| fields.contains(name))
+        {
+            self.an.output.optimistic = true;
+            return Val::never();
+        }
         self.inherited(site, &obj, key, receiver, node, depth)
     }
 

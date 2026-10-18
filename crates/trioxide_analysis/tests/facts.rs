@@ -1,6 +1,7 @@
 //! Snapshot tests: the facts for every module of every fixture under
 //! `tests/fixtures/analysis/*/input.ts`, in `facts.snap` beside it; and the parallel
-//! interpreter's promise that facts never depend on how many threads ran it.
+//! interpreter's promises that facts never depend on how many threads ran it, nor (but for
+//! TypeScript's answers) on how its units were chunked.
 
 mod common;
 
@@ -64,6 +65,39 @@ fn facts_do_not_depend_on_threads() {
         let one = rendered(&common::load_with(&entry, 2, 1, 1));
         let four = rendered(&common::load_with(&entry, 2, 4, 1));
         assert_eq!(one, four, "{} (giving up)", entry.display());
+    }
+}
+
+/// Precision doesn't depend on how the units are chunked: one unit per chunk finds every fact
+/// the default chunking does, and no other, over every program the tests compile. Only
+/// TypeScript's answers may differ: a checker's answers depend on what it was asked before,
+/// and chunking changes the order of the questions.
+#[test]
+fn facts_do_not_depend_on_chunk_size() {
+    /// The facts the analysis proves itself: lines with a `Declared` answer and no proven one
+    /// are left out, and so are the declared halves of effect summaries.
+    fn proven(text: &str) -> Vec<&str> {
+        text.lines()
+            .filter(|line| !line.contains("@declared") || line.contains("@proven"))
+            .map(|line| line.split(" (declared: ").next().unwrap_or(line))
+            .collect()
+    }
+    for entry in common::corpus() {
+        let default = rendered(&common::load(&entry));
+        let tiny = rendered(&common::load_with(&entry, 1, 0, 0));
+        let (default, tiny) = (proven(&default), proven(&tiny));
+        let differences: Vec<String> = default
+            .iter()
+            .zip(&tiny)
+            .filter(|(a, b)| a != b)
+            .map(|(a, b)| format!("  default: {a}\n  chunks of 1: {b}"))
+            .collect();
+        assert!(
+            differences.is_empty() && default.len() == tiny.len(),
+            "{}:\n{}",
+            entry.display(),
+            differences.join("\n")
+        );
     }
 }
 
