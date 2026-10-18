@@ -33,6 +33,11 @@ From `pnpm explain` and the output in `dist/`:
 - **Closure hoisting (pass 12)**: the callbacks of `alerts` and `hottest` that capture
   nothing (`(r) => \`${r.device}@${r.time}\``, the `sort` comparator, …) are created once, at
   the top of the module.
+- **`for…of` lowering (pass 7)**: `summarise`'s `for (const r of readings)` becomes an indexed
+  loop.
+- **Pipelines (pass 6)**: `hottest`'s final `.map((s) => s.device)` becomes a loop (the
+  `filter`, `sort` and `slice` before it stay builtin calls).
+- **Loop-invariant code motion (pass 9)**: `crc32` reads `bytes.length` once.
 - **Constant inlining and folding (passes 1, 2)**: `dewPoint`'s `a` and `b` constants.
 
 What they don't do, and why (`explain` logs each skip):
@@ -49,17 +54,18 @@ What they don't do, and why (`explain` logs each skip):
 `node ../../benchmarks/bench.mjs programs --filter telemetry`, and the same harness with the
 default passes only: each variant in a process of its own, nine alternating rounds, the
 median time of `run()` and the range of the per-round speedups (Node 22.22, Intel Xeon
-2.1 GHz, 4 cores):
+2.1 GHz, 4 cores; main with S5b's passes, #16):
 
 | build | V8 defaults | cold (`--no-opt --no-maglev`) | fresh module + one `run()` |
 |---|---:|---:|---:|
-| types stripped | 1.03 ms | 10.14 ms | 2.00 ms |
-| trioxide, default passes | 1.02× (0.95–1.39) | 1.05× (0.63–1.20) | 0.99× (0.70–1.13) |
-| trioxide, this config (+ `inline-fn`, `scalar`) | 1.11× (0.99–1.33) | 1.06× (0.85–1.22) | 1.11× (0.88–1.32) |
+| types stripped | 932 µs | 9.24 ms | 1.84 ms |
+| trioxide, default passes | 1.05× (0.80–1.13) | 1.41× (1.34–1.75) | 1.04× (0.79–1.06) |
+| trioxide, this config (+ `inline-fn`, `scalar`) | 1.08× (0.87–1.12) | 1.54× (1.49–1.58) | 1.05× (0.97–1.09) |
 
-About 10% faster with every speed pass on, within the run-to-run noise of this machine for
-the default passes alone. The work is dominated by allocating reading records and by the
-array builtins, which the passes leave alone (pipeline fusion is S5b's, not merged yet).
+Cold code is where the passes pay here: 1.4× with the default passes and 1.5× with every
+speed pass on, since #16's passes landed (before them it was 1.05×). Under
+V8's defaults the gain is within this machine's noise: the work is dominated by allocating
+reading records and by `sort` and string building, which the passes leave alone.
 
 ## Same behaviour either way
 

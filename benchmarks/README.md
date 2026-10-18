@@ -50,87 +50,97 @@ default options (`mode: "auto"`) with the islands the cost model picks, built an
 ## Results
 
 Node 22.22.0 (V8 12.4.254.21), Intel Xeon @ 2.10 GHz × 4 (a shared cloud VM), 16 GiB, Linux
-6.18; Rust 1.99.1; the release `trioxide` binary of this branch (main at `baa82da`, with #6,
-plus this PR, including the refitted cost model). Defaults throughout: five rounds for
-`passes` and `programs`, three for `partition` and `throughput`. Run-to-run noise on this
-machine is heavy-tailed: one process in five or so of the same build runs 20–30% slow, so read
-the ranges, not just the medians, and prefer more rounds (`ROUNDS=11`) for a single decision.
+6.18; Rust 1.99.1; the release `trioxide` binary of this branch at `70d687f` (main at `80ad92a`,
+with #6 and #16, plus this PR, including the refitted cost model). Defaults throughout: five
+rounds for `passes` and `programs`, three for `partition` and `throughput`. Run-to-run noise
+on this machine is heavy-tailed: one process in five or so of the same build runs 20–30% slow,
+so read the ranges, not just the medians, and prefer more rounds (`ROUNDS=11`) for a single
+decision.
 
 ### JS passes
 
 | case | engine | measures | stripped | optimised | speedup (range) |
 |---|---:|---:|---:|---:|---:|
-| `closure-hoist-loop` | default | `bench()` | 1.1 µs | 1.1 µs | 1.06× (0.93–1.29) |
-| `closure-hoist-loop` | cold | `bench()` | 8.5 µs | 6.1 µs | 1.39× (1.22–1.74) |
-| `inline-vector` | default | `bench()` | 5.8 µs | 6.9 µs | 0.85× (0.68–0.86) |
-| `inline-vector` | cold | `bench()` | 177.5 µs | 148.2 µs | 1.19× (1.07–1.45) |
-| `partial-eval-table` | default | module evaluation | 433.4 µs | 148.9 µs | 2.62× (2.24–3.44) |
-| `partial-eval-table` | cold | module evaluation | 517.8 µs | 202.5 µs | 2.20× (1.52–2.63) |
-| `scalar-points` | default | `bench()` | 7.0 µs | 8.3 µs | 0.84× (0.83–0.90) |
-| `scalar-points` | cold | `bench()` | 569.5 µs | 196.3 µs | 2.88× (2.52–3.32) |
+| `array-pipelines` | default | `bench()` | 1.34 ms | 38.6 µs | 33.90× (24.14–37.37) |
+| `array-pipelines` | cold | `bench()` | 1.82 ms | 718.4 µs | 2.59× (2.39–2.62) |
+| `closure-hoist-loop` | default | `bench()` | 1.1 µs | 2.0 µs | 0.60× (0.36–0.84) |
+| `closure-hoist-loop` | cold | `bench()` | 8.9 µs | 10.3 µs | 0.86× (0.75–1.29) |
+| `for-of-loops` | default | `bench()` | 42.8 µs | 36.0 µs | 1.19× (1.10–1.35) |
+| `for-of-loops` | cold | `bench()` | 892.0 µs | 495.2 µs | 1.94× (1.52–3.20) |
+| `hidden-class-objects` | default | `bench()` | 930.6 µs | 199.2 µs | 4.62× (4.30–6.25) |
+| `hidden-class-objects` | cold | `bench()` | 2.80 ms | 1.86 ms | 1.57× (1.46–1.80) |
+| `inline-vector` | default | `bench()` | 5.8 µs | 6.9 µs | 0.87× (0.78–1.06) |
+| `inline-vector` | cold | `bench()` | 176.4 µs | 143.6 µs | 1.23× (1.19–1.26) |
+| `licm-lengths` | default | `bench()` | 61.4 µs | 53.8 µs | 0.89× (0.69–1.36) |
+| `licm-lengths` | cold | `bench()` | 1.02 ms | 686.5 µs | 1.52× (1.39–1.67) |
+| `partial-eval-table` | default | module evaluation | 399.0 µs | 128.6 µs | 3.06× (2.16–3.36) |
+| `partial-eval-table` | cold | module evaluation | 446.9 µs | 201.0 µs | 2.33× (1.85–2.56) |
+| `scalar-points` | default | `bench()` | 7.0 µs | 8.5 µs | 0.84× (0.70–0.87) |
+| `scalar-points` | cold | `bench()` | 621.5 µs | 190.3 µs | 3.13× (3.08–4.41) |
 
-The same picture as S5a measured with tinybench: partial evaluation wins everywhere, closure
-hoisting, inlining and scalar replacement win only in cold code, and inlining and scalar
-replacement are slightly slower in hot code (which is why they are off by default).
+- S5b's passes (#16) win big under V8's defaults where they apply: `array-pipelines` 34×,
+  `hidden-class-objects` 4.6×, `for-of-loops` 1.2×; `licm-lengths` only cold.
+- S5a's passes: partial evaluation wins everywhere; inlining and scalar replacement win only
+  in cold code and are slightly slower hot (which is why they are off by default).
+- `closure-hoist-loop` no longer measures closure hoisting: #16's pipelines pass now turns its
+  4-element `rows[i].map(…)` into a `push` loop first, and that loop is slower than V8's
+  builtin `map` (0.60× hot, 0.86× cold). Reported to S5b: small `map`s may be better left as
+  the builtin, or lowered with a preallocated result.
 
 ### Whole programs
 
 | program | engine | stripped | trioxide | all passes | auto + WASM | islands |
 |---|---:|---:|---:|---:|---:|---:|
-| `array-pipeline` | default | 7.65 ms | 0.95× (0.85–1.04) | 0.96× (0.90–1.13) | 0.95× (0.85–0.99) | — |
-| `array-pipeline` | cold | 11.96 ms | 1.00× (0.95–1.06) | 1.03× (1.03–1.10) | 1.04× (0.74–1.10) | — |
-| `numeric-driver` | default | 2.18 ms | 0.99× (0.98–1.03) | 1.00× (0.66–1.07) | 1.15× (1.11–1.21) | dsp |
-| `numeric-driver` | cold | 33.93 ms | 1.00× (0.73–1.09) | 1.04× (1.03–1.27) | 6.22× (5.00–7.79) | dsp |
-| `object-heavy` | default | 1.58 ms | 1.04× (0.91–1.12) | 0.95× (0.93–1.03) | 0.95× (0.86–1.01) | — |
-| `object-heavy` | cold | 25.96 ms | 0.98× (0.89–0.99) | 1.08× (0.98–1.17) | 1.00× (0.72–1.01) | — |
-| `examples/image-filters` | default | 31.40 ms | 0.87× (0.74–1.02) | 0.98× (0.93–1.01) | 0.99× (0.97–1.02) | — |
-| `examples/image-filters` | cold | 205.29 ms | 0.94× (0.93–1.11) | 0.97× (0.93–1.09) | 0.98× (0.90–1.16) | — |
-| `examples/mixed` | default | 1.25 ms | 1.08× (1.02–1.50) | 1.06× (1.00–1.26) | 1.54× (1.49–1.83) | kernel |
-| `examples/mixed` | cold | 50.34 ms | 1.19× (0.85–1.35) | 0.97× (0.81–1.10) | 6.56× (6.06–7.03) | kernel |
-| `examples/telemetry` | default | 903.4 µs | 1.07× (0.86–1.11) | 1.05× (0.91–1.08) | 1.01× (0.84–1.10) | — |
-| `examples/telemetry` | cold | 9.65 ms | 1.02× (0.91–1.14) | 1.08× (0.99–1.14) | 1.04× (0.97–1.16) | — |
+| `array-pipeline` | default | 7.68 ms | 1.18× (0.81–1.30) | 1.21× (1.13–1.44) | 1.21× (1.15–1.41) | — |
+| `array-pipeline` | cold | 11.64 ms | 1.01× (0.99–1.18) | 1.03× (0.98–1.20) | 1.00× (0.88–1.14) | — |
+| `numeric-driver` | default | 2.16 ms | 1.01× (0.98–1.08) | 0.97× (0.97–1.06) | 1.16× (1.14–1.47) | dsp |
+| `numeric-driver` | cold | 33.12 ms | 1.03× (0.95–1.33) | 1.01× (0.98–1.30) | 6.89× (6.03–8.97) | dsp |
+| `object-heavy` | default | 1.56 ms | 1.00× (0.95–1.14) | 0.91× (0.78–1.15) | 1.03× (0.99–1.10) | — |
+| `object-heavy` | cold | 26.07 ms | 1.08× (1.00–1.17) | 1.12× (0.99–1.34) | 1.06× (1.00–1.08) | — |
+| `examples/image-filters` | default | 32.09 ms | 1.02× (0.94–1.89) | 1.02× (0.69–1.48) | 1.00× (0.99–1.11) | — |
+| `examples/image-filters` | cold | 203.73 ms | 1.02× (0.91–1.03) | 1.18× (1.03–1.28) | 1.09× (0.92–1.28) | — |
+| `examples/mixed` | default | 1.22 ms | 1.01× (0.88–1.04) | 1.02× (0.87–1.03) | 1.52× (1.23–1.64) | kernel |
+| `examples/mixed` | cold | 47.80 ms | 1.01× (0.90–1.06) | 1.02× (0.91–1.05) | 6.66× (6.50–6.85) | kernel |
+| `examples/telemetry` | default | 946.3 µs | 1.07× (1.05–1.13) | 1.08× (0.98–1.29) | 1.07× (1.02–1.11) | — |
+| `examples/telemetry` | cold | 9.41 ms | 1.54× (1.45–1.78) | 1.59× (1.47–1.87) | 1.54× (1.53–1.64) | — |
 
 (`examples/telemetry`'s own config already turns on `inline-fn` and `scalar`, so its
 `trioxide` and `all passes` columns are the same build; its README compares against the
-default passes. `examples/image-filters`' `trioxide` column is the same code as its stripped
-build but for inlined constants, so its 0.87× is this machine's noise.) The variants agree on
-every result in every round.
+default passes.) The variants agree on every result in every round.
 
-- **WASM pays off where the cost model now picks it**: `mixed`'s int32 kernel (1.5× under
-  V8's defaults, 6.6× cold) and `numeric-driver`'s FIR filter (`fir`, 1.15× and 6.2×). With
-  the weights before the refit, `numeric-driver` stayed all JS and `image-filters` moved
-  `boxBlur` into WASM, which is slower (0.79× over eleven rounds; its README has the numbers).
-- **The JS passes don't move these programs** beyond the noise, under either engine. The
-  largest effect is `object-heavy` cold with every pass, 1.08×.
+- **WASM pays off where the cost model picks it**: `mixed`'s int32 kernel (1.5× under V8's
+  defaults, 6.7× cold) and `numeric-driver`'s FIR filter (`fir`, 1.16× and 6.9×). With the
+  weights before the refit, `numeric-driver` stayed all JS and `image-filters` moved `boxBlur`
+  into WASM, which is slower (0.79× over eleven rounds; its README has the numbers).
+- **The JS passes now move `array-pipeline`**: 1.18× with the default passes and 1.21× with
+  every pass under V8's defaults (every round above 1× with every pass on), from #16's
+  pipeline lowering. Cold, it is a tie. `telemetry` gains 1.5× cold. `object-heavy` is within
+  the noise either way.
 
 ### M4: "Benchmarks show speedups on array-pipeline and object-heavy fixtures"
 
-**It does not hold on main today**, for realistic programs. It holds for the synthetic
-single-pass cases (`scalar-points` 2.9× and `inline-vector` 1.2× cold, `partial-eval-table`
-2.2–2.6× everywhere), but `array-pipeline` and `object-heavy` run within ±8% of the stripped
-build in both engines, with the default passes and with every pass. What blocks it, from
-`trioxide explain` on those programs:
+**Half of it holds on main**, now that #16 has landed. The single-pass cases show it
+clearly (`array-pipelines` 34× and `hidden-class-objects` 4.6× under V8's defaults). Of the
+realistic programs, `array-pipeline` is 1.18–1.21× faster under V8's defaults (cold, a tie),
+but `object-heavy` stays within the noise of the stripped build in both engines, with the
+default passes and with every pass. What still limits them, from `trioxide explain`:
 
-1. **Pipeline fusion and `for…of` lowering aren't on main.** They are PLAN §4 passes 6 and 7,
-   S5b's #16, which is still in review; its own cases measure 35× (`array-pipelines`) and
-   6.5× (`hidden-class-objects`) under V8's defaults. `array-pipeline` is exactly the code
-   they target: none of its chains changes today. This suite picks up #16's cases and passes
-   automatically once it merges; rerun it then.
-2. **Closure hoisting refuses most callbacks in real modules.** In `array-pipeline/report.ts`
-   every capture-free callback is skipped with "it isn't in a loop, and a module-level
-   constant could be read before it exists through an import cycle": a module that imports
-   anything may only hoist into a loop's enclosing function, whether or not an import cycle
-   exists. (Here `report.ts` imports a constant from `orders.ts`, which imports nothing.)
-   Checking the analysis's actual import cycles would let them move (S5a).
-3. **Inlining and scalar replacement are off by default, and do little to class-based code.**
-   In `object-heavy` the `Vec2` temporaries are class instances (`new Vec2(…)`), which scalar
-   replacement doesn't take (object literals only), and method calls on member receivers
-   (`p.velocity.add(…)`) aren't inlined (the receiver must be a never-reassigned name or
-   `this`). With both passes on, one call in `step` and one call and one literal in `bounce`
-   change.
-4. **V8 already does the rest in hot code.** Where the passes do fire, the optimising tiers
-   reach the same code; the gains are in cold code (`closure-hoist-loop` 1.39×,
-   `scalar-points` 2.9× cold, both neutral or slower hot).
+1. **`object-heavy`'s objects are class instances.** Its `Vec2` temporaries come from
+   `new Vec2(…)`, which scalar replacement doesn't take (object literals only); hidden-class
+   stabilisation doesn't fire on them. Method calls on member receivers (`p.velocity.add(…)`)
+   aren't inlined (the receiver must be a never-reassigned name or `this`). `for…of` lowers
+   its four loops, and with every pass on `inline-fn` and `scalar` change two calls and one
+   literal; V8 already optimises the rest.
+2. **`array-pipeline`'s chains are partly lowered.** `revenue`, `revenueByCategory`,
+   `bigSpenders` and `quantityHistogram` each get a loop; `bigSpenders`'s
+   `totals.map(…).filter(…).sort(…)` stays because `totals` (`new Array(500).fill(0)`) is only
+   Declared, and `stats`' reductions aren't touched.
+3. **Closure hoisting refuses capture-free callbacks outside loops in modules with a runtime
+   import**, whether or not an import cycle exists: in `array-pipeline/report.ts` (which
+   imports a constant from `orders.ts`, which imports nothing) most of them stay. Checking
+   the analysis's actual import cycles would let them move (S5a).
+4. **V8 already does much of the rest in hot code**, as the cold/default split of S5a's cases
+   shows.
 
 ### Compiler throughput
 
@@ -141,15 +151,15 @@ modules), median of three runs:
 
 | corpus | modules | wall time | peak RSS |
 |---|---:|---:|---:|
-| conformance/heap-js | 3 | 57.01 ms (56.66 ms–79.12 ms) | 37 MiB (37–37) |
-| conformance/mitt | 2 | 40.01 ms (38.20 ms–48.11 ms) | 32 MiB (32–32) |
-| conformance/neverthrow | 6 | 59.93 ms (59.52 ms–71.19 ms) | 40 MiB (40–40) |
-| conformance/simplex-noise | 2 | 44.23 ms (43.06 ms–44.39 ms) | 33 MiB (33–33) |
-| analysis bench corpus (1940 modules) | 1940 | 1.56 s (1.19 s–1.98 s) | 282 MiB (279–283) |
+| conformance/heap-js | 3 | 61.82 ms (61.00 ms–67.02 ms) | 37 MiB (37–37) |
+| conformance/mitt | 2 | 47.71 ms (42.18 ms–53.69 ms) | 32 MiB (32–32) |
+| conformance/neverthrow | 6 | 63.98 ms (63.45 ms–90.79 ms) | 40 MiB (40–40) |
+| conformance/simplex-noise | 2 | 40.98 ms (39.17 ms–53.46 ms) | 33 MiB (33–33) |
+| analysis bench corpus (1940 modules) | 1940 | 1.71 s (1.50 s–1.84 s) | 283 MiB (282–284) |
 
 This is the baseline. A whole build of the 1940-module corpus (graph, tsrs program, analysis,
-partitioning, passes and codegen of every module) takes about 1.6 s and 280 MiB with #6's
-parallel analysis (before #6 it was 2.2 s and 220 MiB on the same corpus); S2's
+partitioning, passes and codegen of every module) takes about 1.7 s and 280 MiB with #6's
+parallel analysis and #16's passes (before #6 it was 2.2 s and 220 MiB on the same corpus); S2's
 analysis-only benchmark measured 770–800 ms of sequential analysis on 1820 of these modules.
 The conformance libraries build in 40–60 ms each, most of it fixed start-up (loading tsrs's
 `lib.d.ts`).

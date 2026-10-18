@@ -31,8 +31,8 @@ bytes, which `fit.mjs` fits the weights to.
 
 ## Results
 
-Measured on `main` at `baa82da` (after #15–#19 and #6) with this branch's metrics fixes and
-refitted weights, Node 22.22.0 (V8 12.4), Intel Xeon @ 2.10 GHz × 4, islands built by the
+Measured on `main` at `80ad92a` (after #15–#19, #6 and #16) with this branch's metrics fixes
+and refitted weights, Node 22.22.0 (V8 12.4), Intel Xeon @ 2.10 GHz × 4, islands built by the
 Rust 1.99.1 backend at `opt-level = 3` without `wasm-opt`. Times are per `run()`, the median of
 three alternating rounds; "faster" is the steady-state winner, and within 5% counts as a tie
 (either pick is right). S8's numbers, from before the analysis proved most loop counters
@@ -40,23 +40,23 @@ int32, are in git history.
 
 | kernel | JS | WASM | faster | model picks | benefit − cost | agrees |
 |---|---|---|---|---|---|---|
-| collatz | 8.78 ms | 16.42 ms | JS ×1.87 | JS | -8073804 | yes |
-| gamma | 1.08 ms | 1.94 ms | JS ×1.80 | JS | -208780 | yes |
-| histogram | 273.9 µs | 3.22 ms | JS ×11.76 | JS | -3248056 | yes |
-| image-filters | 6.06 ms | 22.59 ms | JS ×3.73 | JS | -17027670 | yes |
-| int-hash | 10.35 ms | 4.60 ms | WASM ×2.25 | WASM | 6524387 | yes |
-| mandelbrot | 4.15 ms | 4.25 ms | JS ×1.02 (tie) | JS | -432626 | yes |
-| matmul | 1.41 ms | 973.7 µs | WASM ×1.44 | WASM | 28291 | yes |
-| noise | 8.51 ms | 9.36 ms | JS ×1.10 | JS | -894560 | yes |
-| number-reduction | 33.5 µs | 101.9 µs | JS ×3.04 | JS | -304023 | yes |
-| per-element | 192.9 µs | 990.9 µs | JS ×5.14 | JS | -1619860 | yes |
-| rounding | 4.40 ms | 2.09 ms | WASM ×2.10 | JS | -177913 | **no** |
-| sdf | 440.1 µs | 612.4 µs | JS ×1.39 | JS | -299229 | yes |
-| small-arrays | 116.9 µs | 2.15 ms | JS ×18.41 | JS | -2453200 | yes |
-| small-helpers | 1.6 µs | 17.1 µs | JS ×10.94 | JS | -313201 | yes |
-| stencil | 101.3 µs | 156.6 µs | JS ×1.55 | JS | -369444 | yes |
-| tile-digest | 1.02 ms | 632.4 µs | WASM ×1.61 | WASM | 88701 | yes |
-| transcendental | 2.91 ms | 3.16 ms | JS ×1.09 | JS | -272033 | yes |
+| collatz | 8.79 ms | 16.49 ms | JS ×1.87 | JS | -8073804 | yes |
+| gamma | 1.08 ms | 1.88 ms | JS ×1.74 | JS | -208780 | yes |
+| histogram | 248.5 µs | 3.45 ms | JS ×13.88 | JS | -3248056 | yes |
+| image-filters | 5.11 ms | 22.45 ms | JS ×4.40 | JS | -17027670 | yes |
+| int-hash | 10.26 ms | 4.56 ms | WASM ×2.25 | WASM | 6524387 | yes |
+| mandelbrot | 4.09 ms | 4.03 ms | WASM ×1.01 (tie) | JS | -432626 | yes |
+| matmul | 1.36 ms | 978.9 µs | WASM ×1.39 | WASM | 28291 | yes |
+| noise | 8.16 ms | 9.34 ms | JS ×1.14 | JS | -894560 | yes |
+| number-reduction | 32.1 µs | 101.7 µs | JS ×3.17 | JS | -304023 | yes |
+| per-element | 197.9 µs | 770.9 µs | JS ×3.90 | JS | -1619860 | yes |
+| rounding | 4.61 ms | 2.11 ms | WASM ×2.19 | JS | -177913 | **no** |
+| sdf | 451.2 µs | 629.9 µs | JS ×1.40 | JS | -299229 | yes |
+| small-arrays | 115.0 µs | 2.20 ms | JS ×19.12 | JS | -2453200 | yes |
+| small-helpers | 1.5 µs | 15.8 µs | JS ×10.21 | JS | -313201 | yes |
+| stencil | 104.8 µs | 159.1 µs | JS ×1.52 | JS | -369444 | yes |
+| tile-digest | 1.08 ms | 629.6 µs | WASM ×1.72 | WASM | 88701 | yes |
+| transcendental | 2.87 ms | 3.15 ms | JS ×1.10 | JS | -272033 | yes |
 
 | measured faster ↓ / model picks → | WASM | JS |
 |---|---|---|
@@ -113,8 +113,8 @@ the default, `CostModel::default`:
 
 | weights | kernels agreeing | time lost per run by misses | whole programs (`../README.md`) |
 |---|---|---|---|
-| S8's (before) | 15/17 | 1.28 ms (matmul, noise) | `image-filters` picks `boxBlur` (0.79×); `numeric-driver` stays JS (1.16× in WASM) |
-| refitted (now) | 16/17 | 2.31 ms (rounding) | both right; `mixed` unchanged |
+| S8's (before) | 15/17 | 1.55 ms (matmul, noise) | `image-filters` picks `boxBlur` (0.79×); `numeric-driver` stays JS (1.16× in WASM) |
+| refitted (now) | 16/17 | 2.50 ms (rounding) | both right; `mixed` unchanged |
 
 Both measured on this table's run. Refitting on it again gives nearly the same weights (16/17,
 the same miss). The values are kept as fitted, to three significant figures: `integer` and
