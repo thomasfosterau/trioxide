@@ -151,6 +151,9 @@ pub struct Obj {
     pub elem: Val,
     /// The array's length, while it is fixed and known.
     pub length: Option<f64>,
+    /// Whether the creating code has set `length` yet: from then on it only goes from known
+    /// to unknown, never back.
+    pub sized: bool,
     /// Whether an array may have holes (reads of them give `undefined`).
     pub holey: bool,
     /// Whether properties are written with computed keys, deleted, or redefined, so `props`
@@ -171,9 +174,32 @@ pub struct Obj {
     /// An object literal with a getter or setter, or a `__proto__` (whose prototype may have
     /// them): reading, writing or spreading its properties may run user code.
     pub accessors: bool,
+    /// Given up on (see [`SATURATE_AFTER`]): its flags stay at the top whatever runs later.
+    pub given_up: bool,
 }
 
 impl Obj {
+    /// Sets the flags to "anything may happen" for good; whether that changed them.
+    fn give_up(&mut self) -> bool {
+        let changed = !self.given_up
+            || !self.dynamic
+            || !self.deleted
+            || self.length.is_some()
+            || !self.sized
+            || !self.holey
+            || !self.present.is_empty()
+            || !self.accessors;
+        self.given_up = true;
+        self.dynamic = true;
+        self.deleted = true;
+        self.length = None;
+        self.sized = true;
+        self.holey = true;
+        self.present.clear();
+        self.accessors = true;
+        changed
+    }
+
     fn new(kind: ObjKind, unit: NodeRef) -> Self {
         Self {
             kind,
@@ -183,6 +209,7 @@ impl Obj {
             present: FxHashSet::default(),
             elem: Val::never(),
             length: None,
+            sized: false,
             holey: false,
             dynamic: false,
             deleted: false,
@@ -191,6 +218,7 @@ impl Obj {
             escape: Escape::None,
             shares_buffer: Vec::new(),
             accessors: false,
+            given_up: false,
         }
     }
 }
@@ -1178,13 +1206,7 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 .is_some_and(|slot| top(slot, &mut lost)),
             Dep::Heap(site) => {
                 lost.push(Pts::site(site));
-                self.state.heap.get_mut(&site).is_some_and(|obj| {
-                    let changed = !obj.dynamic || obj.length.is_some() || !obj.holey;
-                    obj.dynamic = true;
-                    obj.length = None;
-                    obj.holey = true;
-                    changed
-                })
+                self.state.heap.get_mut(&site).is_some_and(Obj::give_up)
             }
         };
         if changed {
@@ -1948,17 +1970,24 @@ impl Cx<'_, '_, '_> {
                 obj.deleted,
                 obj.holey,
                 obj.length,
+                obj.sized,
                 obj.present.len(),
                 obj.shares_buffer.len(),
                 obj.accessors,
             );
             update(obj);
+            // A given-up entry stays at the top, so an update that would lower a flag again
+            // (and then be given up again, round after round) changes nothing.
+            if obj.given_up {
+                obj.give_up();
+            }
             if before
                 != (
                     obj.dynamic,
                     obj.deleted,
                     obj.holey,
                     obj.length,
+                    obj.sized,
                     obj.present.len(),
                     obj.shares_buffer.len(),
                     obj.accessors,

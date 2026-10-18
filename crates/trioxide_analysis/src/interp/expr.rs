@@ -429,12 +429,12 @@ impl<'a> Cx<'_, '_, 'a> {
                 .is_some_and(|obj| obj.elem.ty == Type::Never && obj.props.is_empty());
             cx.store_elem(site, &Val::proven(element.clone()));
             cx.mark(site, |obj| {
-                obj.length =
-                    if (first && obj.length.is_none() && !obj.dynamic) || obj.length == length {
-                        length
-                    } else {
-                        None
-                    };
+                obj.length = if (first && !obj.sized && !obj.dynamic) || obj.length == length {
+                    length
+                } else {
+                    None
+                };
+                obj.sized = true;
             });
             (
                 site,
@@ -524,12 +524,12 @@ impl<'a> Cx<'_, '_, 'a> {
         self.store_elem(site, &elem);
         self.mark(site, |obj| {
             obj.holey |= holey;
-            obj.length = if (first && obj.length.is_none() && !obj.dynamic) || obj.length == length
-            {
+            obj.length = if (first && !obj.sized && !obj.dynamic) || obj.length == length {
                 length
             } else {
                 None
             };
+            obj.sized = true;
         });
         Val::object(Type::Array(std::sync::Arc::new(Type::Unknown)), site)
     }

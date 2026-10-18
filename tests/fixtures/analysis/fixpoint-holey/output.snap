@@ -1,0 +1,26 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/fixpoint-holey
+input_file: tests/fixtures/analysis/fixpoint-holey/input.ts
+---
+//- input.ts
+// A function called through an array, on a holey array a helper makes: storing into the
+// array loses its length, and remaking it must not bring the length back (it used to, every
+// round, so the analysis never reached a fixed point and reported nothing).
+import { mul1 } from "./kernel.js";
+function holey() {
+	const xs = new Array(3);
+	return xs;
+}
+export function main() {
+	for (const f of [mul1]) {
+		const xs = holey();
+		f(xs);
+		console.log(xs.length, xs[0], 0 in xs);
+	}
+}
+
+//- kernel.ts
+export function mul1(xs) {
+	for (let i = 0; i < xs.length; i++) xs[i] = xs[i] * 1;
+}
