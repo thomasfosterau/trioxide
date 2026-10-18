@@ -35,12 +35,12 @@ nodes:
   6:19 ref `a`: number[1, 3] int nonNaN nonNegZero@proven
   6:22 ref `b`: number[2, 4] int nonNaN nonNegZero@proven
   9:10 bind `reader`: function@proven
-  10:10 ref `state`: number@proven
+  10:10 ref `state`: number[0, 8] int nonNaN nonNegZero@proven
   13:10 bind `writer`: function@proven
-  13:17 bind `value`: number@proven
-  14:3 assign `state = value`: number@proven
-  14:3 ref `state`: number@proven
-  14:11 ref `value`: number@proven
+  13:17 bind `value`: number[4, 8] int nonNaN nonNegZero@proven
+  14:3 assign `state = value`: number[4, 8] int nonNaN nonNegZero@proven
+  14:3 ref `state`: number[4, 8] int nonNaN nonNegZero@proven
+  14:11 ref `value`: number[4, 8] int nonNaN nonNegZero@proven
   17:10 bind `thrower`: function@proven
   17:18 bind `value`: number[-1, 4] int nonNaN nonNegZero@proven
   18:7 binary `value < 0`: boolean@proven
@@ -58,26 +58,26 @@ nodes:
   28:10 bind `caller`: function@proven
   29:3 call `writer(pure(1, 2))`: undefined@proven
   29:3 ref `writer`: function@proven
-  29:10 call `pure(1, 2)`: number@proven
+  29:10 call `pure(1, 2)`: number[4, 8] int nonNaN nonNegZero@proven
   29:10 ref `pure`: function@proven
-  30:10 call `reader()`: number@proven
+  30:10 call `reader()`: number[0, inf] int nonNaN nonNegZero@proven
   30:10 ref `reader`: function@proven
   33:10 bind `catches`: function@proven
-  35:12 call `thrower(-1)`: number[0, inf]@proven
+  35:12 call `thrower(-1)`: number[0, 2] nonNaN nonNegZero@proven
   35:12 ref `thrower`: function@proven
   35:20 unary `-1`: -1@proven
   41:17 bind `main`: function@proven
   42:3 call `console.log(pure(3, 4), caller(), cat...`: unknown
   42:3 member `console.log`: unknown
   42:3 ref `console`: unknown
-  42:15 call `pure(3, 4)`: number@proven
+  42:15 call `pure(3, 4)`: number[4, 8] int nonNaN nonNegZero@proven
   42:15 ref `pure`: function@proven
-  42:27 call `caller()`: number@proven
+  42:27 call `caller()`: number[0, inf] int nonNaN nonNegZero@proven
   42:27 ref `caller`: function@proven
-  42:37 call `catches()`: number[0, inf]@proven
+  42:37 call `catches()`: number[0, 2] nonNaN nonNegZero@proven
   42:37 ref `catches`: function@proven
   42:48 member `allocator(1).value`: 1@proven
   42:48 call `allocator(1)`: {| value: 1 |}@proven
   42:48 ref `allocator`: function@proven
-  42:68 call `thrower(4)`: number[0, inf]@proven
+  42:68 call `thrower(4)`: number[0, 2] nonNaN nonNegZero@proven
   42:68 ref `thrower`: function@proven

@@ -77,7 +77,7 @@ nodes:
   34:15 ref `classify`: function@proven
   34:28 call `classify(13)`: string@proven
   34:28 ref `classify`: function@proven
-  34:42 call `search([[1, 2], [3, 4]], 3)`: number[-1, inf] int nonNaN nonNegZero@proven
+  34:42 call `search([[1, 2], [3, 4]], 3)`: number[-1, 11] int nonNaN nonNegZero@proven
   34:42 ref `search`: function@proven
   34:49 array `[[1, 2], [3, 4]]`: (number[1, 4] int nonNaN nonNegZero)[][]@proven escape=known stable-shape
   34:50 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=known stable-shape

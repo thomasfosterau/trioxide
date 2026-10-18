@@ -278,12 +278,24 @@ to write, the callee that runs at sites proven complete, loop invariants, stable
 class shapes, and proven-unreachable code. Escape levels, points-to sets and the other loop
 facts are not checked at run time.
 
-**Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time.
-The current sequential interpreter, with on-demand tsrs queries, does about as much CPU work
-as the parse (instruction counts ~1.1–1.2×), but tsrs parses on all cores and the
-interpreter on one, so wall-clock time is about 5× the parse on a 4-core machine (see
-`benches/analysis.rs`). Closing the gap needs parallel interpretation (Jacobi-style sweeps
-over a read-only snapshot with per-thread write logs, and one tsrs checker per thread).
+**Analysis cost.** The acceptance target is analysis under 2× the oxc + tsrs parse time. It
+is not met: `benches/analysis.rs` (1820 modules, 4 cores, a noisy machine) measures about
+7.5× (770–800 ms against about 104 ms; before the changes below, 860–890 ms, about 8.2×).
+tsrs parses on all cores, but the analysis parses, interprets and summarises on one: the
+sweeps take about 470 ms (6 rounds, 18,820 runs of 11,200 units, ~140 ms of it tsrs queries)
+and parsing, indexing and the summary most of the rest. Two things keep sweeps short:
+
+- *Uncalled functions wait.* In the first round, a function no caller has reached yet (and
+  unknown code can't call) waits for the next: it would only run on `never` arguments, and
+  again once a caller reaches it.
+- *Warm-started loops.* A loop that runs again, inside another loop or in its unit's next
+  run, starts from where it last settled joined with its new entry; it stops at a
+  post-fixpoint above the entry either way, and usually after one pass instead of four.
+
+Parallel analysis (chunked Jacobi-style sweeps over a read-only snapshot with per-chunk write
+logs, one tsrs checker per worker, and parallel parsing and summary) is parked in #6: it
+measured about 2.6–2.8× on the same bench. It will be revisited together with incremental
+analysis, when analysis time hurts (Vite dev on large projects).
 
 **Embedding constraints.** tsrs checkers take `&mut self` (one per thread, behind a mutex),
 and its arenas are `'static`. The oracle runs every type query on the program's first
