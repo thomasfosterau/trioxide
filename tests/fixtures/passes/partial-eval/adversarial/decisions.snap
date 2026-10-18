@@ -1,0 +1,49 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/partial-eval/adversarial
+input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
+---
+//- input.ts
+19:7 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+20:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+36:10 inline skipped: the read may throw (e.g. in its temporal dead zone)
+39:10 inline applied
+115:53 inline skipped: the read may throw (e.g. in its temporal dead zone)
+10:10 fold skipped: the comparison's operands have effects
+19:7 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
+19:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+36:10 fold skipped: the expression has effects, so it stays
+36:10 fold skipped: the expression has effects, so it stays
+39:10 fold applied
+76:11 fold applied
+76:25 fold applied
+93:8 fold skipped: the expression has effects, so it stays
+98:12 fold applied
+115:53 fold skipped: the expression has effects, so it stays
+116:51 fold skipped: the expression has effects, so it stays
+3:7 dce applied
+38:1 dce applied
+79:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+80:12 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
+81:12 partial-eval skipped: the interpreter doesn't model globals
+82:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+85:8 partial-eval skipped: the call may run code trioxide doesn't see
+89:12 partial-eval skipped: an object in the result is reachable twice (copies would lose that)
+90:12 partial-eval skipped: the result is too big to write out (over 128 values)
+93:8 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+100:13 partial-eval skipped: the result has holes
+101:13 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
+103:22 partial-eval skipped: the interpreter doesn't model strings with lone surrogates
+103:37 partial-eval skipped: the result has a string with invisible characters
+104:13 partial-eval skipped: evaluating the call takes more than 200000 steps
+107:16 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
+99:13 partial-eval applied
+102:13 partial-eval applied
+103:14 partial-eval applied
+111:13 partial-eval applied
+116:23 closure-hoist applied
+117:23 closure-hoist applied
+119:23 closure-hoist applied
+76:72 simplify applied
+76:80 simplify applied
+76:88 simplify applied

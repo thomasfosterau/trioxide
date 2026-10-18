@@ -4,6 +4,8 @@ description: tests/fixtures/passes/pipelines/names
 input_file: tests/fixtures/passes/pipelines/names/input.ts
 ---
 //- input.ts
+const reduce_callback = (a, b) => a + b;
+const map_callback = (f) => f();
 // Adversarial: inlined callbacks share one loop body, so their bindings must not capture each
 // other's names, the loop's, or the receiver's.
 function shadows() {
@@ -100,7 +102,7 @@ function accumulatorCaptured() {
 		seen.push(() => acc);
 		total = acc + v;
 	}
-	return total * 100 + seen.map((f) => f()).reduce((a, b) => a + b, 0);
+	return total * 100 + seen.map(map_callback).reduce(reduce_callback, 0);
 }
 function reassignedParam() {
 	const values = [

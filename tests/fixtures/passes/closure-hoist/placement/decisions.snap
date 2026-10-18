@@ -1,0 +1,12 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/closure-hoist/placement
+input_file: tests/fixtures/passes/closure-hoist/placement/input.ts
+---
+//- input.ts
+7:30 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+7:30 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+27:10 pipelines applied
+9:27 closure-hoist applied
+20:27 closure-hoist applied
+//- values.ts

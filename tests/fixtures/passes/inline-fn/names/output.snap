@@ -1,0 +1,31 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline-fn/names
+input_file: tests/fixtures/passes/inline-fn/names/input.ts
+---
+//- input.ts
+// Function names inlining must keep: an anonymous function argument moved into a binding or
+let n = 0;
+function names() {
+	const g = (0, () => 1);
+	let i;
+	i = (0, () => 2);
+	const k = (0, class {});
+	const typed = (0, (() => 3));
+	return `[${g.name}] [${i.name}] [${k.name}] [${typed.name}] ${g() + i() + typed()}`;
+}
+function temporaries() {
+	// Arguments evaluated first by the statement are declared with their values; others are
+	// assigned inside the expression, with their `let` just before the statement.
+	const a = ++n;
+	let b = ++n;
+	const r = a + (b = b + 1, b);
+	let a_1, b_1;
+	console.log((a_1 = ++n, b_1 = ++n, a_1 + (b_1 = b_1 + 1, b_1)), r);
+	const x = ++n, y = ++n + 1;
+	return x * x + y * y;
+}
+export function main() {
+	console.log(names());
+	console.log(temporaries());
+}

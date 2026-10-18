@@ -1,0 +1,13 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/methods
+input_file: tests/fixtures/passes/inline-fn/methods/input.ts
+---
+//- input.ts
+19:23 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+19:23 licm applied
+13:12 inline-fn applied
+21:14 inline-fn applied
+29:15 inline-fn applied
+29:25 inline-fn applied
+29:44 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own

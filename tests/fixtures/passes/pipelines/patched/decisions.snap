@@ -8,3 +8,6 @@ input_file: tests/fixtures/passes/pipelines/patched/input.ts
 10:10 pipelines skipped: the array's type is only Declared (trustTypes is off)
 16:10 pipelines skipped: the program may patch `Array` or its prototype, so the builtin models are off
 20:10 pipelines skipped: the program may patch `Array` or its prototype, so the builtin models are off
+10:18 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen
+16:16 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen
+20:27 closure-hoist skipped: the closure escapes (code trioxide doesn't see may hold it), so its identity may be seen

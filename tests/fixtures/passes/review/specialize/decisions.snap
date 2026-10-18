@@ -33,3 +33,4 @@ input_file: tests/fixtures/passes/review/specialize/input.ts
 34:71 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 2:1 dce applied
 8:24 licm applied
+33:9 closure-hoist applied

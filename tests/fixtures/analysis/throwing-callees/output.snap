@@ -1,6 +1,5 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
-assertion_line: 101
 description: tests/fixtures/analysis/throwing-callees
 input_file: tests/fixtures/analysis/throwing-callees/input.ts
 ---

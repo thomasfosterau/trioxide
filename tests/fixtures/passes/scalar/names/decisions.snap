@@ -1,0 +1,20 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/scalar/names
+input_file: tests/fixtures/passes/scalar/names/input.ts
+---
+//- input.ts
+8:20 fold applied
+10:31 fold applied
+12:20 fold applied
+14:31 fold applied
+17:31 fold applied
+19:31 fold applied
+21:31 fold applied
+8:11 scalar skipped: a key is assigned an anonymous function or class
+12:11 scalar skipped: a key is assigned an anonymous function or class
+16:11 scalar skipped: a key holds an anonymous function or class (named after the key)
+18:11 scalar skipped: a key holds an anonymous function or class (named after the key)
+20:11 scalar skipped: a key holds an anonymous function or class (named after the key)
+23:11 scalar skipped: an element is an anonymous function or class
+29:11 scalar applied

@@ -1,0 +1,16 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/specialize
+input_file: tests/fixtures/passes/inline-fn/specialize/input.ts
+---
+//- input.ts
+6:26 inline applied
+13:14 inline applied
+5:23 licm applied
+3:34 params applied
+18:15 inline-fn skipped: `scale` is too big to copy (49 nodes; the budget is 40, or 400 for an only call site)
+18:34 inline-fn skipped: `scale` is too big to copy (49 nodes; the budget is 40, or 400 for an only call site)
+18:56 inline-fn skipped: `scale` is too big to copy (49 nodes; the budget is 40, or 400 for an only call site)
+19:15 inline-fn skipped: `counted` uses `arguments`
+19:30 inline-fn skipped: `counted` uses `arguments`
+3:34 simplify applied

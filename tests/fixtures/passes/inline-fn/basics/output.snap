@@ -1,0 +1,40 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline-fn/basics
+input_file: tests/fixtures/passes/inline-fn/basics/input.ts
+---
+//- input.ts
+function sum(...xs) {
+	let s = 0;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const x = xs[i];
+		s += x;
+	}
+	return s;
+}
+export function main() {
+	let total = 0;
+	for (let i = 0; i < 10; i++) {
+		let x, y;
+		total += (x = i, y = i + 1, x * x + y * y);
+		let clamp_result;
+		clamp: {
+			const v = i * 3;
+			if (v < 2) {
+				clamp_result = 2;
+				break clamp;
+			}
+			if (v > 20) {
+				clamp_result = 20;
+				break clamp;
+			}
+			clamp_result = v;
+		}
+		const c = clamp_result;
+		total += c;
+	}
+	const message = "total " + total;
+	console.log("log:", message);
+	let b;
+	console.log(sum(1, 2, 3), (b = 2, 1 + b), 7);
+}

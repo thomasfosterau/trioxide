@@ -1,0 +1,31 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/closure-hoist/basics
+input_file: tests/fixtures/passes/closure-hoist/basics/input.ts
+---
+//- input.ts
+function weight(v) {
+	return v * 3 + 1;
+}
+function weights(n) {
+	let total = 0;
+	for (let i = 0; i < n; i++) {
+		total += weight(i);
+	}
+	return total;
+}
+function doubled(values) {
+	const result = [];
+	for (let i = 0, length = values.length; i < length; i++) {
+		const v = values[i];
+		result.push(v * 2);
+	}
+	return result;
+}
+export function main() {
+	console.log(weights(5), doubled([
+		1,
+		2,
+		3
+	]).join(","));
+}

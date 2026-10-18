@@ -9,3 +9,4 @@ input_file: tests/fixtures/passes/checks/adversarial/input.ts
 5:18 fold skipped: the comparison's operands have effects
 34:18 fold skipped: the expression has effects, so it stays
 11:9 dce applied
+29:9 closure-hoist skipped: the closure captures `calls`

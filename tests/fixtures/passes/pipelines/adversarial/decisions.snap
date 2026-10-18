@@ -17,4 +17,14 @@ input_file: tests/fixtures/passes/pipelines/adversarial/input.ts
 50:25 pipelines skipped: the chain reads the binding it initialises
 58:20 pipelines skipped: the callback is async
 63:10 pipelines skipped: the callback returns from somewhere other than its last statement
+6:21 closure-hoist applied
+13:21 closure-hoist skipped: the function expression is named
+19:21 closure-hoist applied
+27:42 closure-hoist applied
+27:24 closure-hoist applied
+32:47 closure-hoist applied
+32:27 closure-hoist applied
+50:33 closure-hoist skipped: the closure captures `t`
+58:31 closure-hoist skipped: the closure is async
+63:24 closure-hoist applied
 1:1 simplify applied

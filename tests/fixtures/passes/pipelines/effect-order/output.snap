@@ -4,6 +4,16 @@ description: tests/fixtures/passes/pipelines/effect-order
 input_file: tests/fixtures/passes/pipelines/effect-order/input.ts
 ---
 //- input.ts
+const forEach_callback_1 = (x) => {
+	if (x === 1) throw new Error(`stop at ${x}`);
+};
+const map_callback_3 = (x) => note("t", x);
+const forEach_callback = (x) => {
+	note("k", x);
+};
+const map_callback_2 = (x) => x + 1;
+const map_callback = (x) => note("g", x * 2);
+const map_callback_1 = (x) => note("f", x);
 // Adversarial: fusing runs callbacks element by element. That is only allowed when the order
 // can't be observed.
 const log = [];
@@ -18,7 +28,7 @@ function twoEffects() {
 		3
 	];
 	// Both callbacks log: the chain stays, so the log reads f1 f2 f3 g2 g4 g6.
-	return values.map((x) => note("f", x)).map((x) => note("g", x * 2));
+	return values.map(map_callback_1).map(map_callback);
 }
 function firstEffect() {
 	const values = [
@@ -41,9 +51,7 @@ function lastEffect() {
 	const values = [4, 5];
 	// Only the last callback has effects, and the analysis can't rule out that they reach the
 	// array (the builtin hands it to every callback): the chain stays.
-	values.map((x) => x + 1).forEach((x) => {
-		note("k", x);
-	});
+	values.map(map_callback_2).forEach(forEach_callback);
 }
 function observer() {
 	const values = [
@@ -65,9 +73,7 @@ function throws() {
 		3
 	];
 	try {
-		values.map((x) => note("t", x)).forEach((x) => {
-			if (x === 1) throw new Error(`stop at ${x}`);
-		});
+		values.map(map_callback_3).forEach(forEach_callback_1);
 		return "done";
 	} catch (error) {
 		return error.message;

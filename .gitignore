@@ -30,7 +30,7 @@ node_modules/
 
 # Differential suite output
 tests/differential/.out/
-benchmarks/.out/
 
-# Partition benchmark output
+# Benchmark output
 benchmarks/partition/.out/
+benchmarks/passes/.out/

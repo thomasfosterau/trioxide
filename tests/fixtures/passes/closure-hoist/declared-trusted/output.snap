@@ -1,0 +1,18 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/closure-hoist/declared-trusted
+input_file: tests/fixtures/passes/closure-hoist/declared-trusted/input.ts
+---
+//- input.ts
+// trustTypes doesn't change escape facts (always Proven): the closure handed to a value from
+// the library's callers escapes, so it stays.
+export function doubled(values) {
+	return values.map((v) => v * 2);
+}
+export function main() {
+	console.log(doubled([
+		1,
+		2,
+		3
+	]).join(","));
+}

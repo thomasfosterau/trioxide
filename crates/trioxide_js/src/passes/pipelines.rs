@@ -96,7 +96,12 @@ impl Pass for Pipelines {
             decisions: Decisions::new(self.name()),
         };
         ctx.traverse(&mut visitor, program, ());
-        visitor.decisions.flush(ctx.log)
+        let changed = visitor.decisions.flush(ctx.log);
+        if changed {
+            // The next speed pass gets a scoping that matches the rewritten AST.
+            *ctx.scoping_mut() = super::speed::rescope(program);
+        }
+        changed
     }
 }
 

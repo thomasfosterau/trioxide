@@ -1,0 +1,16 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/partial-eval/proto
+input_file: tests/fixtures/passes/partial-eval/proto/input.ts
+---
+//- input.ts
+// `__proto__` is the prototype, not an own key: the call stays (reaching a prototype this way
+// also turns off the analysis's builtin models, and the interpreter refuses the key itself).
+function proto() {
+	const o = { a: 1 };
+	return typeof o.__proto__;
+}
+const P = proto();
+export function main() {
+	console.log(P);
+}

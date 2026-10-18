@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/scalar/basics
+input_file: tests/fixtures/passes/scalar/basics/input.ts
+---
+//- input.ts
+5:11 scalar applied
+9:11 scalar applied

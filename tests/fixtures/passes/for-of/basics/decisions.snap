@@ -16,3 +16,4 @@ input_file: tests/fixtures/passes/for-of/basics/input.ts
 67:16 for-of applied
 69:18 for-of applied
 51:10 pipelines applied
+50:49 closure-hoist skipped: the closure captures `value`

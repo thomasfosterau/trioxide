@@ -10,3 +10,11 @@ input_file: tests/fixtures/passes/pipelines/effect-order/input.ts
 30:3 pipelines skipped: the last callback has effects, which may change elements earlier stages read
 39:10 pipelines skipped: the first callback has effects, which a later one may observe
 50:5 pipelines skipped: more than one callback has effects
+14:46 closure-hoist applied
+14:21 closure-hoist applied
+30:36 closure-hoist applied
+30:14 closure-hoist applied
+44:10 closure-hoist skipped: the closure captures `calls`
+40:10 closure-hoist skipped: the closure captures `calls`
+52:16 closure-hoist applied
+51:12 closure-hoist applied

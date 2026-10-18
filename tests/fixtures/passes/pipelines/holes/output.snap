@@ -4,6 +4,12 @@ description: tests/fixtures/passes/pipelines/holes
 input_file: tests/fixtures/passes/pipelines/holes/input.ts
 ---
 //- input.ts
+const reduce_callback_2 = (x, y) => x + y;
+const reduce_callback_1 = (a, b) => a + b;
+const reduce_callback = (s, x) => s + x;
+const map_callback_1 = (x) => x + 1;
+const find_callback = (x) => x === undefined;
+const map_callback = (x) => x;
 // Adversarial: arrays with holes. `map` keeps holes; `filter`, `forEach`, `reduce`, `some`
 // and `every` skip them; `find`, `findIndex` and `includes` visit them as `undefined`; and
 // `reduce` with no seed throws on an empty range.
@@ -103,11 +109,11 @@ function report() {
 	}
 	console.log(found, has, which);
 	// A hole a `map` keeps would reach `find`: this chain stays.
-	const passed = a.map((x) => x).find((x) => x === undefined);
+	const passed = a.map(map_callback).find(find_callback);
 	console.log(passed);
 	const d = deleted();
-	const plusOne = d.map((x) => x + 1);
-	const total = d.reduce((s, x) => s + x, 0);
+	const plusOne = d.map(map_callback_1);
+	const total = d.reduce(reduce_callback, 0);
 	console.log(plusOne, total);
 	const g = grown();
 	const tripled = new Array(g.length);
@@ -128,7 +134,7 @@ function report() {
 function empty() {
 	const none = [];
 	try {
-		return String(none.reduce((a, b) => a + b));
+		return String(none.reduce(reduce_callback_1));
 	} catch (error) {
 		return error.message;
 	}
@@ -136,7 +142,7 @@ function empty() {
 function allHoles() {
 	const a = new Array(3);
 	try {
-		return String(a.reduce((x, y) => x + y));
+		return String(a.reduce(reduce_callback_2));
 	} catch (error) {
 		return error instanceof TypeError ? "TypeError" : "other";
 	}

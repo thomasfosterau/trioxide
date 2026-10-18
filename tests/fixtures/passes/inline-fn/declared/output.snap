@@ -1,0 +1,26 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline-fn/declared
+input_file: tests/fixtures/passes/inline-fn/declared/input.ts
+---
+//- input.ts
+// Negative case: in the library world `shape` may be anything a caller passes, and only
+// TypeScript says `shape.area()` runs `Rect.area`. The analysis records that as a Declared edge
+// on an open call site, so the call stays and the skip is logged.
+export class Rect {
+	w;
+	h;
+	constructor(w, h) {
+		this.w = w;
+		this.h = h;
+	}
+	area() {
+		return this.w * this.h;
+	}
+}
+export function measure(shape) {
+	return shape.area() + 1;
+}
+export function main() {
+	console.log(new Rect(2, 3).area() + 1);
+}

@@ -18,4 +18,5 @@ input_file: tests/fixtures/passes/fold/adversarial/input.ts
 58:59 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 58:59 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 42:9 dce applied
+59:34 closure-hoist applied
 38:25 simplify applied

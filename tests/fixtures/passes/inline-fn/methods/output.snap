@@ -1,0 +1,34 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline-fn/methods
+input_file: tests/fixtures/passes/inline-fn/methods/input.ts
+---
+//- input.ts
+// Methods inline with their receiver as `this`.
+class Vec2 {
+	x;
+	y;
+	constructor(x, y) {
+		this.x = x;
+		this.y = y;
+	}
+	dot(other) {
+		return this.x * other.x + this.y * other.y;
+	}
+	lengthSquared() {
+		return this.x * this.x + this.y * this.y;
+	}
+}
+function energy(points) {
+	let total = 0;
+	for (let i = 0, pointsLength = points.length; i < pointsLength; i++) {
+		const p = points[i];
+		total += p.dot(p);
+	}
+	return total;
+}
+export function main() {
+	const a = new Vec2(3, 4);
+	const b = new Vec2(1, 2);
+	console.log(a.x * b.x + a.y * b.y, a.dot(a), energy([a, b]));
+}

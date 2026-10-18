@@ -1,0 +1,91 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/partial-eval/basics
+input_file: tests/fixtures/passes/partial-eval/basics/input.ts
+---
+//- input.ts
+const map_callback = (x) => Object.is(x, -0) ? "-0" : String(x);
+function squares(n) {
+	const table = [];
+	for (let i = 0; i < n; i++) {
+		table.push(i * i);
+	}
+	return table;
+}
+function crc8Table() {
+	const table = new Array(16);
+	for (let i = 0; i < 16; i++) {
+		let c = i;
+		for (let k = 0; k < 8; k++) {
+			c = c & 1 ? c >>> 1 ^ 140 : c >>> 1;
+		}
+		table[i] = c;
+	}
+	return table;
+}
+function label(name, version) {
+	return {
+		name,
+		version,
+		tag: `${name}@${version}`
+	};
+}
+function numbers() {
+	return [
+		-0,
+		0 / 0,
+		1 / 0,
+		5e-324,
+		2 ** 53,
+		.30000000000000004,
+		Math.round(-.5),
+		0
+	];
+}
+const SQUARES = [
+	0,
+	1,
+	4,
+	9,
+	16,
+	25,
+	36,
+	49
+];
+const CRC = [
+	0,
+	94,
+	188,
+	226,
+	97,
+	63,
+	221,
+	131,
+	194,
+	156,
+	126,
+	32,
+	163,
+	253,
+	31,
+	65
+];
+const LABEL = {
+	name: "trioxide",
+	version: 2,
+	tag: "trioxide@2"
+};
+const NUMBERS = [
+	-0,
+	NaN,
+	Infinity,
+	5e-324,
+	9007199254740992,
+	.30000000000000004,
+	-0,
+	0
+];
+export function main() {
+	console.log(SQUARES.join(","), CRC.join(","), LABEL.tag, LABEL.version);
+	console.log(NUMBERS.map(map_callback).join(","));
+}

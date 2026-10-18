@@ -4,13 +4,28 @@ description: tests/fixtures/passes/pipelines/adversarial
 input_file: tests/fixtures/passes/pipelines/adversarial/input.ts
 ---
 //- input.ts
+const map_callback_5 = (x) => {
+	if (x === 2) {
+		return 0;
+	}
+	return x;
+};
+const map_callback_4 = (x, i) => x * 10 + i;
+const filter_callback = (x) => x !== 6;
+const map_callback_2 = (x, i, all) => x + all.length;
+const map_callback_3 = (x) => x * 2;
+const map_callback_1 = function() {
+	// eslint-disable-next-line prefer-rest-params
+	return arguments.length;
+};
+const map_callback = function(x) {
+	return x * this.by;
+};
 // Adversarial: chains that must stay calls (or keep their exact semantics).
 function thisArg() {
 	const scale = { by: 3 };
 	// A function callback reads `this`, which the `thisArg` sets.
-	return [1, 2].map(function(x) {
-		return x * this.by;
-	}, scale);
+	return [1, 2].map(map_callback, scale);
 }
 function selfReference() {
 	// A named function expression that refers to itself (on a path these elements don't take).
@@ -19,10 +34,7 @@ function selfReference() {
 	});
 }
 function usesArguments() {
-	return [5, 6].map(function() {
-		// eslint-disable-next-line prefer-rest-params
-		return arguments.length;
-	});
+	return [5, 6].map(map_callback_1);
 }
 function intermediate() {
 	// The second callback receives the intermediate array.
@@ -30,7 +42,7 @@ function intermediate() {
 		1,
 		2,
 		3
-	].map((x) => x * 2).map((x, i, all) => x + all.length);
+	].map(map_callback_3).map(map_callback_2);
 }
 function afterFilter() {
 	// The index after a `filter` is the filtered array's.
@@ -38,7 +50,7 @@ function afterFilter() {
 		5,
 		6,
 		7
-	].filter((x) => x !== 6).map((x, i) => x * 10 + i);
+	].filter(filter_callback).map(map_callback_4);
 }
 function startIndex() {
 	return [
@@ -90,12 +102,7 @@ function earlyReturn() {
 		1,
 		2,
 		3
-	].map((x) => {
-		if (x === 2) {
-			return 0;
-		}
-		return x;
-	});
+	].map(map_callback_5);
 }
 export function main() {
 	console.log(thisArg());

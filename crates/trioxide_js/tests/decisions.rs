@@ -92,3 +92,28 @@ fn decisions() {
         settings.bind(|| insta::assert_snapshot!("decisions", text));
     }
 }
+
+/// The default pipeline reads facts in one group (the foundation and speed passes) before any
+/// rewrite, so building the pass fixtures never re-analyses the program to refresh them
+/// (PLAN §3 "Refreshing facts"). A new fact-reading group after a rewrite would cost one
+/// whole-program analysis per module it follows a change in; this test makes that visible.
+#[test]
+fn no_refreshes() {
+    let mut entries = Vec::new();
+    discover(&fixtures_dir(), &mut entries);
+    let (mut count, mut time) = (0, std::time::Duration::ZERO);
+    for entry in entries {
+        let dir = entry.parent().unwrap();
+        let options = Options::find_config(dir)
+            .map_or_else(Options::default, |path| Options::from_file(&path).unwrap());
+        let mut project = Project::new(dir.to_path_buf(), options).unwrap();
+        project.build(std::slice::from_ref(&entry)).unwrap();
+        let (refreshes, spent) = project.refresh_stats();
+        count += refreshes;
+        time += spent;
+    }
+    assert_eq!(
+        count, 0,
+        "the pass fixtures refreshed facts {count} times ({time:?})"
+    );
+}

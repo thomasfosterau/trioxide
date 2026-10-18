@@ -1,0 +1,47 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/closure-hoist/placement
+input_file: tests/fixtures/passes/closure-hoist/placement/input.ts
+---
+//- input.ts
+// The module imports, so an import cycle could call its functions before a module-level
+// `const` exists: callbacks are hoisted just before the outermost loop around them instead.
+import { VALUES } from "./values.js";
+function labeled(rounds) {
+	let total = 0;
+	const map_callback = (v) => v + 1;
+	outer: for (let r = 0; r < rounds; r++) {
+		for (let i = 0; i < 2; i++) {
+			total += [r, i].map(map_callback).length;
+			if (total > 100) break outer;
+		}
+	}
+	return total;
+}
+function guarded(go) {
+	let total = 0;
+	const map_callback_1 = (v) => v * 2;
+	if (go) for (let i = 0; i < 3; i++) {
+		total += VALUES.map(map_callback_1)[i];
+	}
+	return total;
+}
+function once() {
+	// Not in a loop: it would need a module-level constant.
+	const result = [];
+	for (let i = 0, length = VALUES.length; i < length; i++) {
+		const v = VALUES[i];
+		result.push(v - 1);
+	}
+	return result;
+}
+export function main() {
+	console.log(labeled(3), guarded(true), guarded(false), once().join(","));
+}
+
+//- values.ts
+export const VALUES = [
+	3,
+	1,
+	2
+];

@@ -5,3 +5,4 @@ input_file: tests/fixtures/passes/licm/island/input.ts
 ---
 //- input.ts
 14:44 licm applied
+19:15 partial-eval skipped: calls a WASM island function, which stays a call

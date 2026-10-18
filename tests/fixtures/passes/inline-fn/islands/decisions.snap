@@ -1,0 +1,10 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/islands
+input_file: tests/fixtures/passes/inline-fn/islands/input.ts
+---
+//- input.ts
+//- kernel.ts
+25:21 fold applied
+9:10 inline-fn skipped: `square` is a WASM island function (an explicit request stays)
+25:10 inline-fn skipped: `hot` is a WASM island function (an explicit request stays)

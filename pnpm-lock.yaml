@@ -8,11 +8,11 @@ importers:
 
   .: {}
 
-  benchmarks:
+  benchmarks/passes:
     devDependencies:
       tinybench:
-        specifier: 6.2.0
-        version: 6.2.0
+        specifier: 6.1.6
+        version: 6.1.6
 
   examples/dom-app:
     devDependencies:
@@ -987,8 +987,8 @@ packages:
   std-env@4.3.0:
     resolution: {integrity: sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==}
 
-  tinybench@6.2.0:
-    resolution: {integrity: sha512-78U2TlB2CnVenajOFzf3BKSm0J6oz5L0NV7g32LCPccvYc0lbWvys4d3uUUCS2B1N8PAf2+aekR8i1KbC3HO7Q==}
+  tinybench@6.1.6:
+    resolution: {integrity: sha512-qEHpSqUC/KkD4rypubEZ/gSENbH6x4E8d8UM5aBndJhRjTW3sPW4jmS5C1/wHhMFMj040jgJl2XvQOYdZDgKkA==}
     engines: {node: '>=20.0.0'}
 
   tinybench@6.2.2:
@@ -1850,7 +1850,7 @@ snapshots:
 
   std-env@4.3.0: {}
 
-  tinybench@6.2.0: {}
+  tinybench@6.1.6: {}
 
   tinybench@6.2.2: {}
 
