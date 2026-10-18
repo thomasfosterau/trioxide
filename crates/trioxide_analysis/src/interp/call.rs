@@ -1157,10 +1157,18 @@ impl<'a> Cx<'_, '_, 'a> {
                 Val::unknown()
             }
             Ret::Receiver => receiver.cloned().unwrap_or_else(Val::unknown),
-            Ret::FirstArgument => args
-                .first()
-                .cloned()
-                .unwrap_or_else(|| Val::proven(Type::Undefined)),
+            Ret::FirstArgument => {
+                let first = args
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| Val::proven(Type::Undefined));
+                if builtin.name == "Object.freeze" {
+                    for &object in first.pts.sites().unwrap_or_default() {
+                        self.mark(object, |obj| obj.frozen = true);
+                    }
+                }
+                first
+            }
             Ret::ElementOrUndefined => {
                 let element =
                     receiver.map_or_else(Val::unknown, |receiver| self.element(receiver, true));

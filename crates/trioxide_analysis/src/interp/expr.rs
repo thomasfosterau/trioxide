@@ -2099,6 +2099,10 @@ impl<'a> Cx<'_, '_, 'a> {
             if obj.unit != self.unit.id || obj.escape != Escape::None {
                 self.always(EffectKind::Writes);
             }
+            // Writing to a frozen object throws in strict code.
+            if obj.frozen && self.unit.strict && !defining {
+                self.always(EffectKind::Throws);
+            }
             if obj.escape == Escape::Unknown {
                 self.escape_value(value, Escape::Unknown);
                 self.always(EffectKind::CallsUnknown);
@@ -2195,6 +2199,22 @@ impl<'a> Cx<'_, '_, 'a> {
     fn delete(&mut self, object: &Val, key: &Key) {
         self.note_write(true);
         if let Some(sites) = object.pts.sites().filter(|sites| !sites.is_empty()) {
+            // In strict code, deleting a non-configurable own property throws; so does
+            // deleting from `null` or `undefined`, in any code.
+            let mut throws = object.ty.may_be_nullish() || object.trust != Trust::Proven;
+            if self.unit.strict {
+                throws |= match key.name() {
+                    None => true,
+                    Some(name) => sites.iter().any(|&site| {
+                        self.an
+                            .heap(site)
+                            .is_none_or(|obj| non_configurable(obj, name))
+                    }),
+                };
+            }
+            if throws {
+                self.always(EffectKind::Throws);
+            }
             for &site in sites {
                 let name = key.name().map(str::to_string);
                 self.mark(site, |obj| {
@@ -2452,4 +2472,20 @@ fn target_member<'s, 'a>(
         member => return member.as_member_expression(),
     };
     inner.without_parentheses().as_member_expression()
+}
+
+/// Whether `name` may be a non-configurable own property of the objects made at `obj`'s
+/// site (so deleting it in strict code throws).
+fn non_configurable(obj: &super::Obj, name: &str) -> bool {
+    // Code trioxide can't see may have frozen, sealed or redefined it.
+    if obj.frozen || obj.poisoned || obj.escape == Escape::Unknown {
+        return true;
+    }
+    match obj.kind {
+        ObjKind::Array => name == "length",
+        ObjKind::TypedArray(_) => is_array_index(name),
+        ObjKind::Class(_) | ObjKind::Function(_) => name == "prototype",
+        ObjKind::Namespace(_) | ObjKind::Opaque => true,
+        ObjKind::Object | ObjKind::Instance(_) | ObjKind::Prototype(_) => false,
+    }
 }

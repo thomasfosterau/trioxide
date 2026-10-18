@@ -176,6 +176,8 @@ pub struct Obj {
     pub accessors: bool,
     /// Given up on (see [`SATURATE_AFTER`]): its flags stay at the top whatever runs later.
     pub given_up: bool,
+    /// Passed to `Object.freeze`: in strict code, writing or deleting its properties throws.
+    pub frozen: bool,
 }
 
 impl Obj {
@@ -188,7 +190,8 @@ impl Obj {
             || !self.sized
             || !self.holey
             || !self.present.is_empty()
-            || !self.accessors;
+            || !self.accessors
+            || !self.frozen;
         self.given_up = true;
         self.dynamic = true;
         self.deleted = true;
@@ -197,6 +200,7 @@ impl Obj {
         self.holey = true;
         self.present.clear();
         self.accessors = true;
+        self.frozen = true;
         changed
     }
 
@@ -219,6 +223,7 @@ impl Obj {
             shares_buffer: Vec::new(),
             accessors: false,
             given_up: false,
+            frozen: false,
         }
     }
 }
@@ -2049,6 +2054,7 @@ impl Cx<'_, '_, '_> {
                 obj.present.len(),
                 obj.shares_buffer.len(),
                 obj.accessors,
+                obj.frozen,
             );
             update(obj);
             // A given-up entry stays at the top, so an update that would lower a flag again
@@ -2066,6 +2072,7 @@ impl Cx<'_, '_, '_> {
                     obj.present.len(),
                     obj.shares_buffer.len(),
                     obj.accessors,
+                    obj.frozen,
                 )
             {
                 self.an.touch(Dep::Heap(site));
