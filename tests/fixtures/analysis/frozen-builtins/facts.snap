@@ -1,0 +1,147 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/frozen-builtins
+input_file: tests/fixtures/analysis/frozen-builtins/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  attempt (3:1): reads writes allocates throws calls-unknown
+    calls 5:5 -> <anonymous>
+  main (12:8) open: reads writes allocates throws calls-unknown
+    calls 44:3 -> attempt
+  <anonymous> (44:24): reads writes throws
+nodes:
+  3:10 bind `attempt`: function@proven
+  3:18 bind `label`: string@proven
+  3:33 bind `run`: function@proven
+  5:5 call `run()`: undefined | (number[0, 3] int nonNaN nonNegZero)@proven
+  5:5 ref `run`: function@proven
+  6:5 call `console.log("ran", label)`: unknown
+  6:5 member `console.log`: unknown
+  6:5 ref `console`: unknown
+  6:24 ref `label`: string@proven
+  7:12 bind `error`: unknown
+  8:5 call `console.log("threw", label, (error as...`: unknown
+  8:5 member `console.log`: unknown
+  8:5 ref `console`: unknown
+  8:26 ref `label`: string@proven
+  8:33 member `(error as Error).name`: string@declared
+  8:34 cast `error as Error`: unknown
+  8:34 ref `error`: unknown
+  8:43 ref `Error`: unknown
+  12:17 bind `main`: function@proven
+  13:9 bind `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  13:14 cast `Object.freeze([3, 1, 2]) as number[]`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  13:14 call `Object.freeze([3, 1, 2])`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  13:14 member `Object.freeze`: unknown
+  13:14 ref `Object`: unknown
+  13:28 array `[3, 1, 2]`: (number[0, 3] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  15:5 call `fa.pop()`: undefined | (number[0, 3] int nonNaN nonNegZero)@proven
+  15:5 member `fa.pop`: unknown
+  15:5 ref `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  16:5 call `console.log("popped")`: unknown
+  16:5 member `console.log`: unknown
+  16:5 ref `console`: unknown
+  17:12 bind `error`: unknown
+  18:5 call `console.log("threw pop", (error as Er...`: unknown
+  18:5 member `console.log`: unknown
+  18:5 ref `console`: unknown
+  18:30 member `(error as Error).name`: string@declared
+  18:31 cast `error as Error`: unknown
+  18:31 ref `error`: unknown
+  18:40 ref `Error`: unknown
+  21:5 call `fa.shift()`: undefined | (number[0, 3] int nonNaN nonNegZero)@proven
+  21:5 member `fa.shift`: unknown
+  21:5 ref `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  22:5 call `console.log("shifted")`: unknown
+  22:5 member `console.log`: unknown
+  22:5 ref `console`: unknown
+  23:12 bind `error`: unknown
+  24:5 call `console.log("threw shift", (error as ...`: unknown
+  24:5 member `console.log`: unknown
+  24:5 ref `console`: unknown
+  24:32 member `(error as Error).name`: string@declared
+  24:33 cast `error as Error`: unknown
+  24:33 ref `error`: unknown
+  24:42 ref `Error`: unknown
+  27:5 call `fa.reverse()`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  27:5 member `fa.reverse`: unknown
+  27:5 ref `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  28:5 call `console.log("reversed")`: unknown
+  28:5 member `console.log`: unknown
+  28:5 ref `console`: unknown
+  29:12 bind `error`: unknown
+  30:5 call `console.log("threw reverse", (error a...`: unknown
+  30:5 member `console.log`: unknown
+  30:5 ref `console`: unknown
+  30:34 member `(error as Error).name`: string@declared
+  30:35 cast `error as Error`: unknown
+  30:35 ref `error`: unknown
+  30:44 ref `Error`: unknown
+  33:5 call `fa.fill(0)`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  33:5 member `fa.fill`: unknown
+  33:5 ref `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  34:5 call `console.log("filled")`: unknown
+  34:5 member `console.log`: unknown
+  34:5 ref `console`: unknown
+  35:12 bind `error`: unknown
+  36:5 call `console.log("threw fill", (error as E...`: unknown
+  36:5 member `console.log`: unknown
+  36:5 ref `console`: unknown
+  36:31 member `(error as Error).name`: string@declared
+  36:32 cast `error as Error`: unknown
+  36:32 ref `error`: unknown
+  36:41 ref `Error`: unknown
+  39:5 call `fa.sort()`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  39:5 member `fa.sort`: unknown
+  39:5 ref `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  40:5 call `console.log("sorted")`: unknown
+  40:5 member `console.log`: unknown
+  40:5 ref `console`: unknown
+  41:12 bind `error`: unknown
+  42:5 call `console.log("threw sort", (error as E...`: unknown
+  42:5 member `console.log`: unknown
+  42:5 ref `console`: unknown
+  42:31 member `(error as Error).name`: string@declared
+  42:32 cast `error as Error`: unknown
+  42:32 ref `error`: unknown
+  42:41 ref `Error`: unknown
+  44:3 call `attempt("arrow pop", () => fa.pop())`: undefined@proven
+  44:3 ref `attempt`: function@proven
+  44:30 call `fa.pop()`: undefined | (number[0, 3] int nonNaN nonNegZero)@proven
+  44:30 member `fa.pop`: unknown
+  44:30 ref `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven
+  46:5 call `Object.freeze(new Uint8Array(2))`: Uint8Array@proven
+  46:5 member `Object.freeze`: unknown
+  46:5 ref `Object`: unknown
+  46:19 new `new Uint8Array(2)`: Uint8Array@proven escape=known
+  46:23 ref `Uint8Array`: unknown
+  47:5 call `console.log("froze bytes")`: unknown
+  47:5 member `console.log`: unknown
+  47:5 ref `console`: unknown
+  48:12 bind `error`: unknown
+  49:5 call `console.log("threw freezing bytes", (...`: unknown
+  49:5 member `console.log`: unknown
+  49:5 ref `console`: unknown
+  49:41 member `(error as Error).name`: string@declared
+  49:42 cast `error as Error`: unknown
+  49:42 ref `error`: unknown
+  49:51 ref `Error`: unknown
+  51:3 call `Object.freeze(new Uint8Array(0))`: Uint8Array@proven
+  51:3 member `Object.freeze`: unknown
+  51:3 ref `Object`: unknown
+  51:17 new `new Uint8Array(0)`: Uint8Array@proven escape=known
+  51:21 ref `Uint8Array`: unknown
+  52:9 bind `plain`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  52:17 array `[1, 2]`: (number[1, 2] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  53:3 call `plain.pop()`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  53:3 member `plain.pop`: unknown
+  53:3 ref `plain`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  54:3 call `console.log(plain.length, fa.length)`: unknown
+  54:3 member `console.log`: unknown
+  54:3 ref `console`: unknown
+  54:15 member `plain.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  54:15 ref `plain`: (number[1, 2] int nonNaN nonNegZero)[]@proven
+  54:29 member `fa.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  54:29 ref `fa`: (number[0, 3] int nonNaN nonNegZero)[]@proven

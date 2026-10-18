@@ -1012,6 +1012,16 @@ impl<'a> Cx<'_, '_, 'a> {
         if !builtin.effects.writes_receiver {
             return;
         }
+        // A mutator throws on a frozen receiver, in sloppy code too.
+        if receiver.pts.sites().is_none_or(|sites| {
+            sites.iter().any(|&site| {
+                self.an
+                    .heap(site)
+                    .is_none_or(|obj| obj.frozen || obj.poisoned || obj.escape == Escape::Unknown)
+            })
+        }) {
+            self.always(EffectKind::Throws);
+        }
         let Some(sites) = receiver.pts.sites().map(<[_]>::to_vec) else {
             return;
         };
@@ -1174,10 +1184,36 @@ impl<'a> Cx<'_, '_, 'a> {
                 Val::unknown()
             }
             Ret::Receiver => receiver.cloned().unwrap_or_else(Val::unknown),
-            Ret::FirstArgument => args
-                .first()
-                .cloned()
-                .unwrap_or_else(|| Val::proven(Type::Undefined)),
+            Ret::FirstArgument => {
+                let first = args
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| Val::proven(Type::Undefined));
+                if builtin.name == "Object.freeze" {
+                    // Freezing a non-empty typed array, a namespace or a Proxy throws.
+                    let throws = !first.is_primitive(false)
+                        && first.pts.sites().is_none_or(|sites| {
+                            sites.iter().any(|&site| {
+                                self.an.heap(site).is_none_or(|obj| {
+                                    obj.poisoned
+                                        || matches!(
+                                            obj.kind,
+                                            ObjKind::TypedArray(_)
+                                                | ObjKind::Namespace(_)
+                                                | ObjKind::Opaque
+                                        )
+                                })
+                            })
+                        });
+                    if throws {
+                        self.always(EffectKind::Throws);
+                    }
+                    for &object in first.pts.sites().unwrap_or_default() {
+                        self.mark(object, |obj| obj.frozen = true);
+                    }
+                }
+                first
+            }
             Ret::ElementOrUndefined => {
                 let element =
                     receiver.map_or_else(Val::unknown, |receiver| self.element(receiver, true));
