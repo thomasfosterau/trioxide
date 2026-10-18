@@ -8,7 +8,7 @@ use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
-use trioxide_js::{EmitOptions, FactSource, PassManager, PassOptions, emit_with};
+use trioxide_js::{EmitOptions, FactSource, Keep, PassManager, PassOptions, emit_with};
 
 use crate::{ModuleOutput, SourceMap, islands::Rewrite};
 
@@ -19,6 +19,8 @@ pub(crate) struct ModuleSource<'s> {
     pub path: &'s Path,
     pub source: &'s str,
     pub source_type: SourceType,
+    /// What the passes must keep.
+    pub keep: &'s Keep,
 }
 
 /// Compiles single modules with fixed settings.
@@ -43,6 +45,7 @@ impl ModuleCompiler {
             path,
             source,
             source_type,
+            keep,
         } = *input;
         let file = Some(path.to_path_buf());
         let to_diagnostics = |errors: &[OxcDiagnostic]| -> Vec<Diagnostic> {
@@ -79,6 +82,7 @@ impl ModuleCompiler {
 
         if optimise {
             let mut passes = PassManager::from_options(self.passes.clone());
+            passes.set_keep(keep.clone());
             if !passes.is_empty() {
                 scoping = passes.run(&allocator, &mut program, scoping, id, facts, log);
             }

@@ -1,0 +1,33 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/tdz-cycle
+input_file: tests/fixtures/passes/review/tdz-cycle/input.ts
+---
+//- input.ts
+// A constant read from a function another module of an import cycle calls before the
+// constant is initialised throws; inlining it would hide that.
+import { describe } from "./e.js";
+import { R3 } from "./x.js";
+export function main() {
+	console.log(describe(), R3);
+}
+
+//- e.ts
+import "./x.js";
+const LIMIT = 8;
+export function describe() {
+	return "d";
+}
+export function lim() {
+	return LIMIT;
+}
+
+//- x.ts
+import { lim } from "./e.js";
+let r3;
+try {
+	r3 = "ok" + lim();
+} catch {
+	r3 = "tdz3";
+}
+export const R3 = r3;

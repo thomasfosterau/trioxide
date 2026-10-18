@@ -34,7 +34,7 @@ function Counter() {
 })(Counter || (Counter = {}));
 export function main() {
 	const v = Geometry.Vec.add([3, 0], [0, 4]);
-	console.log(v.join(","), Geometry.Vec.length(v), Geometry.nearlyEqual(.1 + .2, .3));
+	console.log(v.join(","), Geometry.Vec.length(v), Geometry.nearlyEqual(.30000000000000004, .3));
 	console.log(Geometry.ORIGIN, typeof DEBUG);
 	Counter();
 	Counter();

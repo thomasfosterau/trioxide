@@ -54,11 +54,7 @@ export function main() {
 	const stack = new Stack().push("a", "b", "c");
 	console.log(stack.pop(), stack.size);
 	console.log(swap([1, "one"]).join(" "));
-	const config = {
-		retries: 3,
-		verbose: true
-	};
-	console.log(config.retries + 1, JSON.stringify(groupBy([
+	console.log(4, JSON.stringify(groupBy([
 		1,
 		2,
 		3,

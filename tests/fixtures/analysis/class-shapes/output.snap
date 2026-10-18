@@ -53,7 +53,7 @@ export function main() {
 	const p = new Point(3, 4);
 	console.log(
 		p.norm(),
-		p.x
+		3
 		/*@proven number int*/
 	);
 	const g = new Grows();

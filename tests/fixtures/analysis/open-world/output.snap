@@ -10,10 +10,6 @@ export function scale(value, factor) {
 	// Parameters of an export rest on the declared types.
 	return value * factor;
 }
-function helper(value) {
-	// Only called below with a literal: all call sites are known.
-	return value + 1;
-}
 export const shared = { count: 0 };
 export function bump() {
 	shared.count++;
@@ -21,5 +17,5 @@ export function bump() {
 	return shared.count;
 }
 export function main() {
-	console.log(scale(2, 3), helper(41), bump());
+	console.log(scale(2, 3), 42, bump());
 }

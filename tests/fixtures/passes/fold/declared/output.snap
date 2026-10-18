@@ -1,0 +1,17 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/fold/declared
+input_file: tests/fixtures/passes/fold/declared/input.ts
+---
+//- input.ts
+// Negative cases: exported functions in the library world are called with anything their
+// types allow, so their parameters are only Declared and nothing folds.
+export function twice(n) {
+	return n * 2;
+}
+export function pick(flag) {
+	return flag ? "yes" : "no";
+}
+export function main() {
+	console.log(twice(5), pick(true));
+}

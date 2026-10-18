@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/checks/adversarial
+input_file: tests/fixtures/passes/checks/adversarial/input.ts
+---
+//- input.ts
+12:10 inline applied
+34:11 checks skipped: evaluating the operand may have effects
+5:18 fold skipped: the comparison's operands have effects
+34:18 fold skipped: the expression has effects, so it stays
+11:9 dce applied

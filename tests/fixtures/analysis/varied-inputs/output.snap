@@ -47,12 +47,8 @@ function bytes(n) {
 	return out.length === 0 ? -1 : out[out.length - 1];
 }
 function shape(flag) {
-	const point = {
-		x: 1,
-		y: 2
-	};
-	const v = new Vec2(point.x, flag ? point.y : -point.y);
-	return v.length() + point.x;
+	const v = new Vec2(1, flag ? 2 : -2);
+	return v.length() + 1;
 }
 function divide(a, b) {
 	return a / b | 0;

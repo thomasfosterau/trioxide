@@ -9,9 +9,9 @@ function fr(x) {
 }
 function ops(a, b, s) {
 	const out = [];
-	out.push(Math.fround(.1));
-	out.push(Math.fround(1e300));
-	out.push(Math.fround(16777217) + 0);
+	out.push(.10000000149011612);
+	out.push(Infinity);
+	out.push(16777216);
 	out.push(a * b);
 	out.push(a / b);
 	out.push(a % b);
@@ -26,8 +26,8 @@ function ops(a, b, s) {
 	out.push(Math.abs(a));
 	out.push(Math.max(a, b));
 	out.push(Math.min(a, b));
-	out.push(Math.max());
-	out.push(Math.min());
+	out.push(-Infinity);
+	out.push(Infinity);
 	out.push(a | 0);
 	out.push(a >>> 0);
 	out.push(a >> b);

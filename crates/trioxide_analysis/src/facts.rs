@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use trioxide_common::{ModuleId, NodeId, NodeRef, Span, SymbolRef};
 use trioxide_types::{ClassId, FunctionId, NumberType, Type};
 
+use crate::constants::Constant;
+
 /// How far a fact can be relied on (PLAN D1).
 ///
 /// Ordered from weakest to strongest, so `trust >= Trust::Declared` reads naturally.
@@ -309,6 +311,8 @@ pub struct FunctionInfo {
 /// | [`loop_facts`](Self::loop_facts) | a loop's effects, written locals, length changes, induction ranges, invariants |
 /// | [`reachable`](Self::reachable) | whether code may run at all (unlike a `never` type) |
 /// | [`function`](Self::function), [`resolve_import`](Self::resolve_import) | units and linked imports |
+/// | [`symbol_constant`](Self::symbol_constant), [`enum_member`](Self::enum_member) | bindings and enum members with literal values |
+/// | [`export_used`](Self::export_used) | whether any module can use an export |
 ///
 /// Every answer carries a [`Trust`]; escape and shape facts are always `Proven` (see
 /// [`Allocation::escape`]).
@@ -332,6 +336,12 @@ pub struct Facts {
     points_to: FxHashMap<NodeRef, Vec<NodeRef>>,
     /// Nodes no execution reaches.
     unreachable: FxHashSet<NodeRef>,
+    /// `const` bindings with literal values.
+    constants: FxHashMap<SymbolRef, Constant>,
+    /// Members of enums nothing can change, by enum and member name.
+    enum_members: FxHashMap<(SymbolRef, String), (Constant, Trust)>,
+    /// Exports no module can use.
+    unused_exports: FxHashSet<SymbolRef>,
 }
 
 /// What a call site may call (see [`Facts::site_resolution`]).
@@ -632,6 +642,58 @@ impl Facts {
         }
     }
 
+    /// The literal value of a binding (or of the binding an import resolves to): `Proven` for a
+    /// `const` declared with a primitive literal (through parentheses and TypeScript casts),
+    /// otherwise `Unknown` with no value. A read in the binding's temporal dead zone throws
+    /// instead, so check the read's [`is_pure`](Self::is_pure) too.
+    pub fn symbol_constant(&self, symbol: SymbolRef) -> Fact<Option<&Constant>> {
+        let symbol = self.resolve_import(symbol).unwrap_or(symbol);
+        match self.constants.get(&symbol) {
+            Some(constant) => Fact::proven(Some(constant)),
+            None => Fact {
+                value: None,
+                trust: Trust::Unknown,
+            },
+        }
+    }
+
+    /// The value every evaluation of the member read `E.name` (or `E["name"]`) yields, where
+    /// `enum_symbol` is the enum `E` or an import of it. Only for an enum declared once, at the
+    /// top of a module in no import cycle, after code that can't call anything (so the object
+    /// exists before any read runs, and the read doesn't throw). `Proven` when every use of it,
+    /// through imports too, is a member read (so nothing can change the object) and it isn't
+    /// visible outside the program; `Declared` when only TypeScript says the members are
+    /// read-only (the enum object is used as a value, or exported to unseen code). Otherwise
+    /// `Unknown` with no value.
+    pub fn enum_member(&self, enum_symbol: SymbolRef, name: &str) -> Fact<Option<&Constant>> {
+        let symbol = self.resolve_import(enum_symbol).unwrap_or(enum_symbol);
+        match self.enum_members.get(&(symbol, name.to_string())) {
+            Some((constant, trust)) => Fact {
+                value: Some(constant),
+                trust: *trust,
+            },
+            None => Fact {
+                value: None,
+                trust: Trust::Unknown,
+            },
+        }
+    }
+
+    /// Whether the export of the module-level binding `symbol` may be used by another module
+    /// or the host: `Proven` false in a closed world when its module is not an entry, not
+    /// re-exported by one, its namespace object is never taken (`import * as`, `export * as`,
+    /// `import()`), and no import resolves to it; otherwise `Unknown` true.
+    pub fn export_used(&self, symbol: SymbolRef) -> Fact<bool> {
+        if self.unused_exports.contains(&symbol) {
+            Fact::proven(false)
+        } else {
+            Fact {
+                value: true,
+                trust: Trust::Unknown,
+            }
+        }
+    }
+
     /// Drops every node-keyed fact of `module` (so they all read as `Unknown`), e.g. when a
     /// pass rewrote it in a way its node ids can't follow. The rewrite must keep its meaning:
     /// facts elsewhere about values and effects stay. Facts elsewhere that name its nodes go:
@@ -666,6 +728,10 @@ impl Facts {
             .retain(|symbol, _| symbol.module != module);
         self.imports
             .retain(|import, target| import.module != module && target.module != module);
+        self.constants.retain(|symbol, _| symbol.module != module);
+        self.enum_members
+            .retain(|(symbol, _), _| symbol.module != module);
+        self.unused_exports.retain(|symbol| symbol.module != module);
         let graph = std::mem::take(&mut self.call_graph);
         let units = graph.units.into_iter().filter(other).collect();
         let edges = graph
@@ -876,6 +942,24 @@ impl Facts {
 
     pub(crate) fn set_import(&mut self, import: SymbolRef, target: SymbolRef) {
         self.imports.insert(import, target);
+    }
+
+    pub(crate) fn set_symbol_constant(&mut self, symbol: SymbolRef, constant: Constant) {
+        self.constants.insert(symbol, constant);
+    }
+
+    pub(crate) fn set_enum_member(
+        &mut self,
+        symbol: SymbolRef,
+        name: String,
+        constant: Constant,
+        trust: Trust,
+    ) {
+        self.enum_members.insert((symbol, name), (constant, trust));
+    }
+
+    pub(crate) fn set_export_unused(&mut self, symbol: SymbolRef) {
+        self.unused_exports.insert(symbol);
     }
 
     pub(crate) fn set_call_graph(&mut self, graph: CallGraph) {

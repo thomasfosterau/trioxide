@@ -1,0 +1,18 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/checks/declared-trusted
+input_file: tests/fixtures/passes/checks/declared-trusted/input.ts
+---
+//- input.ts
+// The negative cases with trustTypes: the declared types count, so the checks fold.
+export function read(point, value) {
+	return [
+		point.x,
+		value,
+		true,
+		point == null
+	];
+}
+export function main() {
+	console.log(read({ x: 1 }, 2));
+}

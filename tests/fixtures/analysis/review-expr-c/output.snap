@@ -56,9 +56,7 @@ export function main() {
 	readExtra();
 	oddKeys();
 	tag`a${1}b`;
-	const s = new SetOnly();
-	const r = s.v;
-	console.log(r);
+	console.log(undefined);
 	const b = new Box();
 	b.v = 7;
 	const dv = decoy.v;

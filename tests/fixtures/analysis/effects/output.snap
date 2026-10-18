@@ -21,9 +21,6 @@ function thrower(value) {
 	}
 	return Math.sqrt(value);
 }
-function allocator(value) {
-	return { value };
-}
 function caller() {
 	writer(pure(1, 2));
 	return reader();
@@ -36,5 +33,5 @@ function catches() {
 	}
 }
 export function main() {
-	console.log(pure(3, 4), caller(), catches(), allocator(1).value, thrower(4));
+	console.log(pure(3, 4), caller(), catches(), 1, thrower(4));
 }

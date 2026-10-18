@@ -19,9 +19,8 @@ export function main() {
 		mix(1n, 1)
 		/*@unknown*/
 	);
-	const shifted = 1 << 3;
 	console.log(
-		shifted
+		8
 		/*@proven number int*/
 	);
 }

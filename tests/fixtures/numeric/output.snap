@@ -69,5 +69,5 @@ export function main() {
 		-5,
 		9
 	]));
-	console.log(-7 % 3, 2 ** -1, Math.round(-.5), Object.is(Math.sign(-0), -0), .1 + .2);
+	console.log(-1, 2 ** -1, Math.round(-.5), Object.is(Math.sign(-0), -0), .30000000000000004);
 }

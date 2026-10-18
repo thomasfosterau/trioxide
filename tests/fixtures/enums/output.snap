@@ -31,15 +31,15 @@ var Computed = /* @__PURE__ */ function(Computed) {
 }(Computed || {});
 function describe(direction) {
 	switch (direction) {
-		case Direction.Up:
-		case Direction.Down: return "vertical";
+		case 1:
+		case 2: return "vertical";
 		default: return "horizontal";
 	}
 }
 export function main() {
-	console.log(Direction.Down, Direction[3], describe(Direction.Left));
+	console.log(2, Direction[3], describe(3));
 	console.log(Level.Warn, Object.values(Level).join("|"));
-	const flags = Flags.ReadWrite;
-	console.log(flags, (flags & Flags.Write) !== 0, Flags.None);
+	const flags = 3;
+	console.log(flags, (flags & 2) !== 0, 0);
 	console.log(Computed.A, Computed.B, Computed[6]);
 }

@@ -54,7 +54,9 @@ export interface TrioxideOptions {
   sourcemap?: boolean;
   /**
    * Turn individual optimisation passes on or off by name, e.g. `{ "fold": false }`. Passes
-   * not listed use their defaults.
+   * not listed use their defaults. `"specialize": true` also lets passes fold facts that
+   * hold only because every caller passes the same values into function bodies (off by
+   * default: it makes output harder to read).
    *
    * @default {}
    */

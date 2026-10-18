@@ -1,0 +1,60 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/callee
+input_file: tests/fixtures/passes/review/callee/input.ts
+---
+//- input.ts
+// Folding under a parenthesised callee must keep `this` unbound, an `eval` indirect, and a
+// `typeof` of an undeclared name throwing when the original did.
+class Counter {
+	bump() {
+		return this === undefined ? "unbound" : "bound";
+	}
+}
+globalThis.escaped = Counter;
+const counter = new Counter();
+const pick = Math.random() < 2;
+const maybe = Math.random() < 2 ? counter : null;
+function viaLiteral() {
+	try {
+		return (0, counter.bump)();
+	} catch {
+		return "threw";
+	}
+}
+function viaConditional() {
+	try {
+		return (pick ? counter.bump : counter.bump)();
+	} catch {
+		return "threw";
+	}
+}
+function viaCoalesce() {
+	try {
+		return (counter.bump ?? counter.bump)();
+	} catch {
+		return "threw";
+	}
+}
+function viaChain() {
+	try {
+		return (maybe?.bump)();
+	} catch {
+		return "threw";
+	}
+}
+function viaEval() {
+	// An indirect eval can't see `local`.
+	return (0, eval)("typeof local");
+}
+function viaTypeof() {
+	try {
+		// @ts-ignore
+		return typeof (true && notDeclaredAnywhere);
+	} catch {
+		return "threw";
+	}
+}
+export function main() {
+	console.log(viaLiteral(), viaConditional(), viaCoalesce(), viaChain(), viaEval(), viaTypeof());
+}

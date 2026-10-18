@@ -40,7 +40,7 @@ function viaGetter() {
 	for (let i = 0; i < a.length; i++) {
 		const t = p.top;
 		const v = a[i];
-		sum += v + t;
+		sum += v + 0;
 	}
 	return sum;
 }

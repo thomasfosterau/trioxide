@@ -412,8 +412,9 @@ pub fn abs(a: NumberType) -> NumberType {
     } else {
         (0.0, a.range.max.max(-a.range.min))
     };
+    // `+ 0.0` turns a `-0` bound into `0`: the result is never `-0`.
     NumberType {
-        range: Interval::new(min, max),
+        range: Interval::new(min + 0.0, max + 0.0),
         int: a.int,
         non_nan: a.non_nan,
         non_neg_zero: true,

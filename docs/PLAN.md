@@ -218,7 +218,10 @@ Beyond types, the `Facts` API answers per call site (callees and whether that is
 can run there), per expression (effects including callees and implicit calls, `is_pure`,
 points-to sites), per loop (effects, written locals, arrays whose length the body may change,
 induction ranges, invariant expressions), per unit (callers, reachability distinct from
-`never`).
+`never`), and per declaration: `const` bindings with literal values (`symbol_constant`; the
+type lattice has no string, boolean or bigint literals), enum members (`enum_member`:
+`Proven` when nothing can change the enum object, `Declared` when only TypeScript's read-only
+members say so) and exports no module can use (`export_used`, app world).
 
 Implicit calls count wherever the engine makes them: accessors (class ones, those of object
 literals and of a literal's `__proto__`, and getters a spread reads), coercions, `await`,
@@ -328,6 +331,50 @@ reuse `oxc_ecmascript`; trioxide does not run the oxc minifier.
 
 Every pass has a pre-condition expressed in analysis facts. A pass whose facts are only
 `Declared` is skipped unless `trustTypes` is on, and the skip is logged for `explain`.
+
+**Pipeline** (`trioxide_js::passes`). Passes 1–4 run as one fact-driven group, once, in the
+order inline (1), checks (4), fold (2), dce (3): checks turn guards into literals that fold
+then takes, and dce removes what the others left unused. Within the group node ids are
+stable, so later passes read facts about the nodes earlier ones kept. A syntactic cleanup
+group follows and runs to a fixed point without reading facts (`Pass::reads_facts`, so it
+never triggers a refresh): `oxc_ecmascript` constant evaluation (plus exact int32 bitwise
+folding, which it leaves alone), branches with literal tests, `null?.x`, statements after a
+`return`/`throw`/`break`/`continue`, empty statements, and unused bindings with inert
+initialisers. With these two groups no module is refreshed at all (refreshes happen only
+before a fact-reading group that follows a change); S5's groups pay for refreshes when they
+read facts after a change. An import guard brackets both groups: when the passes remove an
+import's last value use, the TypeScript strip would elide the whole declaration and its module
+might not run, so a side-effect `import "…"` is added in its place.
+
+**Specialisation** is opt-in (`passes: { "specialize": true }`). In a closed world a
+parameter's facts are whatever every caller passes, which can make a function's body constant
+(`y < height` becomes `y < 4`): sound, but it fights readable output and makes a `"use wasm"`
+kernel's glue disagree with its body. With it off, no fact is folded about an expression that
+reads a parameter, `this` or a local assigned from them, and DCE only removes unreachable code
+after a `return`/`throw`/`break`/`continue`; calls are still folded where they are made.
+
+**Islands.** The facade gives each module's passes a `trioxide_js::Keep`: exports of modules
+that define island functions stay (the `ready()` glue's JS fallback calls them by name, which no
+import shows), calls to island functions are not folded, and island functions are not
+removed; functions forced by `"use wasm"` or `@trioxide wasm` are never removed. After an
+update, modules that dropped unused exports are invalidated too, since the edit may now import
+one.
+
+**Termination** is not proven: a pure call that never returns (an infinite loop, a stack
+overflow) may be removed or folded, so the output can finish where the original didn't. This
+is accepted.
+
+Rules every pass follows: one helper (`Slot`) decides where a pass may rewrite, looking through
+parentheses and TypeScript-only wrappers: never a `delete` operand or a whole expression
+statement, never a value fold in a callee, never an identifier under `typeof`, and a member or
+`eval` replacing a callee becomes `(0, x)`; facts inside proven-unreachable code are not used;
+nodes a pass creates have no facts (`NodeId::DUMMY`); expressions that call `super(…)`, `await` or `yield`
+are never dropped, whatever their purity says (binding `this` and suspending are not effects
+in the facts); `var` and function declarations are never removed with the branch or dead code
+that contains them while referenced; literals are printed as unary minus over a literal, and as
+`0 / 0`, `1 / 0`, `void 0` where `NaN`, `Infinity` or `undefined` is shadowed; strings over 32
+bytes, or with lone surrogates or invisible characters, are not copied into uses; detached comments (separated by a blank line) of a removed
+statement move to the next one.
 
 ---
 

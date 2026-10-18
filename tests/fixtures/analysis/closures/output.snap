@@ -22,12 +22,11 @@ export function sharedWrite() {
 	return value;
 }
 export function readOnlyCapture() {
-	const base = 10;
-	const add = (x) => x + base;
+	const add = (x) => x + 10;
 	return add(5);
 }
 export function main() {
 	const next = counter();
 	next();
-	console.log(next(), sharedWrite(), readOnlyCapture());
+	console.log(next(), sharedWrite(), 15);
 }

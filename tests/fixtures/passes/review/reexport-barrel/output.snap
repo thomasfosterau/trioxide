@@ -1,0 +1,19 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/reexport-barrel
+input_file: tests/fixtures/passes/review/reexport-barrel/input.ts
+---
+//- input.ts
+// A named re-export links to its module's export even when nothing imports it.
+import "./hub.js";
+export function main() {
+	console.log(1);
+}
+
+//- hub.ts
+export { unusedName, unusedName as renamed } from "./s1.js";
+export const used = 1;
+
+//- s1.ts
+console.log("s1 ran");
+export const unusedName = 1;

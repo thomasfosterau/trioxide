@@ -24,8 +24,13 @@ impl<'a> Cx<'_, '_, 'a> {
         for (index, statement) in statements.iter().enumerate() {
             if !self.env.reachable {
                 // Dead code still gets facts (it can't run, so anything holds), but
-                // declarations hoisted into it are already bound.
+                // declarations hoisted into it are already bound. A function declaration is
+                // hoisted with its body: whether that runs depends on its callers, not on where
+                // it is written.
                 for statement in &statements[index..] {
+                    if hoists_function(statement) {
+                        continue;
+                    }
                     let node = self.node(statement.node_id());
                     self.record.skipped.insert(node);
                 }
@@ -920,5 +925,20 @@ fn target_node(target: &oxc_ast::ast::AssignmentTarget<'_>) -> oxc_syntax::node:
         other => other
             .as_simple_assignment_target()
             .map_or(oxc_syntax::node::NodeId::DUMMY, GetNodeId::node_id),
+    }
+}
+
+/// Whether `statement` declares a function, exported or not, which is hoisted with its body.
+fn hoists_function(statement: &Statement<'_>) -> bool {
+    match statement {
+        Statement::FunctionDeclaration(_) => true,
+        Statement::ExportDeclaration(export) => {
+            matches!(export.declaration, Declaration::FunctionDeclaration(_))
+        }
+        Statement::ExportDefaultDeclaration(export) => matches!(
+            export.declaration,
+            ExportDefaultDeclarationKind::FunctionDeclaration(_)
+        ),
+        _ => false,
     }
 }

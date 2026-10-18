@@ -1,0 +1,33 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/specialize
+input_file: tests/fixtures/passes/review/specialize/input.ts
+---
+//- input.ts
+2:42 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+3:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+3:14 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+26:7 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+33:40 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+2:42 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+2:42 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+3:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+3:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+3:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+8:24 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+8:24 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:12 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:22 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:22 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:22 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:31 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:40 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:40 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:49 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+26:7 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
+26:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+33:40 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+33:40 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+34:15 fold applied
+34:71 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+2:1 dce applied

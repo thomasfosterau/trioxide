@@ -23,7 +23,7 @@ const DEFAULTS = {
 	retries: 3,
 	timeout: 1e3
 };
-function configure({ retries = DEFAULTS.retries, ...rest }) {
+function configure({ retries = 3, ...rest }) {
 	return {
 		retries,
 		...DEFAULTS,
@@ -32,7 +32,7 @@ function configure({ retries = DEFAULTS.retries, ...rest }) {
 }
 let assigned;
 assigned ||= 1;
-assigned &&= assigned + 1;
+assigned &&= 2;
 label: for (const i of [
 	1,
 	2,

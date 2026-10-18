@@ -1,0 +1,23 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/dce/adversarial
+input_file: tests/fixtures/passes/dce/adversarial/input.ts
+---
+//- input.ts
+22:20 inline skipped: the read may throw (e.g. in its temporal dead zone)
+39:25 inline applied
+31:10 fold applied
+59:22 fold applied
+22:11 dce skipped: unused, but its initialiser has effects
+33:3 dce applied
+41:3 dce skipped: unreachable, but declares a `var` or function, which are visible before it
+41:7 dce applied
+56:9 dce skipped: unused, but its initialiser has effects
+57:9 dce skipped: unused, but its initialiser has effects
+58:9 dce skipped: unused, but its initialiser has effects
+30:1 dce applied
+22:11 dce skipped: unused, but its initialiser has effects
+56:9 dce skipped: unused, but its initialiser has effects
+57:9 dce skipped: unused, but its initialiser has effects
+58:9 dce skipped: unused, but its initialiser has effects
+39:18 simplify applied

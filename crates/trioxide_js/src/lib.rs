@@ -6,12 +6,15 @@
 //!   class-field and decorator semantics) and prints the result with `oxc_codegen`, sourcemap
 //!   included.
 //!
+//! - [`passes`] holds the optimisation passes and the default pipeline.
+//!
 //! S4 and S5 add passes here; the facade only depends on [`PassManager`] and [`emit`].
 
 mod emit;
 mod pass;
+pub mod passes;
 
 pub use emit::{EmitOptions, EmitOutput, emit, emit_with, transform_options};
 pub use pass::{
-    FactSource, Pass, PassContext, PassGroup, PassManager, PassOptions, rebuild_scoping,
+    FactSource, Keep, Pass, PassContext, PassGroup, PassManager, PassOptions, rebuild_scoping,
 };

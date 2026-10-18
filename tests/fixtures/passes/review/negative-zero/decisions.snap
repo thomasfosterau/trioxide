@@ -1,0 +1,15 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/negative-zero
+input_file: tests/fixtures/passes/review/negative-zero/input.ts
+---
+//- input.ts
+4:74 inline applied
+5:26 inline applied
+4:25 fold applied
+4:47 fold applied
+4:65 fold applied
+3:9 dce applied
+5:25 simplify applied
+5:43 simplify applied
+5:64 simplify applied

@@ -1,0 +1,25 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/fold/values
+input_file: tests/fixtures/passes/fold/values/input.ts
+---
+//- input.ts
+11:11 inline applied
+11:23 inline applied
+11:29 inline applied
+33:7 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+5:11 fold applied
+11:29 fold applied
+17:7 fold applied
+17:3 fold applied
+21:10 fold applied
+27:15 fold applied
+28:11 fold applied
+28:30 fold applied
+28:49 fold applied
+33:7 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
+33:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+9:9 dce applied
+5:10 simplify applied
+11:11 simplify applied
+21:10 simplify applied

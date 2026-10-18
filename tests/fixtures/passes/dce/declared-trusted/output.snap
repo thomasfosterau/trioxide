@@ -1,0 +1,14 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/dce/declared-trusted
+input_file: tests/fixtures/passes/dce/declared-trusted/input.ts
+---
+//- input.ts
+// The negative cases with trustTypes: the calls to `scale` count as pure, so the unused
+// result and the call statement go.
+export function scale(x) {
+	return x * 2;
+}
+export function main() {
+	console.log("done");
+}

@@ -1,0 +1,23 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/specialize-on
+input_file: tests/fixtures/passes/review/specialize-on/input.ts
+---
+//- input.ts
+2:42 inline applied
+3:10 inline applied
+3:14 inline applied
+26:7 inline applied
+33:40 inline applied
+2:42 fold applied
+3:10 fold applied
+8:24 fold applied
+21:12 fold applied
+33:40 fold applied
+34:15 fold applied
+34:71 fold applied
+33:9 dce applied
+2:1 dce applied
+26:7 simplify applied
+26:3 simplify applied
+29:3 simplify applied

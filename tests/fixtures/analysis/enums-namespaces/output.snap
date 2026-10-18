@@ -24,9 +24,9 @@ let Units;
 	_Units.km = km;
 })(Units || (Units = {}));
 export function main() {
-	console.log(Direction.Down, Direction[1]);
+	console.log(2, Direction[1]);
 	console.log(
-		Flags.B
+		2
 		/*@declared number*/
 	);
 	console.log(Units.km(2), Units.meter);

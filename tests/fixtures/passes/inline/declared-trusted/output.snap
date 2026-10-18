@@ -1,0 +1,22 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline/declared-trusted
+input_file: tests/fixtures/passes/inline/declared-trusted/input.ts
+---
+//- input.ts
+// The negative cases with trustTypes: declared facts count as proof, so they inline.
+export let Unsealed = /* @__PURE__ */ function(Unsealed) {
+	Unsealed[Unsealed["A"] = 1] = "A";
+	Unsealed[Unsealed["B"] = 2] = "B";
+	return Unsealed;
+}({});
+export function scaled(factor) {
+	return 6;
+}
+export function member() {
+	// An exported enum in the open world may be changed by its importers.
+	return 2;
+}
+export function main() {
+	console.log(scaled(3), member());
+}

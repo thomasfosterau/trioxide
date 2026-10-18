@@ -15,15 +15,23 @@ workspace = true
 trioxide_analysis.workspace = true
 trioxide_common.workspace = true
 trioxide_project.workspace = true
+trioxide_types.workspace = true
 oxc_allocator.workspace = true
 oxc_ast.workspace = true
+oxc_ast_visit.workspace = true
 oxc_codegen.workspace = true
 oxc_diagnostics.workspace = true
+oxc_ecmascript = { workspace = true, features = ["constant_evaluation"] }
 oxc_semantic.workspace = true
 oxc_span.workspace = true
+oxc_syntax.workspace = true
 oxc_transformer.workspace = true
 oxc_traverse.workspace = true
+rustc-hash.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
 oxc_parser.workspace = true
+trioxide.workspace = true
+trioxide_types = { workspace = true, features = ["tsrs"] }

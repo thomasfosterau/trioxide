@@ -15,7 +15,7 @@ export function main() {
 	fill(bytes, 300);
 	console.log(
 		bytes[0],
-		bytes.length
+		4
 		/*@proven number int*/
 	);
 	const floats = new Float32Array([1.5, 2.5]);

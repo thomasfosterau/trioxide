@@ -21,7 +21,7 @@ nodes:
 //- b.ts
 functions:
   <module> (1:1): reads writes allocates calls-unknown
-  readA (8:8): reads
+  readA (8:8): reads throws
 nodes:
   1:10 bind `a`: unknown
   2:5 bind `seen`: string@proven

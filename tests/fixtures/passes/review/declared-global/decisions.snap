@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/declared-global
+input_file: tests/fixtures/passes/review/declared-global/input.ts
+---
+//- input.ts
+7:11 dce skipped: unused, but its initialiser has effects

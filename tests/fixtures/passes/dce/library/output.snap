@@ -1,0 +1,21 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/dce/library
+input_file: tests/fixtures/passes/dce/library/input.ts
+---
+//- input.ts
+// Library world: exports stay even when nothing in the program imports them.
+import "./util.js";
+export function unusedExport() {
+	return 3;
+}
+export function main() {
+	console.log(1);
+}
+
+//- util.ts
+// In the library world every export may be imported by code trioxide doesn't see.
+export function helper() {
+	return 1;
+}
+export const VALUE = 2;

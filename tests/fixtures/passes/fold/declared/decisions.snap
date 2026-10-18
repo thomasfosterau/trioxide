@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/fold/declared
+input_file: tests/fixtures/passes/fold/declared/input.ts
+---
+//- input.ts
+5:10 inline skipped: the binding's single value is only Declared (trustTypes is off)
+5:10 fold skipped: the expression's single value is only Declared (trustTypes is off)

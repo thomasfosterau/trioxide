@@ -1169,6 +1169,18 @@ impl<'a> Cx<'_, '_, 'a> {
     fn assignment(&mut self, assign: &'a oxc_ast::ast::AssignmentExpression<'a>) -> Val {
         let operator = assign.operator;
         if operator == AssignmentOperator::Assign {
+            // A member target's object and key are evaluated before the right-hand side.
+            if let Some(member) = assign
+                .left
+                .as_simple_assignment_target()
+                .and_then(target_member)
+            {
+                let object = self.expr(member.object());
+                let key = self.member_key(member);
+                let value = self.expr(&assign.right);
+                self.write_prop(&object, &key, &value, assign.node_id.get(), false);
+                return value;
+            }
             let value = self.expr(&assign.right);
             self.assign_target(&assign.left, value.clone(), assign.node_id.get());
             return value;
@@ -2425,4 +2437,19 @@ pub fn is_never(value: &Val) -> bool {
 pub fn is_array_index(name: &str) -> bool {
     name.parse::<u32>()
         .is_ok_and(|index| index != u32::MAX && index.to_string() == name)
+}
+
+/// The member expression a simple assignment target writes, through TypeScript casts and
+/// parentheses.
+fn target_member<'s, 'a>(
+    target: &'s SimpleAssignmentTarget<'a>,
+) -> Option<&'s MemberExpression<'a>> {
+    let inner = match target {
+        SimpleAssignmentTarget::TSAsExpression(cast) => &cast.expression,
+        SimpleAssignmentTarget::TSSatisfiesExpression(cast) => &cast.expression,
+        SimpleAssignmentTarget::TSNonNullExpression(cast) => &cast.expression,
+        SimpleAssignmentTarget::TSTypeAssertion(cast) => &cast.expression,
+        member => return member.as_member_expression(),
+    };
+    inner.without_parentheses().as_member_expression()
 }

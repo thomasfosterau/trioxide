@@ -6,33 +6,31 @@ input_file: tests/fixtures/analysis/strings/input.ts
 //- input.ts
 // Primitive strings: nothing can mutate them, so their methods are pure.
 export function main() {
-	const text = "Hello, World";
-	const upper = text.toUpperCase();
+	const upper = "Hello, World".toUpperCase();
 	console.log(
 		upper,
-		text.length
+		"Hello, World".length
 		/*@proven number int nonNaN*/
 	);
-	const index = text.indexOf("o");
+	const index = "Hello, World".indexOf("o");
 	console.log(
 		index,
-		text.charCodeAt(0)
+		"Hello, World".charCodeAt(0)
 		/*@proven number*/
 	);
-	const parts = text.split(", ");
+	const parts = "Hello, World".split(", ");
 	console.log(
 		parts.length,
-		text[0]
+		"Hello, World"[0]
 		/*@proven union*/
 	);
-	const joined = `${text}!` + 1;
+	const joined = `${"Hello, World"}!` + 1;
 	console.log(
 		joined
 		/*@proven string*/
 	);
-	const n = 7;
 	console.log(
-		n.toFixed(2)
+		7 .toFixed(2)
 		/*@proven string*/
 	);
 }

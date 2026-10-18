@@ -731,7 +731,7 @@ fn import_cycles(world: &World<'_>) -> Vec<usize> {
 
 /// The modules whose exports the host can use: the entries (or, without any, the modules no
 /// other module imports) and every module they re-export from, transitively.
-fn open_modules(world: &World<'_>, options: &AnalysisOptions) -> FxHashSet<ModuleId> {
+pub(crate) fn open_modules(world: &World<'_>, options: &AnalysisOptions) -> FxHashSet<ModuleId> {
     let mut roots: Vec<ModuleId> = options.entries.clone();
     if roots.is_empty() {
         let imported: FxHashSet<ModuleId> = world
@@ -1715,8 +1715,10 @@ impl Cx<'_, '_, '_> {
         if flags.contains(oxc_syntax::symbol::SymbolFlags::Ambient)
             || self.module.is_ambient(symbol)
         {
-            // `declare`d: defined by code outside the program.
+            // `declare`d: defined by code outside the program, if at all. Only TypeScript says
+            // it exists, so reading it may throw a ReferenceError unless declared types count.
             self.always(EffectKind::Reads);
+            self.effect(EffectKind::Throws, false, true);
             return Val::unknown();
         }
         if info.import {
@@ -1789,15 +1791,29 @@ impl Cx<'_, '_, '_> {
 
     /// A read of the lexical binding `symbol` throws if its declaration hasn't run: in its own
     /// unit, when the read comes before the declaration's end (or anywhere in a `switch`);
-    /// elsewhere, when its unit may call out before reaching the declaration.
+    /// elsewhere, when its unit may call out before reaching the declaration, or when it is
+    /// module-level in a module that is in an import cycle.
     fn note_tdz_read(&mut self, symbol: SymbolId) {
         let info = self.module.info(symbol);
         let throws = if info.unit == Some(self.unit.id) {
             info.in_switch || self.position < info.declared_at
         } else {
+            // In an import cycle another module may call this code before the module's own
+            // top level has declared it.
+            let module_level =
+                info.unit == Some(self.module.node(self.module.program.node_id.get()));
+            let cyclic = module_level && {
+                let component = self.an.import_cycles.get(self.module.id.index());
+                self.an
+                    .import_cycles
+                    .iter()
+                    .filter(|&other| Some(other) == component)
+                    .count()
+                    > 1
+            };
             let symbol = self.module.symbol(symbol);
             self.an.read(Dep::Symbol(symbol));
-            self.an.state.may_be_uninit.contains(&symbol)
+            cyclic || self.an.state.may_be_uninit.contains(&symbol)
         };
         if throws {
             self.always(EffectKind::Throws);

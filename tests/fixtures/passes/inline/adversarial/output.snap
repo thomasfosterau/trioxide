@@ -1,0 +1,67 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline/adversarial
+input_file: tests/fixtures/passes/inline/adversarial/input.ts
+---
+//- input.ts
+// Adversarial cases for inlining.
+import "./side.js";
+import { readA } from "./cycle-a.js";
+// Enums first, so no code runs before them (the order is part of what makes their
+// members constants).
+var Mutated = /* @__PURE__ */ function(Mutated) {
+	Mutated[Mutated["A"] = 1] = "A";
+	return Mutated;
+}(Mutated || {});
+var Escaping = /* @__PURE__ */ function(Escaping) {
+	Escaping[Escaping["A"] = 1] = "A";
+	return Escaping;
+}(Escaping || {});
+// Changing an enum object: its members are no longer constants.
+Mutated.A = 7;
+// Using one as a value: only TypeScript says its members are read-only.
+const keys = Object.keys(Escaping);
+function early() {
+	// A read in the temporal dead zone throws; inlining it would hide the error.
+	try {
+		return String(LATE);
+	} catch (error) {
+		return error.name;
+	}
+}
+const before = early();
+const LATE = 1;
+const holder = { get value() {
+	console.log("getter ran");
+	return 1;
+} };
+const viaGetter = holder.value;
+let reassigned = 1;
+reassigned = 2;
+export function main() {
+	console.log(before, LATE, 42);
+	console.log(Mutated.A, Escaping.A, keys);
+	console.log(viaGetter, reassigned, readA());
+}
+
+//- side.ts
+// Runs code when loaded: the import must stay even once its constant is inlined.
+console.log("side loaded");
+export const SIDE = 42;
+
+//- cycle-a.ts
+import { readB } from "./cycle-b.js";
+export let Cyclic = /* @__PURE__ */ function(Cyclic) {
+	Cyclic[Cyclic["X"] = 5] = "X";
+	return Cyclic;
+}({});
+export function readA() {
+	return readB();
+}
+
+//- cycle-b.ts
+import { Cyclic } from "./cycle-a.js";
+export function readB() {
+	// In an import cycle: the enum object might not exist yet when this runs.
+	return Cyclic.X;
+}

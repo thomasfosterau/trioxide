@@ -10,10 +10,9 @@ function step() {
 	s = v === null ? 0 : v + 1;
 }
 export function plain() {
-	const a = 1 + 2;
-	return a;
+	return 3;
 }
 export function main() {
 	for (let i = 0; i < 5; i++) step();
-	console.log(s, plain());
+	console.log(s, 3);
 }

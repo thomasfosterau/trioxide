@@ -1,0 +1,17 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/dce/declared
+input_file: tests/fixtures/passes/dce/declared/input.ts
+---
+//- input.ts
+// Negative cases: in the library world `scale` may be called with anything, so whether a call
+// to it is pure rests on declared types (`x * 2` could run valueOf on an object), and its
+// result, though unused, stays.
+export function scale(x) {
+	return x * 2;
+}
+export function main() {
+	const unused = scale(3);
+	scale(4);
+	console.log("done");
+}

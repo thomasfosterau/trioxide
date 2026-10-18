@@ -113,17 +113,9 @@ function whileLoop(a) {
 	let t = 0;
 	let i = 0;
 	while (i < a.length) {
-		t += a[i] ?? 0;
+		t += a[i];
 		i++;
 		a.shift();
-	}
-	return t;
-}
-function reassign(a) {
-	let t = 0;
-	for (let i = 0; i < a.length; i++) {
-		a = [];
-		t += a[i] ?? 0;
 	}
 	return t;
 }
@@ -173,5 +165,5 @@ export function main() {
 		1,
 		2,
 		3
-	]), reassign([1, 2]), setLen([1, 2]), detach(new Float64Array(3)));
+	]), 0, setLen([1, 2]), detach(new Float64Array(3)));
 }

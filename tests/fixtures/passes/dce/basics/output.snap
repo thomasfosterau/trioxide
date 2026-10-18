@@ -1,0 +1,32 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/dce/basics
+input_file: tests/fixtures/passes/dce/basics/input.ts
+---
+//- input.ts
+// Positive cases: unreachable code, unused pure bindings and functions, unused exports and
+// pure expression statements go.
+import "./util.js";
+function early(flag) {
+	if (flag) {
+		return "early";
+	}
+	return "late";
+}
+function loops() {
+	let total = 0;
+	for (let i = 0; i < 3; i++) {
+		total += i;
+		continue;
+	}
+	return total;
+}
+export function main() {
+	console.log(2, early(true), early(false), loops());
+}
+
+//- util.ts
+// A non-entry module: exports no module imports are dropped (app world), then the bindings.
+export function used(x) {
+	return x + 1;
+}

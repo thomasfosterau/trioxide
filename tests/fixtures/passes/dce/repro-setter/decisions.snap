@@ -1,0 +1,6 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/dce/repro-setter
+input_file: tests/fixtures/passes/dce/repro-setter/input.ts
+---
+//- input.ts

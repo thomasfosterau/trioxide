@@ -11,6 +11,7 @@
 
 mod builtins;
 mod callgraph;
+mod constants;
 mod facts;
 mod interp;
 mod link;
@@ -21,6 +22,7 @@ mod summary;
 mod value;
 mod world;
 
+pub use constants::Constant;
 pub use facts::{
     AllocKind, Allocation, CallEdge, CallGraph, ClassShape, Effects, Escape, Fact, Facts,
     FunctionInfo, Induction, LoopFacts, SiteResolution, Trust,
@@ -138,7 +140,8 @@ pub fn analyze(
             .with_code("trioxide(analysis)"),
         );
     }
-    let facts = summary::facts(&world, &links, &results, &options);
+    let mut facts = summary::facts(&world, &links, &results, &options);
+    constants::record(&world, &links, &options, &mut facts);
     Analysis {
         facts,
         diagnostics,

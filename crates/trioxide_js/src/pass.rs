@@ -4,8 +4,9 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::Program;
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_traverse::{Traverse, traverse_mut};
+use rustc_hash::FxHashSet;
 use trioxide_analysis::Facts;
-use trioxide_common::{ModuleId, log::ModuleLog};
+use trioxide_common::{ModuleId, NodeRef, log::ModuleLog};
 
 /// Which passes run, from `Options::passes` and `Options::trust_types`.
 #[derive(Debug, Clone, Default)]
@@ -49,6 +50,17 @@ impl FactSource for Facts {
     }
 }
 
+/// What a module's passes must keep whatever the facts say, set by the facade per module.
+#[derive(Debug, Clone, Default)]
+pub struct Keep {
+    /// The module's exports stay exported: the JS fallback of a WASM island's glue calls
+    /// them by name, which no import shows.
+    pub exports: bool,
+    /// Functions compiled into WASM islands: never removed, and calls to them never folded,
+    /// so an island request doesn't vanish into JS.
+    pub functions: FxHashSet<NodeRef>,
+}
+
 /// What a pass gets to work with.
 pub struct PassContext<'a, 'f> {
     /// The arena the module's AST lives in. New nodes must be allocated here.
@@ -59,6 +71,12 @@ pub struct PassContext<'a, 'f> {
     pub facts: &'f Facts,
     /// Where to record what fired and what was skipped, for `trioxide explain`.
     pub log: &'f mut ModuleLog,
+    /// What must stay whatever the facts say.
+    pub keep: &'f Keep,
+    /// Whether facts that hold only because every caller passes the same values may be
+    /// folded into a function's body (`passes.specialize`, off by default: it costs
+    /// readability).
+    pub specialize: bool,
     scoping: Option<Scoping>,
 }
 
@@ -113,6 +131,14 @@ pub trait Pass {
         true
     }
 
+    /// Whether the pass reads analysis facts. The manager refreshes stale facts only before a
+    /// group (or fixpoint iteration) with a pass that does, since every refresh is a
+    /// whole-program analysis. A pass that says `false` must decide from syntax and the
+    /// scoping alone.
+    fn reads_facts(&self) -> bool {
+        true
+    }
+
     /// Runs the pass. Returns whether it changed the AST.
     fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool;
 }
@@ -132,14 +158,16 @@ pub struct PassGroup {
 ///
 /// Within a group, passes share one [`Scoping`] that they keep up to date (`oxc_traverse`
 /// does this). Between groups, and between fixpoint iterations, if anything changed the
-/// manager rebuilds the semantic data from scratch and refreshes the module's facts before
-/// the next iteration reads them (not after the last), so every group starts from consistent
-/// tables.
+/// manager rebuilds the semantic data from scratch. It refreshes the module's facts only
+/// before an iteration of a group that [reads them](Pass::reads_facts), and never after the
+/// last change, so facts are consistent wherever they are read and refreshes stay rare.
 pub struct PassManager {
     groups: Vec<PassGroup>,
     options: PassOptions,
     /// The most times a fixpoint group is repeated.
     pub max_iterations: usize,
+    refreshes: usize,
+    keep: Keep,
 }
 
 impl PassManager {
@@ -149,12 +177,30 @@ impl PassManager {
             groups: Vec::new(),
             options,
             max_iterations: 8,
+            refreshes: 0,
+            keep: Keep::default(),
         }
     }
 
-    /// The default pipeline for `options`. Currently empty: S4 and S5 register passes here.
+    /// The default pipeline for `options` (PLAN §4): one fact-driven group of the foundation
+    /// passes, run once, then a syntactic cleanup group run to a fixed point (see
+    /// [`crate::passes`]).
     pub fn from_options(options: PassOptions) -> Self {
-        Self::new(options)
+        let mut manager = Self::new(options);
+        for group in crate::passes::default_groups() {
+            manager.add_group(group);
+        }
+        manager
+    }
+
+    /// Sets what the passes must keep in the module [`run`](Self::run) optimises.
+    pub fn set_keep(&mut self, keep: Keep) {
+        self.keep = keep;
+    }
+
+    /// How many times [`run`](Self::run) refreshed the facts.
+    pub fn refreshes(&self) -> usize {
+        self.refreshes
     }
 
     /// Appends a group. Passes disabled by the options are dropped.
@@ -196,9 +242,11 @@ impl PassManager {
             } else {
                 1
             };
+            let reads_facts = group.passes.iter().any(|pass| pass.reads_facts());
             for _ in 0..iterations {
-                if stale {
+                if stale && reads_facts {
                     facts.refresh(module, program, &scoping);
+                    self.refreshes += 1;
                     stale = false;
                 }
                 let mut ctx = PassContext {
@@ -206,6 +254,13 @@ impl PassManager {
                     module,
                     facts: facts.facts(),
                     log: &mut *log,
+                    keep: &self.keep,
+                    specialize: self
+                        .options
+                        .enabled
+                        .get("specialize")
+                        .copied()
+                        .unwrap_or(false),
                     scoping: Some(scoping),
                 };
                 let mut changed = false;
@@ -303,6 +358,112 @@ mod tests {
         let (code, log) = run(PassOptions::default());
         assert_eq!(code, "let x: number = 42;\n");
         assert_eq!(log.passes.len(), 1);
+    }
+
+    /// Counts refreshes.
+    struct Counting {
+        facts: Facts,
+        refreshes: usize,
+    }
+
+    impl FactSource for Counting {
+        fn facts(&self) -> &Facts {
+            &self.facts
+        }
+
+        fn refresh(&mut self, _module: ModuleId, _program: &Program<'_>, _scoping: &Scoping) {
+            self.refreshes += 1;
+        }
+    }
+
+    /// Changes the AST on its first `budget` runs, reading facts or not.
+    struct Changes {
+        name: &'static str,
+        reads: bool,
+        budget: usize,
+    }
+
+    impl Pass for Changes {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn reads_facts(&self) -> bool {
+            self.reads
+        }
+
+        fn run<'a>(&mut self, program: &mut Program<'a>, ctx: &mut PassContext<'a, '_>) -> bool {
+            ctx.traverse(&mut Double, program, ());
+            if self.budget == 0 {
+                return false;
+            }
+            self.budget -= 1;
+            true
+        }
+    }
+
+    fn refreshes(groups: Vec<PassGroup>) -> usize {
+        let allocator = Allocator::default();
+        let mut program = Parser::new(&allocator, "let x = 1;", SourceType::ts())
+            .parse()
+            .program;
+        let scoping = rebuild_scoping(&program);
+        let mut manager = PassManager::new(PassOptions::default());
+        for group in groups {
+            manager.add_group(group);
+        }
+        let mut facts = Counting {
+            facts: Facts::new(false),
+            refreshes: 0,
+        };
+        let mut log = ModuleLog::default();
+        manager.run(
+            &allocator,
+            &mut program,
+            scoping,
+            ModuleId::new(0),
+            &mut facts,
+            &mut log,
+        );
+        assert_eq!(manager.refreshes(), facts.refreshes);
+        facts.refreshes
+    }
+
+    fn group(name: &'static str, reads: bool, budget: usize, fixpoint: bool) -> PassGroup {
+        PassGroup {
+            name,
+            passes: vec![Box::new(Changes {
+                name,
+                reads,
+                budget,
+            })],
+            fixpoint,
+        }
+    }
+
+    #[test]
+    fn refreshes_only_before_groups_that_read_facts() {
+        // The default shape: facts, then a syntactic fixpoint. Nothing reads stale facts.
+        assert_eq!(
+            refreshes(vec![
+                group("facts", true, 1, false),
+                group("cleanup", false, 3, true)
+            ]),
+            0
+        );
+        // A fact-reading group after a change refreshes once, however many groups changed
+        // the module before it.
+        assert_eq!(
+            refreshes(vec![
+                group("first", true, 1, false),
+                group("syntax", false, 2, true),
+                group("second", true, 1, false),
+            ]),
+            1
+        );
+        // A fact-reading fixpoint refreshes before each iteration after a change, not after
+        // the last.
+        assert_eq!(refreshes(vec![group("loop", true, 2, true)]), 2);
     }
 
     #[test]

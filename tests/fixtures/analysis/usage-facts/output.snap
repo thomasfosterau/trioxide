@@ -11,18 +11,11 @@ function bump(n) {
 	log += n;
 	return n;
 }
-function square(x) {
-	return x * x;
-}
-function never() {
-	return 1;
-}
 function early(flag) {
 	if (flag) {
 		return 1;
 	}
 	return 2;
-	log = 99;
 }
 function loop(values) {
 	let total = 0;
@@ -193,11 +186,9 @@ function promised() {
 	});
 }
 export function main() {
-	const point = { x: 1 };
-	const pure = square(3);
 	const effect = bump(2);
 	const outside = external.unknown?.(1);
-	console.log(point.x, pure, effect, outside, early(true), early(false));
+	console.log(1, 9, 2, outside, early(true), early(false));
 	console.log(loop([
 		1,
 		2,

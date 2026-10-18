@@ -126,7 +126,7 @@ jobs:
           printf 'const x: number = 1;\nexport { x };\n' > smoke.ts
           out/trioxide* transform smoke.ts | tee smoke.js
           grep -q 'const x = 1;' smoke.js
-          node -e "const b = require('./packages/trioxide/binding/trioxide.${{ matrix.platform }}.node'); if (b.transform('let y: number = 2', 'a.ts').code !== 'let y = 2;\n') process.exit(1)"
+          node -e "const b = require('./packages/trioxide/binding/trioxide.${{ matrix.platform }}.node'); if (b.transform('export let y: number = 2', 'a.ts').code !== 'export let y = 2;\n') process.exit(1)"
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
@@ -167,7 +167,7 @@ jobs:
           for dir in staged/trioxide staged/npm/linux-x64-gnu; do (cd "$dir" && npm pack --pack-destination "$GITHUB_WORKSPACE"); done
           mkdir fresh && cd fresh && npm init -y > /dev/null
           npm install --omit=optional --no-audit --no-fund ../trioxide-"$VERSION".tgz ../trioxide-binding-linux-x64-gnu-"$VERSION".tgz
-          printf 'const x: number = 1;\n' > a.ts
+          printf 'export const x: number = 1;\n' > a.ts
           npx trioxide --version | grep -F "$VERSION"
           npx trioxide transform a.ts | grep -F 'const x = 1;'
           node --input-type=module -e "import t from 'trioxide/vite'; if (t().name !== 'trioxide') process.exit(1)"

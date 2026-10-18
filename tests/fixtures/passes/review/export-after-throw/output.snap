@@ -1,0 +1,30 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/export-after-throw
+input_file: tests/fixtures/passes/review/export-after-throw/input.ts
+---
+//- input.ts
+// An exported function after a top-level `throw` is still hoisted: a module of the cycle
+// calls it while the throwing module is being linked and evaluated.
+export async function main() {
+	try {
+		await import("./thrower.js");
+	} catch (error) {
+		console.log("caught", error.message);
+	}
+}
+
+//- thrower.ts
+import "./user.js";
+throw new Error("thrower failed");
+// Not constant, so the calls stay calls.
+export function hoisted() {
+	return Date.now() > 0 ? 1 : 0;
+}
+export default function hoistedDefault() {
+	return Date.now() > 0 ? 2 : 0;
+}
+
+//- user.ts
+import hoistedDefault, { hoisted } from "./thrower.js";
+console.log("user", hoisted(), hoistedDefault());

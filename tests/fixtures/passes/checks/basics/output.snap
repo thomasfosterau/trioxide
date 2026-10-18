@@ -1,0 +1,31 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/checks/basics
+input_file: tests/fixtures/passes/checks/basics/input.ts
+---
+//- input.ts
+function make(x) {
+	return { x };
+}
+function chains() {
+	const p = make(1);
+	const f = (n) => n + 1;
+	const maybe = Math.random() > 2 ? null : p;
+	// p and f are never nullish; maybe may be null.
+	return [
+		p.x,
+		f(1),
+		undefined,
+		maybe?.x
+	];
+}
+function coalesce() {
+	// `??` only replaces null and undefined.
+	return [0, "fallback"];
+}
+function guards(value) {
+	return "number";
+}
+export function main() {
+	console.log(chains(), coalesce(), guards(3), guards(4));
+}

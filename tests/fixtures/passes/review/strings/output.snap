@@ -1,0 +1,15 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review/strings
+input_file: tests/fixtures/passes/review/strings/input.ts
+---
+//- input.ts
+// Strings with lone surrogates or invisible characters stay where they are written.
+const lone = "\ud83d";
+const bom = "﻿";
+const joiner = "a‍b";
+const template = `\uDE00`;
+export function main() {
+	console.log(lone.length, (lone + "\ude00").codePointAt(0), bom.length, joiner.length);
+	console.log(template.length, ("\ud83d" + "\ude00").codePointAt(0));
+}

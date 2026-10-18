@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/fold/declared-trusted
+input_file: tests/fixtures/passes/fold/declared-trusted/input.ts
+---
+//- input.ts
+4:10 inline applied
+4:10 simplify applied
