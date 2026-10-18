@@ -16,6 +16,6 @@ input_file: tests/fixtures/passes/licm/basics/input.ts
 14:23 licm applied
 15:26 licm applied
 25:14 licm applied
-38:14 licm applied
+38:14 licm skipped: it may throw, and is only known to be safe where it runs in the body (after the test, or the earlier statements, it may rely on)
 50:25 licm applied
 21:18 pipelines applied

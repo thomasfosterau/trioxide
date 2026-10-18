@@ -1,0 +1,15 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/licm-zero-trip
+input_file: tests/fixtures/passes/review-s5b/licm-zero-trip/input.ts
+---
+//- input.ts
+21:19 inline applied
+21:38 inline skipped: the binding is reassigned
+10:55 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+10:55 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+21:38 fold applied
+10:55 licm skipped: it may throw, and is only known to be safe where it runs in the body (after the test, or the earlier statements, it may rely on)
+21:55 licm skipped: it may throw, and is only known to be safe where it runs in the body (after the test, or the earlier statements, it may rely on)
+21:19 simplify applied
+21:19 simplify applied

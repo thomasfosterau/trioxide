@@ -1,0 +1,6 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/for-of-tuple-resized
+input_file: tests/fixtures/passes/review-s5b/for-of-tuple-resized/input.ts
+---
+//- input.ts

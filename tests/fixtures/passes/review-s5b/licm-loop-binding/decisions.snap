@@ -1,0 +1,12 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/licm-loop-binding
+input_file: tests/fixtures/passes/review-s5b/licm-loop-binding/input.ts
+---
+//- input.ts
+5:23 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+10:14 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+5:23 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+10:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+7:10 licm skipped: the binding is declared inside the loop
+12:10 licm skipped: the binding is declared inside the loop

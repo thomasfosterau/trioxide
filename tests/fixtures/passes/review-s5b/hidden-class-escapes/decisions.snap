@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/hidden-class-escapes
+input_file: tests/fixtures/passes/review-s5b/hidden-class-escapes/input.ts
+---
+//- input.ts
+4:7 hidden-class skipped: code may observe its instances' keys (`Object.keys`, `for…in`, `in`, spread, …), or the class is extended

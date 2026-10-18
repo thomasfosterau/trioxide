@@ -13,7 +13,7 @@ input_file: tests/fixtures/passes/licm/adversarial/input.ts
 51:10 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 57:40 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 57:50 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
-11:56 licm skipped: it reads a binding the loop's test reads (and may narrow)
+11:56 licm skipped: it may throw, and is only known to be safe where it runs in the body (after the test, or the earlier statements, it may rely on)
 19:23 licm skipped: the loop may resize the array
 30:23 licm skipped: the length read may throw
 40:23 licm skipped: the loop may resize the array

@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/licm-const-head
+input_file: tests/fixtures/passes/review-s5b/licm-const-head/input.ts
+---
+//- input.ts
+8:62 inline applied
+8:25 licm applied

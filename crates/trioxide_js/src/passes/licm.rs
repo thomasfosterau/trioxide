@@ -366,8 +366,8 @@ impl<'a> Visitor<'_> {
                     if candidate.part == Part::Body && !candidate.never_throws {
                         self.decisions.skipped(
                             candidate.span,
-                            "only the loop's first test may make it safe to evaluate, and that \
-                             test runs after anything put before the loop",
+                            "it may throw, and is only known to be safe where it runs in the body \
+                             (after the test, or the earlier statements, it may rely on)",
                         );
                         continue;
                     }
