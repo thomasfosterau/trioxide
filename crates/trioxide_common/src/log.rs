@@ -78,7 +78,7 @@ pub struct RuleFailure {
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CostEstimate {
-    /// Estimated time WASM saves on the island's compute.
+    /// Estimated time WASM saves on the island's compute (negative when it is slower).
     pub benefit: f64,
     /// Boundary crossings, marshalling and instantiation.
     pub cost: f64,
@@ -93,7 +93,7 @@ pub struct CostEstimate {
     pub instantiation: f64,
     /// Estimated calls into the island per run.
     pub calls: f64,
-    /// Estimated compute weight per run, in weighted operations.
+    /// Estimated operations the island runs per run of the program.
     pub work: f64,
     /// Estimated bytes copied in and out per run.
     pub bytes: f64,

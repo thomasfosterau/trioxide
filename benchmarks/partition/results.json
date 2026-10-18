@@ -1,0 +1,497 @@
+[
+  {
+    "name": "collatz",
+    "js": 9834248.250000002,
+    "wasm": 9535976.750000004,
+    "readyMs": 14.712063000000004,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": 621579.28,
+        "cost": 700024,
+        "threshold": 0,
+        "crossings": 24,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 2,
+        "work": 123115896,
+        "bytes": 0
+      },
+      "function": "collatz",
+      "features": {
+        "calls": 2,
+        "bytes": 0,
+        "arithmetic": 92156928,
+        "integer": 15539482,
+        "math": 0,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 15419486,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "gamma",
+    "js": 1256046.4375000002,
+    "wasm": 2092054.8125000026,
+    "readyMs": 10.927036999999999,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": -1027604.48,
+        "cost": 752490.8,
+        "threshold": 0,
+        "crossings": 12,
+        "marshalling": 52478.8,
+        "instantiation": 700000,
+        "calls": 1,
+        "work": 2097152,
+        "bytes": 524288
+      },
+      "function": "gamma",
+      "features": {
+        "calls": 1,
+        "bytes": 524288,
+        "arithmetic": 524288,
+        "integer": 524288,
+        "math": 262144,
+        "index": 524288,
+        "checkedIndex": 0,
+        "iteration": 262144,
+        "aggregates": 1
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "histogram",
+    "js": 279606.0390625001,
+    "wasm": 3877588.000000003,
+    "readyMs": 13.010351,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": -2317352.96,
+        "cost": 726332.8,
+        "threshold": 0,
+        "crossings": 12,
+        "marshalling": 26320.800000000003,
+        "instantiation": 700000,
+        "calls": 1,
+        "work": 1835008,
+        "bytes": 262208
+      },
+      "function": "histogram",
+      "features": {
+        "calls": 1,
+        "bytes": 262208,
+        "arithmetic": 0,
+        "integer": 1048576,
+        "math": 0,
+        "index": 262144,
+        "checkedIndex": 262144,
+        "iteration": 262144,
+        "aggregates": 2
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "image-filters",
+    "js": 6289574.999999985,
+    "wasm": 17566544.000000022,
+    "readyMs": 13.944044000000002,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": -15983596.8,
+        "cost": 792272,
+        "threshold": 0,
+        "crossings": 12,
+        "marshalling": 92260,
+        "instantiation": 700000,
+        "calls": 1,
+        "work": 39245520,
+        "bytes": 921600
+      },
+      "function": "boxBlur",
+      "features": {
+        "calls": 1,
+        "bytes": 921600,
+        "arithmetic": 3225600,
+        "integer": 30490080,
+        "math": 0,
+        "index": 0,
+        "checkedIndex": 2457600,
+        "iteration": 3072240,
+        "aggregates": 2
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "int-hash",
+    "js": 11586146.999999983,
+    "wasm": 11382375.249999996,
+    "readyMs": 10.226892,
+    "model": {
+      "wasm": true,
+      "cost": {
+        "benefit": 1120000.08,
+        "cost": 700024,
+        "threshold": 0,
+        "crossings": 24,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 2,
+        "work": 48000002,
+        "bytes": 0
+      },
+      "function": "hashRounds",
+      "features": {
+        "calls": 2,
+        "bytes": 0,
+        "arithmetic": 12000000,
+        "integer": 28000002,
+        "math": 4000000,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 4000000,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "mandelbrot",
+    "js": 5049160.874999998,
+    "wasm": 4953472.250000005,
+    "readyMs": 9.939067000000001,
+    "model": {
+      "wasm": true,
+      "cost": {
+        "benefit": 1243224,
+        "cost": 700024,
+        "threshold": 0,
+        "crossings": 24,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 2,
+        "work": 215700900,
+        "bytes": 0
+      },
+      "function": "mandelbrot",
+      "features": {
+        "calls": 2,
+        "bytes": 0,
+        "arithmetic": 169200000,
+        "integer": 31080600,
+        "math": 0,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 15420300,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "matmul",
+    "js": 1387342.5937499988,
+    "wasm": 14193456.000000026,
+    "readyMs": 10.532091000000001,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": -12236997.12,
+        "cost": 729653.2,
+        "threshold": 0,
+        "crossings": 12,
+        "marshalling": 29641.2,
+        "instantiation": 700000,
+        "calls": 1,
+        "work": 9787680,
+        "bytes": 294912
+      },
+      "function": "matmul",
+      "features": {
+        "calls": 1,
+        "bytes": 294912,
+        "arithmetic": 1769472,
+        "integer": 5345472,
+        "math": 0,
+        "index": 0,
+        "checkedIndex": 1778688,
+        "iteration": 894048,
+        "aggregates": 3
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "number-reduction",
+    "js": 34215.51464843753,
+    "wasm": 608276.7499999999,
+    "readyMs": 19.493712,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": -3563.52,
+        "cost": 702519.6,
+        "threshold": 0,
+        "crossings": 12,
+        "marshalling": 2507.6000000000004,
+        "instantiation": 700000,
+        "calls": 1,
+        "work": 1794,
+        "bytes": 24576
+      },
+      "function": "sumOfSquares",
+      "features": {
+        "calls": 1,
+        "bytes": 24576,
+        "arithmetic": 513,
+        "integer": 512,
+        "math": 1,
+        "index": 0,
+        "checkedIndex": 512,
+        "iteration": 256,
+        "aggregates": 1
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "per-element",
+    "js": 216573.8749999999,
+    "wasm": 1429049.7499999972,
+    "readyMs": 12.693650000000002,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": 0,
+        "cost": 1900000,
+        "threshold": 0,
+        "crossings": 1200000,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 100000,
+        "work": 900000,
+        "bytes": 0
+      },
+      "function": "smoothstep",
+      "features": {
+        "calls": 100000,
+        "bytes": 0,
+        "arithmetic": 700000,
+        "integer": 0,
+        "math": 200000,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 0,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "rounding",
+    "js": 4770086.750000005,
+    "wasm": 5076441.875,
+    "readyMs": 9.266679,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": 400000,
+        "cost": 700024,
+        "threshold": 0,
+        "crossings": 24,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 2,
+        "work": 24000000,
+        "bytes": 0
+      },
+      "function": "rounds",
+      "features": {
+        "calls": 2,
+        "bytes": 0,
+        "arithmetic": 6000000,
+        "integer": 10000000,
+        "math": 6000000,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 2000000,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "sdf",
+    "js": 496998.84375000105,
+    "wasm": 502443.7187500013,
+    "readyMs": 9.990496,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": 48048,
+        "cost": 700024,
+        "threshold": 0,
+        "crossings": 24,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 2,
+        "work": 4801800,
+        "bytes": 0
+      },
+      "function": "sdf",
+      "features": {
+        "calls": 2,
+        "bytes": 0,
+        "arithmetic": 2160000,
+        "integer": 1201200,
+        "math": 1200000,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 240600,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "small-arrays",
+    "js": 131653.7773437503,
+    "wasm": 2836857.75,
+    "readyMs": 9.926109000000004,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": -313600,
+        "cost": 3004000,
+        "threshold": 0,
+        "crossings": 240000,
+        "marshalling": 2064000,
+        "instantiation": 700000,
+        "calls": 20000,
+        "work": 560000,
+        "bytes": 640000
+      },
+      "function": "dot4",
+      "features": {
+        "calls": 20000,
+        "bytes": 640000,
+        "arithmetic": 160000,
+        "integer": 160000,
+        "math": 0,
+        "index": 160000,
+        "checkedIndex": 0,
+        "iteration": 80000,
+        "aggregates": 40000
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "small-helpers",
+    "js": 1991.9598388671855,
+    "wasm": 2002.2400512695258,
+    "readyMs": 9.569859000000001,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": 320,
+        "cost": 700024,
+        "threshold": 0,
+        "crossings": 24,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 2,
+        "work": 22006,
+        "bytes": 0
+      },
+      "function": "clamp",
+      "features": {
+        "calls": 2,
+        "bytes": 0,
+        "arithmetic": 12006,
+        "integer": 8000,
+        "math": 0,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 2000,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "stencil",
+    "js": 114791.63671875003,
+    "wasm": 198311.12500000003,
+    "readyMs": 11.760715999999999,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": -513786.56,
+        "cost": 778755.2,
+        "threshold": 0,
+        "crossings": 12,
+        "marshalling": 78743.20000000001,
+        "instantiation": 700000,
+        "calls": 1,
+        "work": 917476,
+        "bytes": 786432
+      },
+      "function": "conv",
+      "features": {
+        "calls": 1,
+        "bytes": 786432,
+        "arithmetic": 327670,
+        "integer": 262136,
+        "math": 0,
+        "index": 262136,
+        "checkedIndex": 0,
+        "iteration": 65534,
+        "aggregates": 2
+      },
+      "ineligible": []
+    }
+  },
+  {
+    "name": "transcendental",
+    "js": 3451676.2500000056,
+    "wasm": 3812713.749999993,
+    "readyMs": 9.497161000000002,
+    "model": {
+      "wasm": false,
+      "cost": {
+        "benefit": 48000,
+        "cost": 700024,
+        "threshold": 0,
+        "crossings": 24,
+        "marshalling": 0,
+        "instantiation": 700000,
+        "calls": 2,
+        "work": 3600000,
+        "bytes": 0
+      },
+      "function": "atans",
+      "features": {
+        "calls": 2,
+        "bytes": 0,
+        "arithmetic": 1200000,
+        "integer": 1200000,
+        "math": 800000,
+        "index": 0,
+        "checkedIndex": 0,
+        "iteration": 400000,
+        "aggregates": 0
+      },
+      "ineligible": []
+    }
+  }
+]

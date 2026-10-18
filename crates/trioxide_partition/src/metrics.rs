@@ -5,10 +5,11 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentTarget,
+    Argument, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentTarget,
     BinaryExpression, CallExpression, ComputedMemberExpression, DoWhileStatement, Expression,
-    ForInStatement, ForOfStatement, ForStatement, ForStatementInit, Function, NewExpression,
-    ReturnStatement, UnaryExpression, UpdateExpression, WhileStatement,
+    ForInStatement, ForOfStatement, ForStatement, ForStatementInit, FormalParameters, Function,
+    NewExpression, ReturnStatement, StaticMemberExpression, UnaryExpression, UpdateExpression,
+    WhileStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
@@ -17,7 +18,7 @@ use oxc_syntax::{operator::BinaryOperator, scope::ScopeFlags};
 use rustc_hash::FxHashMap;
 use trioxide_analysis::{Facts, Trust};
 use trioxide_common::{ModuleId, NodeRef, SymbolRef};
-use trioxide_types::{FunctionId, Type, TypedArrayKind};
+use trioxide_types::{FunctionId, NumberType, Type, TypedArrayKind};
 
 use crate::{CostModel, SourceModule};
 
@@ -34,17 +35,89 @@ pub(crate) enum Marshal {
     Object(f64),
 }
 
+/// Operation counts by kind, each weighted separately by the cost model.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct Ops {
+    /// Floating-point arithmetic and comparisons.
+    pub arithmetic: f64,
+    /// Arithmetic on proven integers, bitwise operators, `++`/`--`.
+    pub integer: f64,
+    /// `Math.*` calls and `**`.
+    pub math: f64,
+    /// Array element reads and writes whose index the island computes as an int32.
+    pub index: f64,
+    /// Other element reads and writes: the index is a float, converted and checked per
+    /// access.
+    pub checked_index: f64,
+    /// Loop iterations.
+    pub iteration: f64,
+}
+
+impl Ops {
+    /// `self + other × factor`.
+    pub fn add_scaled(&mut self, other: &Self, factor: f64) {
+        self.arithmetic += other.arithmetic * factor;
+        self.integer += other.integer * factor;
+        self.math += other.math * factor;
+        self.index += other.index * factor;
+        self.checked_index += other.checked_index * factor;
+        self.iteration += other.iteration * factor;
+    }
+
+    /// Every operation counted once.
+    pub fn total(&self) -> f64 {
+        self.arithmetic
+            + self.integer
+            + self.math
+            + self.index
+            + self.checked_index
+            + self.iteration
+    }
+
+    /// The time WASM saves running them, by `model`'s weights.
+    pub fn saving(&self, model: &CostModel) -> f64 {
+        self.arithmetic * model.arithmetic
+            + self.integer * model.integer
+            + self.math * model.math
+            + self.index * model.index
+            + self.checked_index * model.checked_index
+            + self.iteration * model.iteration
+    }
+}
+
+/// One kind of operation.
+#[derive(Debug, Clone, Copy)]
+enum Op {
+    Arithmetic,
+    Integer,
+    Math,
+    Index,
+    CheckedIndex,
+    Iteration,
+}
+
 /// One function's estimates.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FunctionMetrics {
-    /// Weighted operations per call, loops multiplied in; calls excluded.
-    pub work: f64,
+    /// Operations per call, loops multiplied in; calls excluded.
+    pub ops: Ops,
     /// Call sites in its body (not in nested functions), with how often each runs per call.
     pub calls: Vec<(NodeRef, f64)>,
-    /// Its parameters, with whether its body writes their elements or fields.
-    pub params: Vec<(SymbolRef, bool)>,
+    /// Its parameters, with whether its body writes their elements or fields, and the
+    /// largest `length` the analysis knows for them.
+    pub params: Vec<Param>,
     /// Arrays it returns, if any.
     pub returns: Option<Marshal>,
+}
+
+/// One parameter of a function.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Param {
+    pub symbol: SymbolRef,
+    /// The body writes its elements or fields.
+    pub written: bool,
+    /// The largest `length` the analysis knows for it, from the body's `p.length` reads.
+    pub length: Option<f64>,
 }
 
 /// Estimates for a whole program.
@@ -58,21 +131,41 @@ pub(crate) struct Metrics {
 impl Metrics {
     /// Walks every module.
     pub fn measure(modules: &[SourceModule<'_>], facts: &Facts, model: &CostModel) -> Self {
+        let allocators: Vec<Allocator> = modules.iter().map(|_| Allocator::default()).collect();
+        let parsed: Vec<_> = modules
+            .iter()
+            .zip(&allocators)
+            .map(|(module, allocator)| {
+                let parsed = Parser::new(allocator, module.source, module.source_type).parse();
+                let program = allocator.alloc(parsed.program);
+                let semantic = SemanticBuilder::new()
+                    .with_enum_eval(true)
+                    .with_build_nodes(true)
+                    .build(program)
+                    .semantic;
+                (module.id, &*program, semantic)
+            })
+            .collect();
+        let mut lengths = Lengths::default();
+        for (module, program, semantic) in &parsed {
+            let mut collector = Collector {
+                module: *module,
+                facts,
+                scoping: semantic.scoping(),
+                out: &mut lengths,
+            };
+            collector.visit_program(program);
+        }
+        let hints = lengths.hints(facts);
         let mut metrics = Self::default();
-        for module in modules {
-            let allocator = Allocator::default();
-            let parsed = Parser::new(&allocator, module.source, module.source_type).parse();
-            let program = allocator.alloc(parsed.program);
-            let semantic = SemanticBuilder::new()
-                .with_enum_eval(true)
-                .with_build_nodes(true)
-                .build(program)
-                .semantic;
+        for (module, program, semantic) in &parsed {
             let mut walker = Walker {
-                module: module.id,
+                module: *module,
                 facts,
                 model,
                 scoping: semantic.scoping(),
+                hints: &hints,
+                lengths: &lengths,
                 frames: vec![Frame {
                     id: None,
                     freq: 1.0,
@@ -85,14 +178,29 @@ impl Metrics {
         metrics
     }
 
+    /// The arrays and objects passed to or returned from one call of `function`.
+    pub fn aggregates(&self, function: FunctionId, facts: &Facts) -> f64 {
+        let Some(metrics) = self.functions.get(&function) else {
+            return 0.0;
+        };
+        let params = metrics
+            .params
+            .iter()
+            .filter(|param| marshal_of(facts.symbol_ty(param.symbol).value) != Marshal::Scalar)
+            .count();
+        #[expect(clippy::cast_precision_loss, reason = "parameter counts are small")]
+        let params = params as f64;
+        params + if metrics.returns.is_some() { 1.0 } else { 0.0 }
+    }
+
     /// The bytes copied across the boundary per call of `function`.
     pub fn bytes(&self, function: FunctionId, facts: &Facts, model: &CostModel) -> f64 {
         let Some(metrics) = self.functions.get(&function) else {
             return 0.0;
         };
-        let elements = model.trips;
-        let size = |marshal: Marshal, written: bool| {
+        let size = |marshal: Marshal, written: bool, length: Option<f64>| {
             let copies = if written { 2.0 } else { 1.0 };
+            let elements = length.unwrap_or(model.trips);
             match marshal {
                 Marshal::Scalar => 0.0,
                 Marshal::Typed(bytes) => elements * bytes * copies,
@@ -103,10 +211,28 @@ impl Metrics {
         let params: f64 = metrics
             .params
             .iter()
-            .map(|&(param, written)| size(marshal_of(facts.symbol_ty(param).value), written))
+            .map(|param| {
+                size(
+                    marshal_of(facts.symbol_ty(param.symbol).value),
+                    param.written,
+                    param.length,
+                )
+            })
             .sum();
-        params + metrics.returns.map_or(0.0, |marshal| size(marshal, false))
+        params
+            + metrics
+                .returns
+                .map_or(0.0, |marshal| size(marshal, false, None))
     }
+}
+
+/// Whether every value of `n` is an int32 other than `-0` (as the Rust backend requires).
+fn is_int32(n: NumberType) -> bool {
+    n.int
+        && n.non_nan
+        && n.non_neg_zero
+        && n.range.min >= f64::from(i32::MIN)
+        && n.range.max <= f64::from(i32::MAX)
 }
 
 /// How a value of type `ty` crosses the boundary.
@@ -145,11 +271,161 @@ struct Frame {
     metrics: FunctionMetrics,
 }
 
+/// Array lengths the program's allocation sites give, and what reaches each parameter.
+#[derive(Default)]
+struct Lengths {
+    /// Typed arrays of known length, by allocation site.
+    allocations: FxHashMap<NodeRef, f64>,
+    /// Array literals and their lengths when made (an estimate: `push` may grow them).
+    literals: FxHashMap<NodeRef, f64>,
+    /// Each call site's arguments.
+    arguments: FxHashMap<NodeRef, Vec<NodeRef>>,
+    /// Each function's parameters.
+    params: FxHashMap<FunctionId, Vec<SymbolRef>>,
+}
+
+impl Lengths {
+    /// The longest array that may reach each parameter, when every array that may is
+    /// allocated with a known length.
+    fn hints(&self, facts: &Facts) -> FxHashMap<SymbolRef, f64> {
+        let mut hints: FxHashMap<SymbolRef, Option<f64>> = FxHashMap::default();
+        for edge in facts.call_graph().edges() {
+            let (Some(arguments), Some(params)) = (
+                self.arguments.get(&edge.site),
+                self.params.get(&edge.callee),
+            ) else {
+                continue;
+            };
+            for (param, argument) in params.iter().zip(arguments) {
+                let length = facts.points_to(*argument).value.and_then(|sites| {
+                    sites
+                        .iter()
+                        .map(|site| self.allocations.get(site).copied())
+                        .collect::<Option<Vec<f64>>>()?
+                        .into_iter()
+                        .reduce(f64::max)
+                });
+                let hint = hints.entry(*param).or_insert(length);
+                *hint = match (*hint, length) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                };
+            }
+        }
+        hints
+            .into_iter()
+            .filter_map(|(param, hint)| Some((param, hint?)))
+            .collect()
+    }
+}
+
+/// Fills [`Lengths`] from one module.
+struct Collector<'w, 's> {
+    module: ModuleId,
+    facts: &'w Facts,
+    scoping: &'s Scoping,
+    out: &'w mut Lengths,
+}
+
+impl Collector<'_, '_> {
+    fn node(&self, node: oxc_syntax::node::NodeId) -> NodeRef {
+        NodeRef {
+            module: self.module,
+            node,
+        }
+    }
+
+    fn arguments(&mut self, site: oxc_syntax::node::NodeId, arguments: &[Argument<'_>]) {
+        let arguments = arguments
+            .iter()
+            .map(|argument| match argument.as_expression() {
+                Some(expression) => self.node(expression.get_inner_expression().node_id()),
+                None => self.node(argument.node_id()),
+            })
+            .collect();
+        self.out.arguments.insert(self.node(site), arguments);
+    }
+
+    fn params(&mut self, id: oxc_syntax::node::NodeId, params: &FormalParameters<'_>) {
+        let params = params
+            .items
+            .iter()
+            .filter_map(|param| param.pattern.get_binding_identifier()?.symbol_id.get())
+            .map(|symbol| SymbolRef {
+                module: self.module,
+                symbol,
+            })
+            .collect();
+        self.out.params.insert(self.node(id), params);
+    }
+}
+
+impl<'a> Visit<'a> for Collector<'_, '_> {
+    fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
+        self.params(function.node_id(), &function.params);
+        walk::walk_function(self, function, flags);
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+        self.params(arrow.node_id(), &arrow.params);
+        walk::walk_arrow_function_expression(self, arrow);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.arguments(it.node_id(), &it.arguments);
+        walk::walk_call_expression(self, it);
+    }
+
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        self.arguments(it.node_id(), &it.arguments);
+        // Typed arrays keep their length (number[] may grow, so their literals say nothing).
+        let typed = matches!(&it.callee, Expression::Identifier(id)
+            if id.name.ends_with("Array") && id.name != "Array"
+                && id.reference_id.get().is_some_and(|r| self.scoping.get_reference(r).symbol_id().is_none()));
+        if typed && let [argument] = it.arguments.as_slice() {
+            let length = match argument
+                .as_expression()
+                .map(Expression::get_inner_expression)
+            {
+                #[expect(clippy::cast_precision_loss, reason = "literal lengths are small")]
+                Some(Expression::ArrayExpression(elements))
+                    if elements.elements.iter().all(|e| !e.is_spread()) =>
+                {
+                    Some(elements.elements.len() as f64)
+                }
+                Some(expression) => {
+                    let fact = self.facts.range(self.node(expression.node_id()));
+                    let range = fact.value.range;
+                    (fact.trust > Trust::Unknown && range.max < f64::from(1 << 24))
+                        .then_some(range.max)
+                }
+                None => None,
+            };
+            if let Some(length) = length {
+                self.out.allocations.insert(self.node(it.node_id()), length);
+            }
+        }
+        walk::walk_new_expression(self, it);
+    }
+
+    fn visit_array_expression(&mut self, it: &oxc_ast::ast::ArrayExpression<'a>) {
+        if !it.elements.is_empty() && it.elements.iter().all(|e| !e.is_spread()) {
+            #[expect(clippy::cast_precision_loss, reason = "literal lengths are small")]
+            let length = it.elements.len() as f64;
+            self.out.literals.insert(self.node(it.node_id()), length);
+        }
+        walk::walk_array_expression(self, it);
+    }
+}
+
 struct Walker<'w, 's> {
     module: ModuleId,
     facts: &'w Facts,
     model: &'w CostModel,
     scoping: &'s Scoping,
+    /// Array lengths that reach parameters.
+    hints: &'w FxHashMap<SymbolRef, f64>,
+    lengths: &'w Lengths,
     frames: Vec<Frame>,
     out: &'w mut Metrics,
 }
@@ -166,22 +442,64 @@ impl Walker<'_, '_> {
         self.frames.last_mut().expect("the program frame")
     }
 
-    fn add(&mut self, weight: f64) {
+    fn add(&mut self, op: Op) {
         let frame = self.frame();
-        frame.metrics.work += weight * frame.freq;
+        let ops = &mut frame.metrics.ops;
+        let count = match op {
+            Op::Arithmetic => &mut ops.arithmetic,
+            Op::Integer => &mut ops.integer,
+            Op::Math => &mut ops.math,
+            Op::Index => &mut ops.index,
+            Op::CheckedIndex => &mut ops.checked_index,
+            Op::Iteration => &mut ops.iteration,
+        };
+        *count += frame.freq;
+    }
+
+    /// Whether the Rust backend computes the index `expression` as an int32: the analysis
+    /// proves the value is one, and so every local it reads (the backend types a local by
+    /// its binding's range, not by the range at each use).
+    fn int32_index(&self, expression: &Expression<'_>) -> bool {
+        struct Locals<'w, 's, 'x> {
+            walker: &'x Walker<'w, 's>,
+            int32: bool,
+        }
+        impl<'a> Visit<'a> for Locals<'_, '_, '_> {
+            fn visit_identifier_reference(&mut self, id: &oxc_ast::ast::IdentifierReference<'a>) {
+                let symbol = id
+                    .reference_id
+                    .get()
+                    .and_then(|r| self.walker.scoping.get_reference(r).symbol_id());
+                let Some(symbol) = symbol else {
+                    self.int32 = false;
+                    return;
+                };
+                let fact = self.walker.facts.symbol_ty(SymbolRef {
+                    module: self.walker.module,
+                    symbol,
+                });
+                self.int32 &= self.walker.facts.is_usable(fact.trust)
+                    && matches!(fact.value, Type::Number(n) if is_int32(*n));
+            }
+        }
+        let fact = self
+            .facts
+            .range(self.node(expression.get_inner_expression().node_id()));
+        if !(self.facts.is_usable(fact.trust) && is_int32(fact.value)) {
+            return false;
+        }
+        let mut locals = Locals {
+            walker: self,
+            int32: true,
+        };
+        locals.visit_expression(expression);
+        locals.int32
     }
 
     /// Whether the analysis knows the value of `expression` is an integer.
     fn integer(&self, expression: &Expression<'_>) -> bool {
         let fact = self.facts.range(self.node(expression.node_id()));
         fact.trust > Trust::Unknown && fact.value.int
-    }
-
-    fn typed_array(&self, expression: &Expression<'_>) -> bool {
-        let fact = self
-            .facts
-            .ty(self.node(expression.get_inner_expression().node_id()));
-        matches!(fact.value, Type::TypedArray(_))
     }
 
     /// The symbol `expression` reads, if it is a plain identifier.
@@ -199,11 +517,41 @@ impl Walker<'_, '_> {
         })
     }
 
+    /// `expression` as a counter plus a constant offset (`i`, `i + 3`, `i - 1`).
+    fn counter(&self, expression: &Expression<'_>) -> Option<(SymbolRef, f64)> {
+        if let Some(symbol) = self.symbol(expression) {
+            return Some((symbol, 0.0));
+        }
+        let Expression::BinaryExpression(sum) = expression.get_inner_expression() else {
+            return None;
+        };
+        let Expression::NumericLiteral(constant) = sum.right.get_inner_expression() else {
+            return None;
+        };
+        let symbol = self.symbol(&sum.left)?;
+        match sum.operator {
+            BinaryOperator::Addition => Some((symbol, constant.value)),
+            BinaryOperator::Subtraction => Some((symbol, -constant.value)),
+            _ => None,
+        }
+    }
+
     /// A finite bound the analysis knows for `expression`: its range's `max` (or `min`).
     fn bound(&self, expression: &Expression<'_>, max: bool) -> Option<f64> {
-        let fact = self
-            .facts
-            .range(self.node(expression.get_inner_expression().node_id()));
+        if let Expression::StaticMemberExpression(member) = expression.get_inner_expression()
+            && member.property.name == "length"
+            && let Some(&hint) = self
+                .symbol(&member.object)
+                .and_then(|symbol| self.hints.get(&symbol))
+        {
+            return Some(hint);
+        }
+        self.bound_of(expression.get_inner_expression().node_id(), max)
+    }
+
+    /// [`bound`](Self::bound) of the expression `node`.
+    fn bound_of(&self, node: oxc_syntax::node::NodeId, max: bool) -> Option<f64> {
+        let fact = self.facts.range(self.node(node));
         let range = fact.value.range;
         let value = if max { range.max } else { range.min };
         (fact.trust > Trust::Unknown && value.is_finite() && value.abs() < f64::from(1 << 24))
@@ -225,8 +573,8 @@ impl Walker<'_, '_> {
             let Expression::BinaryExpression(test) = test?.get_inner_expression() else {
                 return None;
             };
-            let (counter, operator, limit) =
-                match (self.symbol(&test.left), self.symbol(&test.right)) {
+            let ((counter, offset), operator, limit) =
+                match (self.counter(&test.left), self.counter(&test.right)) {
                     (Some(left), _) => (left, test.operator, &test.right),
                     (None, Some(right)) => (right, flip(test.operator)?, &test.left),
                     (None, None) => return None,
@@ -252,7 +600,7 @@ impl Walker<'_, '_> {
                 (BinaryOperator::GreaterEqualThan, false) => (self.bound(limit, false)?, true),
                 _ => return None,
             };
-            let distance = (to - from) / step;
+            let distance = (to - offset - from) / step;
             let trips = if inclusive {
                 distance.floor() + 1.0
             } else {
@@ -267,7 +615,7 @@ impl Walker<'_, '_> {
     fn looped(&mut self, trips: f64, walk: impl FnOnce(&mut Self)) {
         let outer = self.frame().freq;
         self.frame().freq = outer * trips;
-        self.add(self.model.iteration);
+        self.add(Op::Iteration);
         walk(self);
         self.frame().freq = outer;
     }
@@ -277,7 +625,14 @@ impl Walker<'_, '_> {
             id: Some(id),
             freq: 1.0,
             metrics: FunctionMetrics {
-                params: params.into_iter().map(|p| (p, false)).collect(),
+                params: params
+                    .into_iter()
+                    .map(|symbol| Param {
+                        symbol,
+                        written: false,
+                        length: self.hints.get(&symbol).copied(),
+                    })
+                    .collect(),
                 ..FunctionMetrics::default()
             },
         });
@@ -298,34 +653,19 @@ impl Walker<'_, '_> {
         self.out.sites.insert(site, frame.freq);
     }
 
-    /// Marks the parameter `expression` names (if it does) as written through.
-    fn written(&mut self, expression: &Expression<'_>) {
-        let Expression::Identifier(id) = expression.get_inner_expression() else {
-            return;
-        };
-        let Some(symbol) = id
-            .reference_id
-            .get()
-            .and_then(|r| self.scoping.get_reference(r).symbol_id())
-        else {
-            return;
-        };
-        let symbol = SymbolRef {
-            module: self.module,
-            symbol,
-        };
-        if let Some(param) = self
-            .frame()
+    /// The parameter of the current function `expression` names, if it names one.
+    fn param(&mut self, expression: &Expression<'_>) -> Option<&mut Param> {
+        let symbol = self.symbol(expression)?;
+        self.frames
+            .last_mut()
+            .expect("the program frame")
             .metrics
             .params
             .iter_mut()
-            .find(|(p, _)| *p == symbol)
-        {
-            param.1 = true;
-        }
+            .find(|p| p.symbol == symbol)
     }
 
-    fn params(&self, function: &oxc_ast::ast::FormalParameters<'_>) -> Vec<SymbolRef> {
+    fn params(&self, function: &FormalParameters<'_>) -> Vec<SymbolRef> {
         function
             .items
             .iter()
@@ -396,7 +736,29 @@ impl<'a> Visit<'a> for Walker<'_, '_> {
 
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
         self.visit_expression(&it.right);
-        let trips = self.model.trips;
+        // The length of the arrays it may iterate, when all are literals or typed arrays of
+        // known length.
+        let right = self.node(it.right.get_inner_expression().node_id());
+        let trips = self
+            .facts
+            .points_to(right)
+            .value
+            .and_then(|sites| {
+                sites
+                    .iter()
+                    .map(|site| {
+                        let lengths = self.lengths;
+                        lengths
+                            .literals
+                            .get(site)
+                            .or_else(|| lengths.allocations.get(site))
+                            .copied()
+                    })
+                    .collect::<Option<Vec<f64>>>()?
+                    .into_iter()
+                    .reduce(f64::max)
+            })
+            .unwrap_or(self.model.trips);
         self.looped(trips, |this| {
             this.visit_for_statement_left(&it.left);
             this.visit_statement(&it.body);
@@ -423,49 +785,58 @@ impl<'a> Visit<'a> for Walker<'_, '_> {
                 | BinaryOperator::ShiftRightZeroFill
         );
         let integer = bitwise || (self.integer(&it.left) && self.integer(&it.right));
-        let weight = if it.operator == BinaryOperator::Exponential {
-            self.model.math
+        self.add(if it.operator == BinaryOperator::Exponential {
+            Op::Math
+        } else if integer {
+            Op::Integer
         } else {
-            self.model.arithmetic
-        };
-        self.add(if integer {
-            weight * self.model.integer
-        } else {
-            weight
+            Op::Arithmetic
         });
         walk::walk_binary_expression(self, it);
     }
 
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
-        self.add(self.model.arithmetic);
+        self.add(Op::Arithmetic);
         walk::walk_unary_expression(self, it);
     }
 
     fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
-        self.add(self.model.arithmetic * self.model.integer);
+        self.add(Op::Integer);
         walk::walk_update_expression(self, it);
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
         if it.operator != AssignmentOperator::Assign {
-            self.add(self.model.arithmetic);
+            self.add(Op::Arithmetic);
         }
-        match &it.left {
-            AssignmentTarget::ComputedMemberExpression(member) => self.written(&member.object),
-            AssignmentTarget::StaticMemberExpression(member) => self.written(&member.object),
-            _ => {}
+        let object = match &it.left {
+            AssignmentTarget::ComputedMemberExpression(member) => Some(&member.object),
+            AssignmentTarget::StaticMemberExpression(member) => Some(&member.object),
+            _ => None,
+        };
+        if let Some(param) = object.and_then(|object| self.param(object)) {
+            param.written = true;
         }
         walk::walk_assignment_expression(self, it);
     }
 
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
-        let weight = if self.typed_array(&it.object) {
-            self.model.index * self.model.typed_array
+        self.add(if self.int32_index(&it.expression) {
+            Op::Index
         } else {
-            self.model.index
-        };
-        self.add(weight);
+            Op::CheckedIndex
+        });
         walk::walk_computed_member_expression(self, it);
+    }
+
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        if it.property.name == "length"
+            && let Some(length) = self.bound_of(it.node_id(), true)
+            && let Some(param) = self.param(&it.object)
+        {
+            param.length = Some(param.length.map_or(length, |known| known.min(length)));
+        }
+        walk::walk_static_member_expression(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
@@ -473,7 +844,7 @@ impl<'a> Visit<'a> for Walker<'_, '_> {
             Expression::StaticMemberExpression(member)
                 if matches!(&member.object, Expression::Identifier(id) if id.name == "Math"));
         if math {
-            self.add(self.model.math);
+            self.add(Op::Math);
         } else {
             self.site(it.node_id());
         }

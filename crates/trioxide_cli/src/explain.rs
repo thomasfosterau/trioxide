@@ -89,7 +89,7 @@ fn cost_lines(out: &mut String, cost: &CostEstimate) {
     );
     let _ = writeln!(
         out,
-        "      benefit: {:.0} weighted ops over {:.0} call(s)",
+        "      benefit: {:.0} operations over {:.0} call(s)",
         cost.work, cost.calls
     );
     let _ = writeln!(

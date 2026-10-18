@@ -14,12 +14,14 @@ use trioxide_analysis::Facts;
 use trioxide_common::log::CostEstimate;
 use trioxide_types::FunctionId;
 
-use crate::metrics::Metrics;
+use crate::metrics::{Metrics, Ops};
 
 /// The cost model's weights and thresholds (`costModel` in `trioxide.json`).
 ///
-/// Operation weights are relative to one floating-point operation; `saving` converts them to
-/// nanoseconds. The defaults come from `benchmarks/partition/` on V8 (Node 22).
+/// Operation weights are the nanoseconds WASM saves per operation compared with V8's
+/// optimised JS (negative where the island is slower); the cost terms are nanoseconds too.
+/// The defaults are fitted to `benchmarks/partition/` (Node 22, V8 12.4) for the code the
+/// Rust backend generates today.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct CostModel {
@@ -27,25 +29,28 @@ pub struct CostModel {
     pub threshold: f64,
     /// The threshold in `wasm-preferred` mode.
     pub wasm_preferred_threshold: f64,
-    /// Nanoseconds WASM saves per weighted operation.
-    pub saving: f64,
-    /// Weight of a floating-point arithmetic operation or comparison.
+    /// Nanoseconds saved per floating-point arithmetic operation or comparison.
     pub arithmetic: f64,
-    /// Multiplier for operations on proven integers and bitwise operators.
+    /// Nanoseconds saved per operation on proven integers, bitwise operator, `++` or `--`.
     pub integer: f64,
-    /// Weight of a `Math.*` call or `**`.
+    /// Nanoseconds saved per `Math.*` call or `**`.
     pub math: f64,
-    /// Weight of an array element read or write.
+    /// Nanoseconds saved per array element read or write whose index the island computes as
+    /// an int32.
     pub index: f64,
-    /// Multiplier for typed array element accesses.
-    pub typed_array: f64,
-    /// Weight of one loop iteration's own control flow.
+    /// Nanoseconds saved per other element read or write (the index is a float, converted
+    /// and checked on every access).
+    pub checked_index: f64,
+    /// Nanoseconds saved per loop iteration (its own control flow).
     pub iteration: f64,
-    /// Trip count assumed for loops without a constant bound, and the element count assumed
-    /// for arrays crossing the boundary.
+    /// Trip count assumed for loops without a known bound, and the element count assumed
+    /// for arrays of unknown length crossing the boundary.
     pub trips: f64,
     /// Nanoseconds per call into an island (the glue's checks and the arena reset).
     pub crossing: f64,
+    /// Nanoseconds per array or object argument (or result) per call: allocating it in the
+    /// arena, the glue's aliasing and plain-view checks, the views it creates.
+    pub aggregate: f64,
     /// Nanoseconds per byte copied into or out of linear memory.
     pub byte: f64,
     /// Multiplier for the bytes of a `number[]`, which is converted element by element.
@@ -55,22 +60,25 @@ pub struct CostModel {
 }
 
 impl Default for CostModel {
+    /// Fitted to `benchmarks/partition/` (see its README): V8's optimised JS and today's
+    /// islands run scalar code about equally fast (integer work slightly faster in WASM),
+    /// element accesses are slower in WASM, and every crossing costs.
     fn default() -> Self {
         Self {
             threshold: 0.0,
-            wasm_preferred_threshold: -50_000.0,
-            saving: 0.35,
-            arithmetic: 1.0,
-            integer: 1.5,
-            math: 4.0,
-            index: 1.0,
-            typed_array: 1.5,
-            iteration: 1.0,
+            wasm_preferred_threshold: -1_000_000.0,
+            arithmetic: 0.0,
+            integer: 0.04,
+            math: 0.0,
+            index: -2.0,
+            checked_index: -7.0,
+            iteration: 0.0,
             trips: 256.0,
-            crossing: 120.0,
-            byte: 0.15,
-            number_array: 4.0,
-            instantiation: 20_000.0,
+            crossing: 12.0,
+            aggregate: 50.0,
+            byte: 0.1,
+            number_array: 12.0,
+            instantiation: 700_000.0,
         }
     }
 }
@@ -94,7 +102,8 @@ impl CostModel {
     ) -> Score {
         let members: FxHashSet<FunctionId> = cluster.iter().copied().collect();
         let mut works = FxHashMap::default();
-        let (mut calls, mut work, mut bytes) = (0.0, 0.0, 0.0);
+        let (mut calls, mut bytes, mut aggregates) = (0.0, 0.0, 0.0);
+        let mut ops = Ops::default();
         let mut entries = Vec::new();
         for &function in cluster {
             let mut freq = 0.0;
@@ -117,12 +126,17 @@ impl CostModel {
             }
             entries.push(function);
             calls += freq;
-            work += freq * self.work(function, facts, metrics, &mut works, &mut Vec::new());
+            ops.add_scaled(
+                &self.work(function, facts, metrics, &mut works, &mut Vec::new()),
+                freq,
+            );
             bytes += freq * metrics.bytes(function, facts, self);
+            aggregates += freq * metrics.aggregates(function, facts);
         }
-        let benefit = work * self.saving;
+        let benefit = ops.saving(self);
+        let work = ops.total();
         let crossings = calls * self.crossing;
-        let marshalling = bytes * self.byte;
+        let marshalling = bytes * self.byte + aggregates * self.aggregate;
         let instantiation = self.instantiation;
         Score {
             estimate: CostEstimate {
@@ -140,48 +154,45 @@ impl CostModel {
         }
     }
 
-    /// The weighted operations one call of `function` runs, its callees' included. A
-    /// recursive call counts as a loop around the function's own work.
+    /// The operations one call of `function` runs, its callees' included. A recursive call
+    /// counts as a loop around the function's own work.
     fn work(
         &self,
         function: FunctionId,
         facts: &Facts,
         metrics: &Metrics,
-        memo: &mut FxHashMap<FunctionId, f64>,
+        memo: &mut FxHashMap<FunctionId, Ops>,
         stack: &mut Vec<FunctionId>,
-    ) -> f64 {
-        if let Some(&work) = memo.get(&function) {
-            return work;
+    ) -> Ops {
+        if let Some(&ops) = memo.get(&function) {
+            return ops;
         }
         let Some(own) = metrics.functions.get(&function) else {
-            return 0.0;
+            return Ops::default();
         };
         stack.push(function);
-        let mut work = own.work;
+        let mut ops = own.ops;
         for &(site, freq) in &own.calls {
             let callees: Vec<FunctionId> = facts
                 .call_graph()
                 .callees(site)
                 .map(|edge| edge.callee)
                 .collect();
-            if callees.is_empty() {
-                continue;
-            }
-            let mut total = 0.0;
-            for &callee in &callees {
-                total += if stack.contains(&callee) {
-                    let own = metrics.functions.get(&callee).map_or(0.0, |m| m.work);
-                    own * self.trips
-                } else {
-                    self.work(callee, facts, metrics, memo, stack)
-                };
-            }
             #[expect(clippy::cast_precision_loss, reason = "callee counts are small")]
-            let average = total / callees.len() as f64;
-            work += freq * average;
+            let share = freq / callees.len().max(1) as f64;
+            for &callee in &callees {
+                if stack.contains(&callee) {
+                    if let Some(callee) = metrics.functions.get(&callee) {
+                        ops.add_scaled(&callee.ops, share * self.trips);
+                    }
+                } else {
+                    let callee = self.work(callee, facts, metrics, memo, stack);
+                    ops.add_scaled(&callee, share);
+                }
+            }
         }
         stack.pop();
-        memo.insert(function, work);
-        work
+        memo.insert(function, ops);
+        ops
     }
 }
