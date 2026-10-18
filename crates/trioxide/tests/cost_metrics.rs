@@ -9,12 +9,18 @@ use trioxide::{CostModel, Options, Project, log::FunctionDecision};
 const KERNEL: &str = include_str!("../../../benchmarks/partition/kernels/image-filters/kernel.ts");
 const INPUT: &str = include_str!("../../../benchmarks/partition/kernels/image-filters/input.ts");
 
-/// `boxBlur`'s cost-model decision, planned with only `weights` non-zero among the operation
-/// weights, so its benefit counts those operations.
-fn box_blur(weights: impl FnOnce(&mut CostModel)) -> FunctionDecision {
+/// The cost-model decision on `function` in a program of `kernel.ts` and `input.ts` (the
+/// entry), planned with only `weights` non-zero among the operation weights, so its benefit
+/// counts those operations.
+fn decision(
+    kernel: &str,
+    input: &str,
+    function: &str,
+    weights: impl FnOnce(&mut CostModel),
+) -> FunctionDecision {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("kernel.ts"), KERNEL).unwrap();
-    std::fs::write(dir.path().join("input.ts"), INPUT).unwrap();
+    std::fs::write(dir.path().join("kernel.ts"), kernel).unwrap();
+    std::fs::write(dir.path().join("input.ts"), input).unwrap();
     let mut cost_model = CostModel {
         arithmetic: 0.0,
         integer: 0.0,
@@ -38,13 +44,21 @@ fn box_blur(weights: impl FnOnce(&mut CostModel)) -> FunctionDecision {
         .modules
         .iter()
         .flat_map(|m| &m.log.functions)
-        .find(|f| f.name.as_deref() == Some("boxBlur"))
+        .find(|f| f.name.as_deref() == Some(function))
         .cloned()
         .unwrap()
 }
 
+fn box_blur(weights: impl FnOnce(&mut CostModel)) -> FunctionDecision {
+    decision(KERNEL, INPUT, "boxBlur", weights)
+}
+
 fn benefit(decision: &FunctionDecision) -> f64 {
-    decision.cost.as_ref().expect("boxBlur is scored").benefit
+    decision
+        .cost
+        .as_ref()
+        .expect("the function is scored")
+        .benefit
 }
 
 /// An index whose sum is an int32 but whose product isn't proven one is float arithmetic in
@@ -58,4 +72,24 @@ fn index_arithmetic_counts_as_int32_only_when_every_operation_is() {
     // Four writes and the alpha read per pixel index with `(y * width + x) * 4 + c`: int32.
     let int32 = box_blur(|m| m.index = 1.0);
     assert_eq!(benefit(&int32), 5.0 * 76_800.0, "{int32:?}");
+}
+
+/// `%` on int32s is `f64` in the island (`RemI32` has an `f64` result), so an index built on
+/// it is a float index, whatever its range.
+#[test]
+fn remainders_make_float_indices() {
+    let kernel = "export function pick(a: Int32Array): number {
+  let s = 0;
+  for (let i = 0; i < 400000; i++) s += a[(i % 7) * 4 + 1];
+  return s;
+}
+";
+    let input = "import { pick } from \"./kernel.js\";
+const a = new Int32Array(64);
+export const run = (): number => pick(a);
+";
+    let checked = decision(kernel, input, "pick", |m| m.checked_index = 1.0);
+    assert_eq!(benefit(&checked), 400_000.0, "{checked:?}");
+    let int32 = decision(kernel, input, "pick", |m| m.index = 1.0);
+    assert_eq!(benefit(&int32), 0.0, "{int32:?}");
 }

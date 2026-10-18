@@ -14,7 +14,10 @@ use oxc_ast::ast::{
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
 use oxc_semantic::{Scoping, SemanticBuilder};
-use oxc_syntax::{operator::BinaryOperator, scope::ScopeFlags};
+use oxc_syntax::{
+    operator::{BinaryOperator, UnaryOperator},
+    scope::ScopeFlags,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_analysis::{Facts, Trust};
 use trioxide_common::{ModuleId, NodeRef, SymbolRef};
@@ -270,6 +273,11 @@ fn is_int32(n: NumberType) -> bool {
         && n.range.max <= f64::from(i32::MAX)
 }
 
+/// Whether every value of `n` is a uint32 other than `-0`.
+fn is_uint32(n: NumberType) -> bool {
+    n.int && n.non_nan && n.non_neg_zero && n.range.min >= 0.0 && n.range.max <= f64::from(u32::MAX)
+}
+
 /// How a value of type `ty` crosses the boundary.
 fn marshal_of(ty: &Type) -> Marshal {
     match ty {
@@ -453,25 +461,6 @@ impl<'a> Visit<'a> for Collector<'_, '_> {
     }
 }
 
-/// Whether every local an expression reads is held as an int32 by the backend.
-struct Int32Locals<'w, 's, 'x> {
-    walker: &'x Walker<'w, 's>,
-    int32: bool,
-}
-
-impl<'a> Visit<'a> for Int32Locals<'_, '_, '_> {
-    fn visit_identifier_reference(&mut self, id: &oxc_ast::ast::IdentifierReference<'a>) {
-        let symbol = id
-            .reference_id
-            .get()
-            .and_then(|r| self.walker.scoping.get_reference(r).symbol_id());
-        // Globals (`Math`) aren't locals the backend types.
-        if let Some(symbol) = symbol {
-            self.int32 &= self.walker.int32_symbol(symbol);
-        }
-    }
-}
-
 struct Walker<'w, 's> {
     module: ModuleId,
     facts: &'w Facts,
@@ -513,37 +502,69 @@ impl Walker<'_, '_> {
         *count = saturate(*count + frame.freq);
     }
 
-    /// Whether the Rust backend computes `expression` as an int32: it is a numeric literal
-    /// (folded at compile time), or the analysis proves the value is one, and so every local
-    /// it reads (the backend types a local by its binding's range, not by the range at each
-    /// use). `+`, `-` and `*` run on int32s only when both operands do, so their operands
-    /// must qualify too (`(y * width + x) * 4` is float arithmetic when `y * width` has no
-    /// int32 range, whatever the sum's range).
+    /// Whether the Rust backend computes `expression` as an integer (`i32` or `u32`), following
+    /// how it types values: integer literals; locals whose binding's range is int32 or uint32
+    /// (the backend types a local by its binding, not by the range at each use); `+`, `-`,
+    /// `*` and unary `-` on integers whose own range is proven in range (`(y * width + x) * 4`
+    /// is float arithmetic when `y * width` has no int32 range, whatever the sum's); bitwise
+    /// operators, `Math.imul` and `Math.clz32`; an array's `length` with an int32 range.
+    /// Everything else (`/`, `%`, other `Math` calls, element reads) is `f64` in the island.
     fn int32(&self, expression: &Expression<'_>) -> bool {
         let inner = expression.get_inner_expression();
-        if matches!(inner, Expression::NumericLiteral(_)) {
-            return true;
-        }
-        let fact = self.facts.range(self.node(inner.node_id()));
-        if !(self.facts.is_usable(fact.trust) && is_int32(fact.value)) {
-            return false;
-        }
-        if let Expression::BinaryExpression(binary) = inner
-            && matches!(
-                binary.operator,
-                BinaryOperator::Addition
-                    | BinaryOperator::Subtraction
-                    | BinaryOperator::Multiplication
-            )
-        {
-            return self.int32(&binary.left) && self.int32(&binary.right);
-        }
-        let mut locals = Int32Locals {
-            walker: self,
-            int32: true,
+        let ranged = |int32_only: bool| {
+            let fact = self.facts.range(self.node(inner.node_id()));
+            self.facts.is_usable(fact.trust)
+                && (is_int32(fact.value) || !int32_only && is_uint32(fact.value))
         };
-        locals.visit_expression(expression);
-        locals.int32
+        match inner {
+            Expression::NumericLiteral(literal) => {
+                let value = literal.value;
+                value.fract() == 0.0
+                    && !(value == 0.0 && value.is_sign_negative())
+                    && (f64::from(i32::MIN)..=f64::from(u32::MAX)).contains(&value)
+            }
+            Expression::Identifier(id) => id
+                .reference_id
+                .get()
+                .and_then(|r| self.scoping.get_reference(r).symbol_id())
+                .is_some_and(|symbol| self.integer_symbol(symbol)),
+            Expression::BinaryExpression(binary) => match binary.operator {
+                BinaryOperator::Addition
+                | BinaryOperator::Subtraction
+                | BinaryOperator::Multiplication => {
+                    ranged(false) && self.int32(&binary.left) && self.int32(&binary.right)
+                }
+                operator => operator.is_bitwise(),
+            },
+            Expression::UnaryExpression(unary) => {
+                unary.operator == UnaryOperator::UnaryNegation
+                    && ranged(true)
+                    && self.int32(&unary.argument)
+            }
+            Expression::CallExpression(call) => {
+                matches!(
+                    call.callee.get_inner_expression(),
+                    Expression::StaticMemberExpression(member)
+                        if matches!(&member.object, Expression::Identifier(math) if math.name == "Math")
+                            && matches!(member.property.name.as_str(), "imul" | "clz32")
+                )
+            }
+            Expression::StaticMemberExpression(member) => {
+                member.property.name == "length" && ranged(true)
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the backend holds the local `symbol` as an integer (its range fact proves an
+    /// int32 or a uint32).
+    fn integer_symbol(&self, symbol: oxc_syntax::symbol::SymbolId) -> bool {
+        let fact = self.facts.symbol_ty(SymbolRef {
+            module: self.module,
+            symbol,
+        });
+        self.facts.is_usable(fact.trust)
+            && matches!(fact.value, Type::Number(n) if is_int32(*n) || is_uint32(*n))
     }
 
     /// Whether the backend holds the local `symbol` as an int32 (its range fact proves one).
