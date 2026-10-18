@@ -151,6 +151,11 @@ impl<'a> Visitor<'_> {
             && let Some(ForStatementInit::VariableDeclaration(declaration)) = &s.init
             && declaration.kind == VariableDeclarationKind::Const
         {
+            self.decisions.skipped(
+                span,
+                "the loop's head declares a `const`, which nothing can join and which its \
+                 invariants may read",
+            );
             return Vec::new();
         }
         let Some(facts) = self
