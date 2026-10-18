@@ -1,0 +1,73 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/escaped-subclass-late
+input_file: tests/fixtures/analysis/escaped-subclass-late/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Base.<fields> (3:12) open: pure
+  Base.describe (4:11) open: pure
+  Other.<fields> (9:13) open: reads writes throws calls-unknown
+  Other.describe (11:11) open: reads writes throws calls-unknown (declared: reads)
+  make (18:1): reads writes allocates throws calls-unknown
+    calls 20:10 -> Base.<fields>
+    calls 20:10 -> Other.<fields>
+    calls 20:10 -> Derived.<fields>
+  Derived.<fields> (19:32) open: pure
+  useOther (23:1): reads writes
+  main (27:8) open: reads writes allocates throws calls-unknown
+    calls 28:17 -> make
+    calls 29:3 -> useOther
+    calls 30:18 -> make
+classes:
+  Base (3:1): fields [] shape unknown
+  Other (9:1): fields [tag] shape unknown
+  Derived (19:3): fields [] shape unknown
+nodes:
+  3:7 bind `Base`: function@proven
+  9:7 bind `Other`: function@proven
+  12:15 member `this.tag`: string@declared
+  12:15 this `this`: Other@declared
+  16:5 bind `Parent`: function@proven
+  16:20 ref `Base`: unknown
+  16:27 ref `Base`: function@proven
+  18:10 bind `make`: function@proven
+  18:18 ref `Base`: unknown
+  19:9 bind `Derived`: function@proven
+  19:25 ref `Parent`: function | function@proven
+  20:10 new `new Derived()`: Derived@proven escape=unknown
+  20:14 ref `Derived`: function@proven
+  23:10 bind `useOther`: function@proven
+  24:3 assign `Parent = Other`: function@proven
+  24:3 ref `Parent`: function@proven
+  24:12 ref `Other`: function@proven
+  27:17 bind `main`: function@proven
+  28:9 bind `first`: Derived@proven
+  28:17 call `make()`: Derived@proven
+  28:17 ref `make`: function@proven
+  29:3 call `useOther()`: undefined@proven
+  29:3 ref `useOther`: function@proven
+  30:9 bind `second`: Derived@proven
+  30:18 call `make()`: Derived@proven
+  30:18 ref `make`: function@proven
+  32:9 bind `key`: string@proven
+  32:15 cond `process.argv.length > 1000 ? "toStrin...`: string@proven
+  32:15 binary `process.argv.length > 1000`: boolean@proven
+  32:15 member `process.argv.length`: unknown
+  32:15 member `process.argv`: unknown
+  32:15 ref `process`: unknown
+  33:14 bind `object`: Derived@proven
+  33:24 array `[first, second]`: Derived[]@proven escape=none stable-shape
+  33:25 ref `first`: Derived@proven
+  33:32 ref `second`: Derived@proven
+  34:5 call `console.log((object as unknown as Rec...`: unknown
+  34:5 member `console.log`: unknown
+  34:5 ref `console`: unknown
+  34:17 call `(object as unknown as Record<string, ...`: string@declared
+  34:17 member `(object as unknown as Record<string, ...`: unknown
+  34:18 cast `object as unknown as Record<string, (...`: Derived@proven
+  34:18 cast `object as unknown`: Derived@proven
+  34:18 ref `object`: Derived@proven
+  34:39 ref `Record`: unknown
+  34:69 ref `key`: string@proven

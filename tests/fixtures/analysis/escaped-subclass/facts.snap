@@ -1,0 +1,49 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/escaped-subclass
+input_file: tests/fixtures/analysis/escaped-subclass/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  Base.<fields> (3:12) open: reads writes throws calls-unknown
+  Base.describe (5:11) open: reads writes throws calls-unknown (declared: reads throws)
+    calls 6:29 -> Base.kind @declared
+  Base.kind (8:7) open: pure
+  Derived.<fields> (13:28) open: pure
+  Derived.kind (14:7) open: pure
+  main (19:8) open: reads writes allocates throws calls-unknown
+    calls 20:19 -> Base.<fields>
+    calls 20:19 -> Derived.<fields>
+classes:
+  Base (3:1): fields [label] shape unknown
+  Derived (13:1): fields [label] shape unknown
+nodes:
+  3:7 bind `Base`: function@proven
+  6:15 member `this.label`: string@declared
+  6:15 this `this`: Base@declared
+  6:29 call `this.kind()`: string@declared
+  6:29 member `this.kind`: unknown
+  6:29 this `this`: Base@declared
+  13:7 bind `Derived`: function@proven
+  13:23 ref `Base`: function@proven
+  19:17 bind `main`: function@proven
+  20:9 bind `derived`: Derived@proven
+  20:19 new `new Derived()`: Derived@proven escape=unknown
+  20:23 ref `Derived`: function@proven
+  22:9 bind `key`: string@proven
+  22:15 cond `process.argv.length > 1000 ? "kind" :...`: string@proven
+  22:15 binary `process.argv.length > 1000`: boolean@proven
+  22:15 member `process.argv.length`: unknown
+  22:15 member `process.argv`: unknown
+  22:15 ref `process`: unknown
+  23:3 call `console.log((derived as unknown as Re...`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 call `(derived as unknown as Record<string,...`: string@declared
+  23:15 member `(derived as unknown as Record<string,...`: unknown
+  23:16 cast `derived as unknown as Record<string, ...`: Derived@proven
+  23:16 cast `derived as unknown`: Derived@proven
+  23:16 ref `derived`: Derived@proven
+  23:38 ref `Record`: unknown
+  23:68 ref `key`: string@proven

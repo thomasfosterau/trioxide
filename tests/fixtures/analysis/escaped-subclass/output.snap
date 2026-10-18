@@ -1,0 +1,28 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/escaped-subclass
+input_file: tests/fixtures/analysis/escaped-subclass/input.ts
+---
+//- input.ts
+// A subclass instance that escapes to code trioxide can't follow takes its inherited methods
+// with it: unknown code may call `Base.prototype.describe` on it, so `describe` is open.
+class Base {
+	label = "base";
+	describe() {
+		return `${this.label}:${this.kind()}`;
+	}
+	kind() {
+		return "base";
+	}
+}
+class Derived extends Base {
+	kind() {
+		return "derived";
+	}
+}
+export function main() {
+	const derived = new Derived();
+	// A key trioxide can't know: the call goes to whatever `derived` has under it.
+	const key = process.argv.length > 1e3 ? "kind" : "describe";
+	console.log(derived[key]());
+}

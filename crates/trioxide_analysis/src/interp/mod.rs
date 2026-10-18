@@ -1531,6 +1531,18 @@ impl<'w, 'a> Analyzer<'w, 'a> {
         let slot = self.state.supers.entry(class).or_insert_with(Val::never);
         if Self::join_into(self.round, slot, value) {
             self.touch(Dep::Super(class));
+            // A class (or instance) other code already reaches exposes its new parent too.
+            let level = if self.state.open_instances.contains(&class) {
+                Escape::Unknown
+            } else {
+                self.state
+                    .heap
+                    .get(&class)
+                    .map_or(Escape::None, |obj| obj.escape)
+            };
+            if level > Escape::None {
+                self.escape(&value.pts, level);
+            }
         }
     }
 
@@ -1614,6 +1626,16 @@ impl<'w, 'a> Analyzer<'w, 'a> {
                 pending.push(info.init);
                 pending.extend(info.members.iter().filter_map(|member| member.unit));
                 pending.extend(info.constructor);
+                // Inherited members are reachable through it too (a parent joined later
+                // escapes in `join_super`).
+                if let Some(sites) = self
+                    .state
+                    .supers
+                    .get(&class)
+                    .and_then(|parent| parent.pts.sites())
+                {
+                    pending.extend_from_slice(sites);
+                }
             }
         }
     }
