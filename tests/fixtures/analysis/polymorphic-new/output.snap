@@ -1,0 +1,30 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/polymorphic-new
+input_file: tests/fixtures/analysis/polymorphic-new/input.ts
+---
+//- input.ts
+// One `new` site constructs `A` or `B`: the instance escapes, and unknown code reaches its
+// class through `.constructor`, so `B.tag` is not the `1` it was declared with.
+class A {
+	static tag = 0;
+}
+class B {
+	static tag = 1;
+}
+function pick(flag) {
+	return flag ? A : B;
+}
+let inst;
+function make(flag) {
+	const C = pick(flag);
+	inst = new C();
+}
+export function main() {
+	make(true);
+	make(false);
+	globalThis.leak = inst;
+	globalThis["leak"].constructor.tag = "changed by unknown code";
+	const t = B.tag;
+	console.log(t);
+}

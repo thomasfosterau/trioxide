@@ -22,7 +22,8 @@
 //! - loop invariants: each invariant expression has the same value (`Object.is`) on every
 //!   iteration of one entry into its loop;
 //! - shapes: objects from allocation sites with a proven stable shape, and instances of
-//!   classes with a proven stable shape, end the run with the own keys they had when made,
+//!   classes with a proven stable shape (made at any `new` site, whatever class the facts
+//!   say it makes), end the run with the own keys they had when made,
 //!   in order, and a class's proven fields come first in that order;
 //! - reachability: units and statements proven unreachable report it if they run.
 //!
@@ -355,6 +356,24 @@ fn instrument(
                 format!(";globalThis.__class({:?}, {});", key(node.id()), name.name),
                 false,
             );
+            let shape = facts.class_shape(node_ref);
+            if shape.trust == Trust::Proven && shape.value.is_stable() {
+                let fields: Vec<String> = shape
+                    .value
+                    .fields
+                    .iter()
+                    .map(|field| format!("{field:?}"))
+                    .collect();
+                edits.insert(
+                    statement.end,
+                    format!(
+                        ";globalThis.__stable({:?}, [{}]);",
+                        key(node.id()),
+                        fields.join(", ")
+                    ),
+                    false,
+                );
+            }
         }
         // Code proven unreachable reports it if it runs.
         let mut dead_unit = false;
@@ -593,6 +612,12 @@ fn instrument(
                 "))",
             );
             count += 1;
+        }
+        // Whatever class a `new` makes an instance of, whichever class the facts name.
+        if let AstKind::NewExpression(_) = node.kind()
+            && !must_not_wrap(nodes, node.id())
+        {
+            edits.wrap(span, "globalThis.__made((".to_string(), "))");
         }
         // Parameters and declared bindings, once bound.
         if let AstKind::BindingIdentifier(binding) = node.kind() {
@@ -1090,6 +1115,19 @@ globalThis.__function = (id, v) => {
   return !all || all.has(v);
 };
 const instances = [];
+const stable = new Map();
+globalThis.__stable = (id, fields) => { stable.set(id, fields); };
+globalThis.__made = (v) => {
+  if (typeof v !== 'object' || v === null) return v;
+  const proto = Object.getPrototypeOf(v);
+  for (const [id, fields] of stable) {
+    if ([...(classes.get(id) ?? [])].some((c) => c.prototype === proto)) {
+      checks++;
+      instances.push([id, fields, v, Object.getOwnPropertyNames(v).join(',')]);
+    }
+  }
+  return v;
+};
 globalThis.__shape = (id, fields, v) => {
   checks++;
   instances.push([id, fields, v, Object.getOwnPropertyNames(v).join(',')]);

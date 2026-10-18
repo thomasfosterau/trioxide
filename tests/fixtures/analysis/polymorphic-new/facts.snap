@@ -1,0 +1,64 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/polymorphic-new
+input_file: tests/fixtures/analysis/polymorphic-new/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  A.<fields> (3:9) open: pure
+  B.<fields> (6:9) open: pure
+  pick (9:1): reads throws
+  make (13:1): reads writes allocates throws calls-unknown
+    calls 14:13 -> pick
+  main (17:8) open: reads writes allocates throws calls-unknown
+    calls 18:3 -> make
+    calls 19:3 -> make
+classes:
+  A (3:1): fields [] shape unknown
+  B (6:1): fields [] shape unknown
+nodes:
+  3:7 bind `A`: function@proven
+  6:7 bind `B`: function@proven
+  9:10 bind `pick`: function@proven
+  9:15 bind `flag`: boolean@proven
+  9:38 ref `A`: unknown
+  10:10 cond `flag ? A : B`: function | function@proven
+  10:10 ref `flag`: boolean@proven
+  10:17 ref `A`: function@proven
+  10:21 ref `B`: function@proven
+  12:5 bind `inst`: undefined@proven
+  13:10 bind `make`: function@proven
+  13:15 bind `flag`: boolean@proven
+  14:9 bind `C`: function | function@proven
+  14:13 call `pick(flag)`: function | function@proven
+  14:13 ref `pick`: function@proven
+  14:18 ref `flag`: boolean@proven
+  15:3 assign `inst = new C()`: A@declared
+  15:3 ref `inst`: A@declared
+  15:10 new `new C()`: A@declared
+  15:14 ref `C`: function | function@proven
+  17:17 bind `main`: function@proven
+  18:3 call `make(true)`: undefined@proven
+  18:3 ref `make`: function@proven
+  19:3 call `make(false)`: undefined@proven
+  19:3 ref `make`: function@proven
+  20:3 assign `(globalThis as any).leak = inst`: undefined | A@declared
+  20:3 member `(globalThis as any).leak`: unknown
+  20:4 cast `globalThis as any`: unknown
+  20:4 ref `globalThis`: unknown
+  20:30 ref `inst`: undefined | A@declared
+  21:3 assign `(globalThis as any)["le" + "ak"].cons...`: string@proven
+  21:3 member `(globalThis as any)["le" + "ak"].cons...`: unknown
+  21:3 member `(globalThis as any)["le" + "ak"].cons...`: unknown
+  21:3 member `(globalThis as any)["le" + "ak"]`: unknown
+  21:4 cast `globalThis as any`: unknown
+  21:4 ref `globalThis`: unknown
+  21:23 binary `"le" + "ak"`: string@proven
+  22:9 bind `t`: unknown
+  22:13 member `B.tag`: unknown
+  22:13 ref `B`: function@proven
+  23:3 call `console.log(t)`: unknown
+  23:3 member `console.log`: unknown
+  23:3 ref `console`: unknown
+  23:15 ref `t`: unknown
