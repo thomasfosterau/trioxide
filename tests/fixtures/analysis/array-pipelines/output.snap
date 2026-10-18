@@ -12,22 +12,25 @@ export function main() {
 		3,
 		4
 	];
-	const doubled = [];
+	const result = [];
 	for (let i = 0, length = values.length; i < length; i++) {
 		const v = values[i];
-		doubled.push(v * 2);
+		result.push(v * 2);
 	}
-	const even = [];
+	const doubled = result;
+	const result2 = [];
 	for (let i = 0, length = doubled.length; i < length; i++) {
 		const v = doubled[i];
 		if (!(i % 2 === 0)) continue;
-		even.push(v);
+		result2.push(v);
 	}
-	let total = 0;
+	const even = result2;
+	let result3 = 0;
 	for (let i = 0, length = even.length; i < length; i++) {
 		const v = even[i];
-		total = total + v;
+		result3 = result3 + v;
 	}
+	const total = result3;
 	console.log(
 		total
 		/*@proven number*/
@@ -36,14 +39,15 @@ export function main() {
 	console.log(doubled.length, even.length);
 	const words = "a b c".split(" ");
 	console.log(words.join("-"), words.length);
-	let found;
+	let found2;
 	for (let i = 0, length = values.length; i < length; i++) {
 		const v = values[i];
 		if (v > 2) {
-			found = v;
+			found2 = v;
 			break;
 		}
 	}
+	const found = found2;
 	console.log(
 		found
 		/*@proven union*/

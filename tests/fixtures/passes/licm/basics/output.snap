@@ -22,11 +22,12 @@ function scale(factor) {
 }
 function countdown() {
 	const items = build(3);
-	const labels = [];
+	const result = [];
 	for (let j = 0, length = items.length; j < length; j++) {
 		const n = items[j];
-		labels.push(`#${n}`);
+		result.push(`#${n}`);
 	}
+	const labels = result;
 	let i = labels.length;
 	let out = "";
 	// A `while` test: hoisted right before the loop.
@@ -41,10 +42,9 @@ function atLeastOnce(limit) {
 	const steps = build(limit);
 	let total = 0;
 	let k = 0;
-	// A `do…while` body runs before the first test: its invariants move before the loop.
-	const stepsLength = steps.length;
+	// A `do…while` body: `steps.length` stays, as only expressions that cannot throw leave a body.
 	do {
-		total += stepsLength;
+		total += steps.length;
 		k++;
 	} while (k < 3);
 	return total;

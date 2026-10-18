@@ -17,8 +17,8 @@ class Point {
 	}
 }
 class Grows {
-	a = 1;
 	b = undefined;
+	a = 1;
 	constructor() {
 		this.setup();
 	}

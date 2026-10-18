@@ -15,14 +15,16 @@
 //!   capture each), with the head's kind (`const`, `let`, `var`) and pattern (destructuring
 //!   works the same). A plain identifier target becomes an assignment.
 //! - `break`, `continue` and labels keep working: `continue` reaches the `i++`.
-//! - An array expression other than a binding nothing reassigns is evaluated once, into a
-//!   binding in the loop head, as the iterator held on to the array it was given.
+//! - An array expression other than a binding nothing reassigns (or one the body declares a
+//!   name of its own for) is evaluated once, into a binding in the loop head, as the iterator
+//!   held on to the array it was given.
+//! - A destructuring head needs elements that are never nullish: destructuring `null` in a
+//!   `for…of` head throws a different message than in a declaration.
 //!
 //! **Spread.** `[...a]` becomes `a.slice()` and `[...a, ...b]` becomes `a.concat(b)` when
 //! every spread array is a plain array that never has holes (a spread turns holes into
-//! `undefined`; `slice` and `concat` keep them). Spreading a `Declared` tuple held by a binding
-//! nothing reassigns, into a call or an array literal, lists its elements (`f(...pair)` →
-//! `f(pair[0], pair[1])`).
+//! `undefined`; `slice` and `concat` keep them). Spreads of tuples stay: TypeScript lets code
+//! `push` onto a tuple, so its type doesn't fix its length.
 //!
 //! [`LoopFacts::resized`]: trioxide_analysis::LoopFacts::resized
 
@@ -42,15 +44,12 @@ use super::{
     Decisions, Position,
     arrays::{Kept, NamesIn, prove_array},
     track_position,
-    util::{Query, weak},
+    util::{Query, never_nullish},
 };
 use crate::{Pass, PassContext};
 
 /// PLAN §4 pass 7 (`"for-of"`).
 pub struct ForOf;
-
-/// The most elements a tuple spread is written out to.
-const MAX_TUPLE_SPREAD: usize = 8;
 
 impl Pass for ForOf {
     fn name(&self) -> &'static str {
@@ -84,8 +83,8 @@ struct Visitor<'f> {
     kept: Kept,
     position: Position,
     decisions: Decisions,
-    /// Loops already decided (a loop in a list is tried before and after its body).
-    attempted: rustc_hash::FxHashSet<u32>,
+    /// Loops already decided, by address (a loop in a list is tried before and after its body).
+    attempted: rustc_hash::FxHashSet<usize>,
 }
 
 impl<'a> Traverse<'a, ()> for Visitor<'_> {
@@ -103,19 +102,8 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
         if !self.position.live() || self.kept.contains(expression.span()) {
             return;
         }
-        match expression {
-            Expression::ArrayExpression(_) => self.array_spread(expression, ctx),
-            Expression::CallExpression(call)
-                if call
-                    .arguments
-                    .iter()
-                    .any(|argument| matches!(argument, Argument::SpreadElement(_))) =>
-            {
-                let mut arguments = call.arguments.take_in(&ctx.ast);
-                self.tuple_arguments(&mut arguments, ctx);
-                call.arguments = arguments;
-            }
-            _ => {}
+        if matches!(expression, Expression::ArrayExpression(_)) {
+            self.array_spread(expression, ctx);
         }
     }
 }
@@ -151,7 +139,9 @@ impl<'a> Visitor<'_> {
         };
         if self.query.dead(for_of.node_id.get())
             || self.kept.contains(for_of.span)
-            || !self.attempted.insert(for_of.span.start)
+            || !self
+                .attempted
+                .insert(std::ptr::from_ref::<oxc_ast::ast::ForOfStatement<'a>>(for_of) as usize)
         {
             return;
         }
@@ -168,6 +158,31 @@ impl<'a> Visitor<'_> {
                 return;
             }
         };
+        // Destructuring `null` or `undefined` in the head throws a different message than in a
+        // declaration: patterns need elements that are never nullish.
+        let destructures = matches!(
+            &for_of.left,
+            ForStatementLeft::VariableDeclaration(declaration)
+                if declaration.declarations.iter().any(|d| !d.id.is_binding_identifier())
+        );
+        if destructures {
+            let present = match self
+                .query
+                .ty(for_of.right.get_inner_expression().node_id())
+                .value
+            {
+                Type::Array(element) => never_nullish(element),
+                Type::Tuple(items) => items.iter().all(never_nullish),
+                _ => false,
+            };
+            if !present {
+                self.decisions.skipped(
+                    span,
+                    "the loop destructures elements that may be `null` or `undefined`",
+                );
+                return;
+            }
+        }
         let mut names = NamesIn::default();
         names.visit_for_of_statement(for_of);
         let head_names = match &for_of.left {
@@ -214,7 +229,12 @@ impl<'a> Visitor<'_> {
             .unwrap_or_else(|| ctx.current_scope_id());
         let mut init: Vec<VariableDeclarator<'a>> = Vec::new();
         let right = for_of.right.take_in(&ctx.ast);
-        let array = if let Some(binding) = stable_binding(&right, ctx) {
+        // The body's own declarations would shadow the array's name where it reads `items[i]`.
+        let mut declared = DeclaredIn::default();
+        declared.visit_statement(&for_of.body);
+        let reusable = stable_binding(&right, ctx)
+            .filter(|binding| !declared.0.contains(binding.name.as_str()));
+        let array = if let Some(binding) = reusable {
             binding
         } else {
             let base = match right.get_inner_expression() {
@@ -362,9 +382,7 @@ impl<'a> Visitor<'_> {
                         proven = false;
                     }
                     Err(reason) => {
-                        if !self.is_tuple(&spread.argument) {
-                            self.decisions.skipped(spread.span, reason);
-                        }
+                        self.decisions.skipped(spread.span, reason);
                         proven = false;
                     }
                 }
@@ -395,115 +413,8 @@ impl<'a> Visitor<'_> {
                     ctx,
                 );
                 self.decisions.applied(span);
-                return;
             }
         }
-        // Tuples, element by element.
-        let elements = array.elements.take_in(&ctx.ast);
-        let mut result = ArenaVec::new_in(&ctx.ast);
-        for element in elements {
-            match element {
-                ArrayExpressionElement::SpreadElement(spread) => {
-                    match self.tuple_elements(&spread.argument, spread.span, ctx) {
-                        Some(listed) => {
-                            result.extend(listed.into_iter().map(ArrayExpressionElement::from));
-                        }
-                        None => result.push(ArrayExpressionElement::SpreadElement(spread)),
-                    }
-                }
-                other => result.push(other),
-            }
-        }
-        array.elements = result;
-    }
-
-    /// Lists the elements of spread tuples among call arguments.
-    fn tuple_arguments(
-        &mut self,
-        arguments: &mut ArenaVec<'a, Argument<'a>>,
-        ctx: &mut TraverseCtx<'a, ()>,
-    ) {
-        let taken = arguments.take_in(&ctx.ast);
-        for argument in taken {
-            match argument {
-                Argument::SpreadElement(spread) => {
-                    match self.tuple_elements(&spread.argument, spread.span, ctx) {
-                        Some(listed) => arguments.extend(listed.into_iter().map(Argument::from)),
-                        None => arguments.push(Argument::SpreadElement(spread)),
-                    }
-                }
-                other => arguments.push(other),
-            }
-        }
-    }
-
-    /// Whether `expression` has a tuple type (at any trust).
-    fn is_tuple(&self, expression: &Expression<'_>) -> bool {
-        matches!(
-            self.query
-                .ty(expression.get_inner_expression().node_id())
-                .value,
-            Type::Tuple(_)
-        )
-    }
-
-    /// `t[0], t[1], …` for a spread of the tuple binding `t`, if it can be written out.
-    fn tuple_elements(
-        &mut self,
-        argument: &Expression<'a>,
-        span: Span,
-        ctx: &mut TraverseCtx<'a, ()>,
-    ) -> Option<Vec<Expression<'a>>> {
-        let inner = argument.get_inner_expression();
-        let fact = self.query.ty(inner.node_id());
-        let Type::Tuple(items) = fact.value else {
-            return None;
-        };
-        if !self.query.usable(fact.trust) {
-            self.decisions
-                .skipped(span, weak(fact.trust, "the tuple's length"));
-            return None;
-        }
-        if items.len() > MAX_TUPLE_SPREAD {
-            return None;
-        }
-        for name in ["Array", "Object"] {
-            let intact = self.query.facts.builtin_intact(name);
-            if !(intact.value && intact.trust == trioxide_analysis::Trust::Proven) {
-                return None;
-            }
-        }
-        let Some(binding) = stable_binding(argument, ctx) else {
-            self.decisions.skipped(
-                span,
-                "the tuple is not a binding nothing reassigns, so listing it would evaluate it \
-                 more than once",
-            );
-            return None;
-        };
-        self.decisions.applied(span);
-        let at = span;
-        Some(
-            (0..items.len())
-                .map(|position| {
-                    #[expect(clippy::cast_precision_loss, reason = "at most MAX_TUPLE_SPREAD")]
-                    let position = position as f64;
-                    Expression::new_computed_member_expression(
-                        SPAN,
-                        binding.create_spanned_read_expression(at, ctx),
-                        Expression::new_numeric_literal(
-                            SPAN,
-                            position,
-                            None,
-                            NumberBase::Decimal,
-                            ctx,
-                        ),
-                        false,
-                        ctx,
-                    )
-                })
-                .collect(),
-        )
     }
 }
 
@@ -610,4 +521,14 @@ fn prepend<'a>(
         scope,
         ctx,
     )
+}
+
+/// The names a subtree declares (bindings only, not references).
+#[derive(Default)]
+struct DeclaredIn(rustc_hash::FxHashSet<String>);
+
+impl<'a> Visit<'a> for DeclaredIn {
+    fn visit_binding_identifier(&mut self, ident: &oxc_ast::ast::BindingIdentifier<'a>) {
+        self.0.insert(ident.name.to_string());
+    }
 }

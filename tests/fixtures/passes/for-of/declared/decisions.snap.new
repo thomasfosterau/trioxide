@@ -1,0 +1,9 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+assertion_line: 92
+description: tests/fixtures/passes/for-of/declared
+input_file: tests/fixtures/passes/for-of/declared/input.ts
+---
+//- input.ts
+6:3 for-of skipped: the array's type is only Declared (trustTypes is off)
+15:11 for-of skipped: the array's type is only Declared (trustTypes is off)

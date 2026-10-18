@@ -6,8 +6,9 @@
 //!
 //! - **declares late properties up front**: a property instances get after construction
 //!   ([`ClassShape::added_later`]) or only on some constructor paths becomes a class field
-//!   initialised to `undefined`, after the class's own fields, so every instance has every
-//!   property, in one order, from the start;
+//!   initialised to `undefined`, before the class's own fields (whose initialisers may call
+//!   code that sets the property), so every instance has every property, in one order, from
+//!   the start;
 //! - **replaces `delete`**: a `delete o.p;` statement whose object can only be such an
 //!   instance becomes `o.p = undefined;`.
 //!
@@ -349,7 +350,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
             .body
             .body
             .iter()
-            .rposition(|element| {
+            .position(|element| {
                 matches!(
                     element,
                     ClassElement::PropertyDefinition(property)
@@ -358,7 +359,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
                             && property.r#type == PropertyDefinitionType::PropertyDefinition
                 )
             })
-            .map_or(0, |last| last + 1);
+            .unwrap_or(0);
         let span = class.id.as_ref().map_or(class.span, |id| id.span);
         for (offset, name) in plan.declare.iter().enumerate() {
             let key = PropertyKey::StaticIdentifier(oxc_allocator::ArenaBox::new_in(

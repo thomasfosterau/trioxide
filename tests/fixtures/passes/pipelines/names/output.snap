@@ -94,14 +94,15 @@ function accumulatorCaptured() {
 	];
 	const seen = [];
 	// A closure captures the accumulator parameter: it keeps its own binding.
-	let total = 0;
+	let result = 0;
 	for (let i = 0, length = values.length; i < length; i++) {
 		if (!(i in values)) continue;
 		const v = values[i];
-		const acc = total;
+		const acc = result;
 		seen.push(() => acc);
-		total = acc + v;
+		result = acc + v;
 	}
+	const total = result;
 	return total * 100 + seen.map(map_callback).reduce(reduce_callback, 0);
 }
 function reassignedParam() {

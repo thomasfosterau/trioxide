@@ -6,16 +6,20 @@
 //!
 //! - **Invariants** the analysis lists ([`LoopFacts::invariant`]): pure, deterministic,
 //!   unconditionally executed, reading nothing the loop writes. They are safe to evaluate once
-//!   the loop's first test has passed, so they may move before it only where that test can't
-//!   matter: an invariant of a `for`/`while` test is evaluated by the first test anyway; one in
-//!   the body (or a `do…while` test) moves only if it reads no binding the test reads (the test
-//!   can only narrow those) and calls no program function (whose termination isn't proven, so
-//!   a zero-trip loop mustn't start calling it).
-//! - **Array lengths**: `a.length` where `a` is a binding nothing reassigns, every value it
-//!   holds is a non-nullish array, the read is usable-pure, and the loop resizes none of the
-//!   arrays it may be ([`LoopFacts::resized`], complete only when `resizes_untracked` is
-//!   false). The analysis leaves these out of `invariant` when the loop writes any object.
+//!   the loop's first test has passed (the facts may rest on its narrowing, or on a test that
+//!   folded away), so one moves before that test only where the test can't matter: an
+//!   invariant of a `for`/`while` test is evaluated by the first test anyway; one in the body
+//!   (or a `do…while` test) only if it can't throw or run program code anywhere (arithmetic
+//!   over number-typed bindings and calls of unpatched `Math` functions).
+//! - **Array lengths**: `a.length` where `a` is a binding declared outside the loop that
+//!   nothing reassigns, every value it holds is a non-nullish array, the read is usable-pure,
+//!   the loop never awaits or yields (other code could resize the array meanwhile), and the
+//!   loop resizes none of the arrays it may be ([`LoopFacts::resized`], complete only when
+//!   `resizes_untracked` is false). The analysis leaves these out of `invariant` when the loop
+//!   writes any object.
 //!
+//! A `let` in a `for` head is the loop's own, so names there only need to be fresh in the
+//! loop; a `var` head's are fresh in the whole function, and a `const` head takes nothing.
 //! A `for…of`/`for…in` loop's head runs before its body, so hoisting before it needs a pure
 //! head. Loops in island functions, in code proven never to run and in TypeScript namespaces
 //! are left alone.
@@ -25,8 +29,7 @@
 
 use oxc_allocator::{ArenaVec, TakeIn};
 use oxc_ast::ast::{
-    Expression, ForStatementInit, IdentifierReference, Program, Statement, VariableDeclarationKind,
-    VariableDeclarator,
+    Expression, ForStatementInit, Program, Statement, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, VisitMut, walk, walk_mut};
 use oxc_semantic::Scoping;
@@ -143,6 +146,13 @@ impl<'a> Visitor<'_> {
         if self.query.dead(node) || self.kept.contains(span) {
             return Vec::new();
         }
+        // A `const` in a `for` head: nothing can join it, and what reads it can't move out.
+        if let Statement::ForStatement(s) = &*target
+            && let Some(ForStatementInit::VariableDeclaration(declaration)) = &s.init
+            && declaration.kind == VariableDeclarationKind::Const
+        {
+            return Vec::new();
+        }
         let Some(facts) = self
             .query
             .node(node)
@@ -177,7 +187,8 @@ impl<'a> Visitor<'_> {
         // Names in the loop's head only need to be fresh within the loop.
         let mut local = NamesIn::default();
         local.visit_statement(target);
-        let names = if head.is_some() {
+        // A `let` in the head is the loop's own; a `var` belongs to the whole function.
+        let names = if head.is_some_and(|kind| kind != VariableDeclarationKind::Var) {
             Fresh::Local(&mut local)
         } else {
             Fresh::Function(&mut self.names, span)
@@ -277,12 +288,10 @@ impl<'a> Visitor<'_> {
             found: Vec::new(),
             part: Part::Body,
         };
-        let mut test_reads = FxHashSet::default();
         let mut pure_head = true;
         match target {
             Statement::ForStatement(s) => {
                 if let Some(test) = &s.test {
-                    test_reads = reads(test, scoping);
                     collect.part = Part::Test;
                     collect.visit_expression(test);
                     collect.part = Part::Body;
@@ -290,14 +299,12 @@ impl<'a> Visitor<'_> {
                 collect.visit_statement(&s.body);
             }
             Statement::WhileStatement(s) => {
-                test_reads = reads(&s.test, scoping);
                 collect.part = Part::Test;
                 collect.visit_expression(&s.test);
                 collect.part = Part::Body;
                 collect.visit_statement(&s.body);
             }
             Statement::DoWhileStatement(s) => {
-                test_reads = reads(&s.test, scoping);
                 collect.visit_statement(&s.body);
                 collect.visit_expression(&s.test);
             }
@@ -312,6 +319,9 @@ impl<'a> Visitor<'_> {
             _ => {}
         }
         let found = collect.found;
+        let loop_span = target.span();
+        // Other code may run (and resize arrays) while the loop is suspended.
+        let suspends = suspends(target);
         let mut accepted = FxHashSet::default();
         for candidate in found {
             if candidate.trivial {
@@ -326,33 +336,40 @@ impl<'a> Visitor<'_> {
                 continue;
             }
             match candidate.length {
+                Some(_) if suspends => {
+                    self.decisions.skipped(
+                        candidate.span,
+                        "the loop awaits or yields, and other code may resize the array then",
+                    );
+                    continue;
+                }
                 Some((symbol, object)) => {
-                    if let Err(reason) =
-                        self.invariant_length(candidate.node, symbol, object, facts)
-                    {
+                    if let Err(reason) = self.invariant_length(
+                        candidate.node,
+                        symbol,
+                        object,
+                        facts,
+                        loop_span,
+                        scoping,
+                    ) {
                         if let Some(reason) = reason {
                             self.decisions.skipped(candidate.span, reason);
                         }
                         continue;
                     }
                 }
+                // Outside the test, an invariant is only known not to throw where it runs: past
+                // the first test, whose narrowing (or folding) the facts may rest on. Before the
+                // loop it may only be arithmetic over numbers and `Math` calls, which can't throw
+                // or call program code anywhere.
                 None => {
-                    if candidate.part == Part::Body {
-                        if candidate.calls_program {
-                            self.decisions.skipped(
-                                candidate.span,
-                                "it may call a program function, which a loop that runs zero \
-                                 times mustn't start calling",
-                            );
-                            continue;
-                        }
-                        if candidate.reads.iter().any(|read| test_reads.contains(read)) {
-                            self.decisions.skipped(
-                                candidate.span,
-                                "it reads a binding the loop's test reads (and may narrow)",
-                            );
-                            continue;
-                        }
+                    if candidate.part == Part::Body && !candidate.never_throws {
+                        self.decisions.skipped(
+                            candidate.span,
+                            "only the loop's first test may make it safe to evaluate, and that \
+                             test runs after anything put before the loop",
+                        );
+                        continue;
                     }
                 }
             }
@@ -369,7 +386,13 @@ impl<'a> Visitor<'_> {
         symbol: SymbolId,
         object: NodeId,
         facts: &LoopFacts,
+        loop_span: Span,
+        scoping: &Scoping,
     ) -> Result<(), Option<&'static str>> {
+        let declared = scoping.symbol_span(symbol);
+        if loop_span.start <= declared.start && declared.end <= loop_span.end {
+            return Err(Some("the binding is declared inside the loop"));
+        }
         let fact = self.query.facts.symbol_ty(SymbolRef {
             module: self.query.module,
             symbol,
@@ -436,10 +459,9 @@ struct Candidate {
     part: Part,
     /// For `a.length`: the binding `a` and the node reading it.
     length: Option<(SymbolId, NodeId)>,
-    /// The bindings it reads.
-    reads: FxHashSet<SymbolId>,
-    /// It calls (or runs an accessor of) a program function.
-    calls_program: bool,
+    /// It can't throw or run program code wherever it is evaluated (arithmetic over numbers
+    /// and `Math` calls), so it may move before the loop's first test.
+    never_throws: bool,
     /// A literal or something with no binding or property read in it: not worth a name.
     trivial: bool,
 }
@@ -457,7 +479,6 @@ impl<'a> Visit<'a> for Collect<'_, '_, '_> {
     fn visit_expression(&mut self, expression: &Expression<'a>) {
         let node = expression.node_id();
         if self.invariant.contains(&node) {
-            let reads = reads(expression, self.scoping);
             // Arithmetic over locals is cheap and engines hoist it themselves; naming it
             // costs readability for nothing.
             let trivial = is_canonical_literal(expression) || !loads(expression);
@@ -466,8 +487,7 @@ impl<'a> Visit<'a> for Collect<'_, '_, '_> {
                 span: expression.span(),
                 part: self.part,
                 length: None,
-                reads,
-                calls_program: calls_program(expression, self.query),
+                never_throws: never_throws(expression, self.query, self.scoping),
                 trivial,
             });
             return;
@@ -487,8 +507,7 @@ impl<'a> Visit<'a> for Collect<'_, '_, '_> {
                 span: expression.span(),
                 part: self.part,
                 length: Some((symbol, object.node_id.get())),
-                reads: FxHashSet::from_iter([symbol]),
-                calls_program: false,
+                never_throws: false,
                 trivial: false,
             });
             return;
@@ -503,54 +522,103 @@ impl<'a> Visit<'a> for Collect<'_, '_, '_> {
     fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
 }
 
-/// Whether evaluating `expression` may run a program function: a call, or an accessor at a
-/// property read, that the call graph resolves to a unit.
-fn calls_program(expression: &Expression<'_>, query: Query<'_>) -> bool {
-    struct Find<'f> {
-        query: Query<'f>,
-        found: bool,
-    }
-    impl<'a> Visit<'a> for Find<'_> {
-        fn visit_expression(&mut self, expression: &Expression<'a>) {
-            if let Some(site) = self.query.node(expression.node_id())
-                && self.query.facts.call_graph().callees(site).next().is_some()
-            {
-                self.found = true;
-            }
-            walk::walk_expression(self, expression);
+/// Whether evaluating `expression` can neither throw nor run program code, whatever the
+/// context: literals, number-typed bindings that are initialised where it is read, arithmetic
+/// and comparisons over those, and calls of unpatched `Math` functions.
+fn never_throws(expression: &Expression<'_>, query: Query<'_>, scoping: &Scoping) -> bool {
+    match expression {
+        Expression::NumericLiteral(_) | Expression::BooleanLiteral(_) => true,
+        Expression::ParenthesizedExpression(paren) => {
+            never_throws(&paren.expression, query, scoping)
         }
-    }
-    let mut find = Find {
-        query,
-        found: false,
-    };
-    find.visit_expression(expression);
-    find.found
-}
-
-/// The bindings `expression` reads.
-fn reads(expression: &Expression<'_>, scoping: &Scoping) -> FxHashSet<SymbolId> {
-    struct Reads<'s> {
-        scoping: &'s Scoping,
-        found: FxHashSet<SymbolId>,
-    }
-    impl<'a> Visit<'a> for Reads<'_> {
-        fn visit_identifier_reference(&mut self, ident: &IdentifierReference<'a>) {
-            if let Some(symbol) = ident
+        Expression::Identifier(ident) => {
+            let Some(symbol) = ident
                 .reference_id
                 .get()
-                .and_then(|reference| self.scoping.get_reference(reference).symbol_id())
-            {
-                self.found.insert(symbol);
-            }
+                .and_then(|reference| scoping.get_reference(reference).symbol_id())
+            else {
+                return false;
+            };
+            let fact = query.facts.symbol_ty(SymbolRef {
+                module: query.module,
+                symbol,
+            });
+            query.usable(fact.trust)
+                && matches!(fact.value, Type::Number(_))
+                && query.pure(ident.node_id.get())
         }
+        Expression::UnaryExpression(unary) => {
+            matches!(
+                unary.operator,
+                oxc_syntax::operator::UnaryOperator::UnaryNegation
+                    | oxc_syntax::operator::UnaryOperator::UnaryPlus
+                    | oxc_syntax::operator::UnaryOperator::LogicalNot
+                    | oxc_syntax::operator::UnaryOperator::BitwiseNot
+            ) && never_throws(&unary.argument, query, scoping)
+        }
+        Expression::BinaryExpression(binary) => {
+            !matches!(
+                binary.operator,
+                oxc_syntax::operator::BinaryOperator::In
+                    | oxc_syntax::operator::BinaryOperator::Instanceof
+            ) && never_throws(&binary.left, query, scoping)
+                && never_throws(&binary.right, query, scoping)
+        }
+        Expression::CallExpression(call) => {
+            let Expression::StaticMemberExpression(member) = &call.callee else {
+                return false;
+            };
+            let math = matches!(
+                &member.object,
+                Expression::Identifier(object) if object.name == "Math"
+                    && object.reference_id.get().is_some_and(|reference| {
+                        scoping.get_reference(reference).symbol_id().is_none()
+                    })
+            );
+            let intact = query.facts.builtin_intact("Math");
+            math && !call.optional
+                && intact.value
+                && intact.trust == trioxide_analysis::Trust::Proven
+                && call.arguments.iter().all(|argument| {
+                    argument
+                        .as_expression()
+                        .is_some_and(|argument| never_throws(argument, query, scoping))
+                })
+        }
+        _ => false,
     }
-    let mut reads = Reads {
-        scoping,
-        found: FxHashSet::default(),
-    };
-    reads.visit_expression(expression);
-    reads.found
+}
+
+/// Whether a loop awaits or yields (outside functions nested in it).
+fn suspends(statement: &Statement<'_>) -> bool {
+    struct Find(bool);
+    impl<'a> Visit<'a> for Find {
+        fn visit_await_expression(&mut self, _: &oxc_ast::ast::AwaitExpression<'a>) {
+            self.0 = true;
+        }
+
+        fn visit_yield_expression(&mut self, _: &oxc_ast::ast::YieldExpression<'a>) {
+            self.0 = true;
+        }
+
+        fn visit_for_of_statement(&mut self, statement: &oxc_ast::ast::ForOfStatement<'a>) {
+            self.0 |= statement.r#await;
+            walk::walk_for_of_statement(self, statement);
+        }
+
+        fn visit_function(&mut self, _: &oxc_ast::ast::Function<'a>, _: ScopeFlags) {}
+
+        fn visit_arrow_function_expression(
+            &mut self,
+            _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+
+        fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+    }
+    let mut find = Find(false);
+    find.visit_statement(statement);
+    find.0
 }
 
 /// Whether `expression` reads a property or calls something: work worth doing once.

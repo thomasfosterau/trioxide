@@ -15,7 +15,7 @@ export function sum(values) {
 	return total;
 }
 export function plot(point) {
-	return Math.hypot(point[0], point[1]);
+	return Math.hypot(...point);
 }
 export function copy(values) {
 	return [...values];

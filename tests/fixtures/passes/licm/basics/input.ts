@@ -33,7 +33,7 @@ function atLeastOnce(limit: number): number {
   const steps = build(limit);
   let total = 0;
   let k = 0;
-  // A `do…while` body runs before the first test: its invariants move before the loop.
+  // A `do…while` body: `steps.length` stays, as only expressions that cannot throw leave a body.
   do {
     total += steps.length;
     k++;

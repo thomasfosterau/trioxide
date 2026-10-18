@@ -7,9 +7,9 @@ input_file: tests/fixtures/passes/hidden-class/basics/input.ts
 // Positive cases: properties instances get late, or only sometimes, become fields declared up
 // front, and `delete` of a property becomes an assignment of `undefined`.
 class Particle {
+	boost = undefined;
 	x;
 	y;
-	boost = undefined;
 	constructor(x, y) {
 		this.x = x;
 		this.y = y;
@@ -20,8 +20,8 @@ class Particle {
 	}
 }
 class Entry {
-	key;
 	value = undefined;
+	key;
 	constructor(key) {
 		this.key = key;
 	}

@@ -38,19 +38,21 @@ function grown() {
 }
 function report() {
 	const a = holey();
-	const doubled = new Array(a.length);
+	const result = new Array(a.length);
 	for (let i = 0, length = a.length; i < length; i++) {
 		if (!(i in a)) continue;
 		const x = a[i];
-		doubled[i] = (x ?? 0) * 2;
+		result[i] = (x ?? 0) * 2;
 	}
+	const doubled = result;
 	console.log(doubled, 1 in doubled, doubled.length);
-	const kept = [];
+	const result2 = [];
 	for (let i = 0, length = a.length; i < length; i++) {
 		if (!(i in a)) continue;
 		const item = a[i];
-		kept.push(item);
+		result2.push(item);
 	}
+	const kept = result2;
 	console.log(kept, kept.length);
 	let visits = 0;
 	for (let i = 0, length = a.length; i < length; i++) {
@@ -58,55 +60,61 @@ function report() {
 		visits++;
 	}
 	console.log(visits);
-	let sum = 0;
+	let result3 = 0;
 	for (let i = 0, length = a.length; i < length; i++) {
 		if (!(i in a)) continue;
 		const x = a[i];
-		sum = sum + (x ?? 100);
+		result3 = result3 + (x ?? 100);
 	}
-	let count = false;
+	const sum = result3;
+	let found2 = false;
 	for (let i = 0, length = a.length; i < length; i++) {
 		if (!(i in a)) continue;
 		const x = a[i];
 		if (x === undefined) {
-			count = true;
+			found2 = true;
 			break;
 		}
 	}
-	let every = true;
+	const count = found2;
+	let all = true;
 	for (let i = 0, length = a.length; i < length; i++) {
 		if (!(i in a)) continue;
 		const x = a[i];
 		if (!(x !== undefined)) {
-			every = false;
+			all = false;
 			break;
 		}
 	}
+	const every = all;
 	console.log(sum, count, every);
-	let found = -1;
+	let index = -1;
 	for (let i = 0, length = a.length; i < length; i++) {
 		const x = a[i];
 		if (x === undefined) {
-			found = i;
+			index = i;
 			break;
 		}
 	}
-	let has = false;
+	const found = index;
+	let found3 = false;
 	for (let i = 0, length = a.length; i < length; i++) {
 		const item = a[i];
 		if (item === undefined) {
-			has = true;
+			found3 = true;
 			break;
 		}
 	}
-	let which;
+	const has = found3;
+	let found4;
 	for (let i = 0, length = a.length; i < length; i++) {
 		const x = a[i];
 		if (x === undefined) {
-			which = x;
+			found4 = x;
 			break;
 		}
 	}
+	const which = found4;
 	console.log(found, has, which);
 	// A hole a `map` keeps would reach `find`: this chain stays.
 	const passed = a.map(map_callback).find(find_callback);
@@ -116,19 +124,21 @@ function report() {
 	const total = d.reduce(reduce_callback, 0);
 	console.log(plusOne, total);
 	const g = grown();
-	const tripled = new Array(g.length);
+	const result4 = new Array(g.length);
 	for (let i = 0, length = g.length; i < length; i++) {
 		if (!(i in g)) continue;
 		const x = g[i];
-		tripled[i] = x * 3;
+		result4[i] = x * 3;
 	}
-	const positive = [];
+	const tripled = result4;
+	const result5 = [];
 	for (let i = 0, length = g.length; i < length; i++) {
 		if (!(i in g)) continue;
 		const x = g[i];
 		if (!(x > 0)) continue;
-		positive.push(x);
+		result5.push(x);
 	}
+	const positive = result5;
 	console.log(tripled, positive);
 }
 function empty() {

@@ -21,9 +21,9 @@ use crate::{
 /// of an `Object.*`, `JSON.*` or `Reflect.*` function, of `.call`/`.apply`, `structuredClone`,
 /// `hasOwnProperty` or `propertyIsEnumerable`, on any argument or receiver.
 ///
-/// An observed value whose points-to set is unknown can't be one of these instances: an
-/// instance joined with an untracked object escapes to unknown code, which makes its class
-/// open.
+/// An observer of a value whose points-to set is unknown (an `arguments` element, a builtin
+/// array's element) may see any instance, and so may one given spread arguments: then no class
+/// is unobserved.
 pub fn unobserved_classes(world: &World<'_>, results: &Results) -> FxHashSet<NodeRef> {
     let patched = crate::interp::patched_builtins(world);
     if ["Object", "JSON"]
@@ -53,9 +53,13 @@ pub fn unobserved_classes(world: &World<'_>, results: &Results) -> FxHashSet<Nod
             let Some(value) = results.output.nodes.get(&operand) else {
                 return FxHashSet::default();
             };
-            if let Some(sites) = value.pts.sites() {
-                observed.extend(sites.iter().copied());
-            }
+            // An object the analysis doesn't follow may still hold an instance it does: through
+            // `arguments`, a builtin's result (`concat`, `slice`) or an element read. So an
+            // observer of one sees everything.
+            let Some(sites) = value.pts.sites() else {
+                return FxHashSet::default();
+            };
+            observed.extend(sites.iter().copied());
         }
     }
     let state = &results.state;
@@ -219,8 +223,9 @@ impl<'a> Visit<'a> for Observers {
             for argument in &call.arguments {
                 if let Some(expression) = argument.as_expression() {
                     self.operand(expression);
-                } else if let oxc_ast::ast::Argument::SpreadElement(spread) = argument {
-                    self.operand(&spread.argument);
+                } else if let oxc_ast::ast::Argument::SpreadElement(_) = argument {
+                    // The spread array's elements are what is observed, not the array.
+                    self.opaque = true;
                 }
             }
         }

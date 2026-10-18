@@ -7,14 +7,19 @@
 //! ```js
 //! const total = values.map((x) => x * 2).filter((y) => y > 3).reduce((sum, y) => sum + y, 0);
 //! // becomes
-//! let total = 0;
+//! let result = 0;
 //! for (let i = 0, length = values.length; i < length; i++) {
 //!   const x = values[i];
 //!   const y = x * 2;
 //!   if (!(y > 3)) continue;
-//!   total = total + y;
+//!   result = result + y;
 //! }
+//! const total = result;
 //! ```
+//!
+//! The result accumulates in a binding of its own, and a declared one is assigned once, after
+//! the loop: it stays in its temporal dead zone while the callbacks run (as it did), and a
+//! callback that throws leaves a `var` without a partial value.
 //!
 //! It applies to a chain that initialises a `const`/`let`/`var` binding, is returned, or (for
 //! `forEach`) is a statement, when:
@@ -33,8 +38,12 @@
 //!   mutable state (they can't see its effects, and its own order is unchanged); or when only
 //!   the last isn't, the others read no mutable state, and the receiver's arrays never leave
 //!   the function and aren't named in the last callback (it can't change what the earlier
-//!   stages read). A `reduce` seed or `includes` argument moves before the loop, so it must be
-//!   pure, and read nothing when a callback has effects.
+//!   stages read). A short-circuiting terminal (`some`, `every`, `find`, `findIndex`,
+//!   `includes`) stops early, so the stages before it must all be free of effects (their
+//!   remaining calls, and the exceptions they would throw, are skipped). A `reduce` seed or
+//!   `includes` argument moves before the loop, so it must be pure, and read nothing when a
+//!   callback has effects. A destructuring parameter needs elements that are never nullish
+//!   (destructuring `null` in a parameter throws a different message).
 //! - **Holes:** `map`, `filter`, `forEach`, `reduce`, `some` and `every` skip holes, so the
 //!   loop starts with `if (!(i in values)) continue;` unless the arrays never have holes and
 //!   no callback can make one. `map` keeps holes (its result is then `new Array(length)`
@@ -71,7 +80,7 @@ use super::{
     arrays::{ArrayProof, FunctionNames, Kept, NamesIn, prove_array},
     for_of::{length_of, stable_binding, zero},
     track_position,
-    util::{Query, is_global_constant, is_global_name, is_inert, weak},
+    util::{Query, is_global_constant, is_global_name, is_inert, never_nullish, weak},
 };
 use crate::{Pass, PassContext};
 
@@ -417,7 +426,7 @@ impl<'a> Visitor<'_> {
             (Form::Statement, _) | (_, Method::ForEach) => return None,
             _ => {}
         }
-        let plan = match self.check(&calls, receiver, form, statement, ctx.scoping()) {
+        let plan = match self.check(&calls, receiver, ctx.scoping()) {
             Ok(plan) => plan,
             Err(reason) => {
                 self.decisions.skipped(span, reason);
@@ -433,11 +442,20 @@ impl<'a> Visitor<'_> {
         &self,
         calls: &[&CallExpression<'a>],
         receiver: &Expression<'a>,
-        form: Form,
-        statement: &Statement<'a>,
         scoping: &Scoping,
     ) -> Result<Plan, String> {
         let proof: ArrayProof = prove_array(self.query, receiver)?;
+        // Destructuring `null` or `undefined` throws a message that names the parameter, which
+        // a declaration's doesn't: patterns need elements that are never nullish.
+        let elements_present = match self
+            .query
+            .ty(receiver.get_inner_expression().node_id())
+            .value
+        {
+            Type::Array(element) => never_nullish(element),
+            Type::Tuple(items) => items.iter().all(never_nullish),
+            _ => false,
+        };
         let mut stages: Vec<StageInfo> = Vec::new();
         let mut filtered = false;
         let mut extras: Vec<&Expression<'a>> = Vec::new();
@@ -510,38 +528,41 @@ impl<'a> Visitor<'_> {
                         .to_string(),
                 );
             }
+            if params
+                .items
+                .get(method.value_param())
+                .is_some_and(|parameter| !parameter.pattern.is_binding_identifier())
+                && (position > 0 || !elements_present)
+            {
+                return Err(
+                    "a callback destructures an element that may be `null` or `undefined`"
+                        .to_string(),
+                );
+            }
             if method == Method::FindIndex && filtered {
                 return Err("`findIndex` after a `filter` needs the filtered index".to_string());
             }
-            // The body.
-            match callback {
-                Argument::ArrowFunctionExpression(arrow) => {
-                    if let Some(body) = arrow.get_function_body() {
-                        let returns = body_shape(&body.statements)?;
-                        if returns == (method == Method::ForEach) {
-                            return Err(if returns {
-                                "the `forEach` callback returns".to_string()
-                            } else {
-                                "the callback returns nothing".to_string()
-                            });
-                        }
-                    }
-                }
+            // The body: an arrow's expression, or statements ending in their only `return`
+            // (none for `forEach`).
+            let block = match callback {
+                Argument::ArrowFunctionExpression(arrow) => arrow.get_function_body(),
                 Argument::FunctionExpression(function) => {
-                    let body = function.body.as_ref().ok_or("the callback has no body")?;
-                    if !body.directives.is_empty() {
-                        return Err("the callback has directives".to_string());
-                    }
-                    let returns = body_shape(&body.statements)?;
-                    if returns == (method == Method::ForEach) {
-                        return Err(if returns {
-                            "the `forEach` callback returns".to_string()
-                        } else {
-                            "the callback returns nothing".to_string()
-                        });
-                    }
+                    Some(&**function.body.as_ref().ok_or("the callback has no body")?)
                 }
                 _ => unreachable!("callback_parts checked"),
+            };
+            if let Some(body) = block {
+                if !body.directives.is_empty() {
+                    return Err("the callback has directives".to_string());
+                }
+                let returns = body_shape(&body.statements)?;
+                if returns == (method == Method::ForEach) {
+                    return Err(if returns {
+                        "the `forEach` callback returns".to_string()
+                    } else {
+                        "the callback returns nothing".to_string()
+                    });
+                }
             }
             // `thisArg`, or `reduce`'s seed.
             match (method, call.arguments.get(1)) {
@@ -632,6 +653,22 @@ impl<'a> Visitor<'_> {
             }
             _ => return Err("more than one callback has effects".to_string()),
         };
+        // A short-circuiting terminal stops the loop early: the earlier stages' remaining calls
+        // (and any exception they would throw) must not matter.
+        if stages.len() > 1
+            && matches!(
+                stages[last].method,
+                Method::Some | Method::Every | Method::Find | Method::FindIndex | Method::Includes
+            )
+            && !stages[..last]
+                .iter()
+                .all(|stage| stage.effects.is_side_effect_free())
+        {
+            return Err(
+                "an earlier callback has effects, which the search's early exit would cut short"
+                    .to_string(),
+            );
+        }
         for extra in &extras {
             let node = extra.node_id();
             if !self.query.pure(node) {
@@ -671,34 +708,6 @@ impl<'a> Visitor<'_> {
                 ));
             }
         }
-        // The target binding.
-        let mut target = None;
-        if let Form::Declaration(kind) = form {
-            let Statement::VariableDeclaration(declaration) = statement else {
-                unreachable!("a declaration form")
-            };
-            let BindingPattern::BindingIdentifier(id) = &declaration.declarations[0].id else {
-                unreachable!("chain_of checked")
-            };
-            let symbol = id.symbol_id();
-            let mut names = NamesIn::default();
-            for call in calls {
-                names.visit_call_expression(call);
-            }
-            if names.0.contains(id.name.as_str()) {
-                return Err("the chain reads the binding it initialises".to_string());
-            }
-            let scalar = !matches!(stages[last].method, Method::Map | Method::Filter);
-            if scalar
-                && kind == VariableDeclarationKind::Const
-                && scoping
-                    .get_resolved_references(symbol)
-                    .any(oxc_semantic::Reference::is_write)
-            {
-                return Err("the constant is assigned somewhere".to_string());
-            }
-            target = Some(symbol);
-        }
         let reduce_unseeded =
             stages[last].method == Method::Reduce && calls[last].arguments.len() == 1;
         if reduce_unseeded && !is_global_name(scoping, scoping.root_scope_id(), "TypeError") {
@@ -720,7 +729,6 @@ impl<'a> Visitor<'_> {
         Ok(Plan {
             guard,
             hole_map,
-            target,
             reduce_unseeded,
             search_strict,
             stages: stages.len(),
@@ -741,8 +749,6 @@ struct Plan {
     guard: bool,
     /// A terminal `map` that keeps holes: `new Array(length)` written by index.
     hole_map: bool,
-    /// The declared binding receiving the result.
-    target: Option<SymbolId>,
     /// `reduce` with no seed.
     reduce_unseeded: bool,
     /// The `includes` search value is never NaN, so `===` compares like `SameValueZero`.
@@ -865,16 +871,11 @@ impl<'a> Visitor<'_> {
         };
         generated.0.insert(array.name.to_string());
         // The result binding.
-        let target = match (&declared, plan.target) {
-            (Some((_, declarator)), Some(symbol)) => {
-                let BindingPattern::BindingIdentifier(id) = &declarator.id else {
-                    unreachable!("chain_of checked")
-                };
-                Some(BoundIdentifier::new(id.name, symbol))
-            }
-            _ if terminal == Method::ForEach => None,
-            _ => Some(self.declare(terminal.result_name(), at, outer, ctx)),
-        };
+        // Accumulated in a binding of its own: a declared result is assigned once, after the
+        // loop, so it stays in its temporal dead zone while the callbacks run, and gets no
+        // partial value when one throws.
+        let target = (terminal != Method::ForEach)
+            .then(|| self.declare(terminal.result_name(), at, outer, ctx));
         if let Some(target) = &target {
             generated.0.insert(target.name.to_string());
         }
@@ -928,32 +929,19 @@ impl<'a> Visitor<'_> {
                 Method::Find | Method::ForEach => None,
             };
             let array_result = matches!(terminal, Method::Map | Method::Filter);
-            let (kind, declarator) = match declared {
-                Some((kind, mut declarator)) => {
-                    let kind = if kind == VariableDeclarationKind::Const && !array_result {
-                        VariableDeclarationKind::Let
-                    } else {
-                        kind
-                    };
-                    declarator.init = initial;
-                    (kind, declarator)
-                }
-                None => (
-                    if array_result {
-                        VariableDeclarationKind::Const
-                    } else {
-                        VariableDeclarationKind::Let
-                    },
-                    VariableDeclarator::new(
-                        SPAN,
-                        target.create_binding_pattern(ctx),
-                        None,
-                        initial,
-                        false,
-                        ctx,
-                    ),
-                ),
+            let kind = if array_result {
+                VariableDeclarationKind::Const
+            } else {
+                VariableDeclarationKind::Let
             };
+            let declarator = VariableDeclarator::new(
+                SPAN,
+                target.create_binding_pattern(ctx),
+                None,
+                initial,
+                false,
+                ctx,
+            );
             before.push(Statement::new_variable_declaration(
                 SPAN,
                 kind,
@@ -1429,6 +1417,17 @@ impl<'a> Visitor<'_> {
                 empty.create_spanned_read_expression(at, ctx),
                 Statement::new_throw_statement(SPAN, error, ctx),
                 None,
+                ctx,
+            ));
+        }
+        if let Some((kind, mut declarator)) = declared {
+            let target = target.as_ref().expect("a declared chain has a result");
+            declarator.init = Some(target.create_spanned_read_expression(at, ctx));
+            before.push(Statement::new_variable_declaration(
+                SPAN,
+                kind,
+                ArenaVec::from_iter_in([declarator], &ctx.ast),
+                false,
                 ctx,
             ));
         }

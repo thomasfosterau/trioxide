@@ -1,0 +1,77 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/pipelines-result-binding
+input_file: tests/fixtures/passes/review-s5b/pipelines-result-binding/input.ts
+---
+//- input.ts
+// Review: the declared result is assigned once, at the end, so it stays in its temporal dead
+// zone while the chain runs and keeps no partial value when a callback throws.
+function tdz() {
+	const xs = [1, 2];
+	function peek() {
+		return total;
+	}
+	try {
+		let result = 0;
+		for (let i = 0, length = xs.length; i < length; i++) {
+			if (!(i in xs)) continue;
+			const x = xs[i];
+			result = result + x + peek();
+		}
+		const total = result;
+		return String(total);
+	} catch (error) {
+		return error instanceof ReferenceError ? "ReferenceError" : "other";
+	}
+}
+function partialVar() {
+	const xs = [
+		10,
+		20,
+		30
+	];
+	try {
+		// eslint-disable-next-line no-var
+		let result = 0;
+		for (let i = 0, length = xs.length; i < length; i++) {
+			if (!(i in xs)) continue;
+			const x = xs[i];
+			if (x === 30) throw new Error("stop");
+			result = result + x;
+		}
+		var t = result;
+	} catch {}
+	// eslint-disable-next-line no-var
+	try {
+		// eslint-disable-next-line no-var
+		const result2 = new Array(xs.length);
+		for (let i = 0, length = xs.length; i < length; i++) {
+			if (!(i in xs)) continue;
+			const x = xs[i];
+			if (x === 30) throw new Error("stop");
+			result2[i] = x;
+		}
+		var r = result2;
+	} catch {}
+	return `${t} ${r}`;
+}
+function shadow() {
+	const xs = [
+		1,
+		2,
+		3
+	];
+	// A callback local named like the result is its own binding.
+	let result = 0;
+	for (let i = 0, length = xs.length; i < length; i++) {
+		const x = xs[i];
+		const total = x * 2;
+		const b = total;
+		result = result + b;
+	}
+	const total = result;
+	return total;
+}
+export function main() {
+	console.log(tdz(), partialVar(), shadow());
+}

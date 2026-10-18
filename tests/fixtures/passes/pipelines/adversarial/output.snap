@@ -62,22 +62,24 @@ function startIndex() {
 function zeros() {
 	const xs = [-0, NaN];
 	// SameValueZero: -0 equals 0, and NaN equals NaN.
-	let zero = false;
+	let found = false;
 	for (let i = 0, length = xs.length; i < length; i++) {
 		const item = xs[i];
 		if (item === 0) {
-			zero = true;
+			found = true;
 			break;
 		}
 	}
-	let nan = false;
+	const zero = found;
+	let found2 = false;
 	for (let i = 0, length = xs.length; i < length; i++) {
 		const item = xs[i];
 		if (item === NaN || item !== item && true) {
-			nan = true;
+			found2 = true;
 			break;
 		}
 	}
+	const nan = found2;
 	return [
 		zero,
 		nan,
@@ -87,7 +89,13 @@ function zeros() {
 function tdz() {
 	try {
 		// The callback reads the binding the chain initialises, in its temporal dead zone.
-		const t = [1].map(() => t.length);
+		const items = [1];
+		const result = new Array(items.length);
+		for (let i = 0, length = items.length; i < length; i++) {
+			if (!(i in items)) continue;
+			result[i] = t.length;
+		}
+		const t = result;
 		return String(t);
 	} catch (error) {
 		return error instanceof ReferenceError ? "ReferenceError" : "other";
