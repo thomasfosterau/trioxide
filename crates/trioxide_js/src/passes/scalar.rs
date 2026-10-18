@@ -44,7 +44,7 @@ use trioxide_common::NodeId;
 
 use super::{
     Decisions,
-    speed::{Namer, is_island, rescope},
+    speed::{Namer, is_anonymous, is_island, rescope},
     util::{Query, has_dynamic_scope},
 };
 use crate::{Pass, PassContext};
@@ -224,7 +224,7 @@ fn literal_keys(init: &Expression<'_>) -> Result<Vec<String>, &'static str> {
                 if keys.contains(&key) {
                     return Err("the literal repeats a key");
                 }
-                if property.value.is_anonymous_function_definition() {
+                if is_anonymous(&property.value) {
                     // It is named after its key; a local would give it the local's name.
                     return Err("a key holds an anonymous function or class (named after the key)");
                 }
@@ -240,7 +240,13 @@ fn literal_keys(init: &Expression<'_>) -> Result<Vec<String>, &'static str> {
                     ArrayExpressionElement::Elision(_) => {
                         return Err("the array literal has holes");
                     }
-                    _ => keys.push(index.to_string()),
+                    element => {
+                        if element.as_expression().is_some_and(is_anonymous) {
+                            // `[() => 1][0].name` is empty; a local would give it its name.
+                            return Err("an element is an anonymous function or class");
+                        }
+                        keys.push(index.to_string());
+                    }
                 }
             }
         }
@@ -364,14 +370,18 @@ impl Find<'_, '_> {
         candidate.written |= write;
     }
 
-    /// Handles a member expression in a write position. Returns whether it was a candidate's.
-    fn member_target(&mut self, target: &SimpleAssignmentTarget<'_>, span: Span) -> bool {
+    /// Handles a member expression in a write position. Returns the candidate it writes, if any.
+    fn member_target(
+        &mut self,
+        target: &SimpleAssignmentTarget<'_>,
+        span: Span,
+    ) -> Option<SymbolId> {
         match target {
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
                 if let Some((symbol, object)) = self.candidate_of(&member.object) {
                     let key = Some(member.property.name.as_str());
                     self.key_use(symbol, object, span, key, true);
-                    return true;
+                    return Some(symbol);
                 }
             }
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
@@ -379,12 +389,12 @@ impl Find<'_, '_> {
                     let key = computed_key(&member.expression);
                     self.key_use(symbol, object, span, key.as_deref(), true);
                     self.visit_expression(&member.expression);
-                    return true;
+                    return Some(symbol);
                 }
             }
             _ => {}
         }
-        false
+        None
     }
 }
 
@@ -443,11 +453,16 @@ impl<'a> Visit<'a> for Find<'_, '_> {
     }
 
     fn visit_assignment_expression(&mut self, assignment: &oxc_ast::ast::AssignmentExpression<'a>) {
-        let handled = assignment
+        let written = assignment
             .left
             .as_simple_assignment_target()
-            .is_some_and(|target| self.member_target(target, assignment.span));
-        if !handled {
+            .and_then(|target| self.member_target(target, assignment.span));
+        if let Some(symbol) = written {
+            if is_anonymous(&assignment.right) {
+                // `p.f = () => 1` leaves the function unnamed; `p_f = () => 1` would name it.
+                self.reject(symbol, "a key is assigned an anonymous function or class");
+            }
+        } else {
             self.target += usize::from(!matches!(
                 assignment.left,
                 AssignmentTarget::AssignmentTargetIdentifier(_)
@@ -468,7 +483,7 @@ impl<'a> Visit<'a> for Find<'_, '_> {
     }
 
     fn visit_update_expression(&mut self, update: &oxc_ast::ast::UpdateExpression<'a>) {
-        if !self.member_target(&update.argument, update.span) {
+        if self.member_target(&update.argument, update.span).is_none() {
             walk::walk_update_expression(self, update);
         }
     }

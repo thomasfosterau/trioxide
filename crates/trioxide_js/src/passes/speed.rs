@@ -146,7 +146,7 @@ fn sanitize(text: &str) -> String {
 /// or class (`() => 1`) gets the name of the binding it is assigned to (`NamedEvaluation`, even
 /// through parentheses), so it becomes `(0, () => 1)`, which keeps its own empty name.
 pub fn unnamed<'a>(value: Expression<'a>, ast: &AstBuilder<'a>) -> Expression<'a> {
-    if !value.is_anonymous_function_definition() {
+    if !is_anonymous(&value) {
         return value;
     }
     let span = value.span();
@@ -154,6 +154,15 @@ pub fn unnamed<'a>(value: Expression<'a>, ast: &AstBuilder<'a>) -> Expression<'a
     let sequence =
         Expression::new_sequence_expression(span, ArenaVec::from_iter_in([zero, value], ast), ast);
     Expression::new_parenthesized_expression(span, sequence, ast)
+}
+
+/// Whether `value` is an anonymous function or class definition, which takes the name of a
+/// binding it initialises or is assigned to. Sees through parentheses and TypeScript's
+/// `as`, `satisfies`, `!` and `<T>`, which type stripping removes.
+pub fn is_anonymous(value: &Expression<'_>) -> bool {
+    value
+        .get_inner_expression()
+        .is_anonymous_function_definition()
 }
 
 /// Whether the function `unit` must stay as written: it is compiled into a WASM island (or

@@ -397,25 +397,39 @@ fn declares_block_scoped(statement: &Statement<'_>) -> bool {
 
 /// Implements the [`Position`] bookkeeping hooks of an `oxc_traverse` visitor that has
 /// `position: Position` and `query: Query` fields. With `after_statement`, `exit_statement`
-/// also calls the visitor's `after_statement(statement, ctx)`.
+/// also calls the visitor's `after_statement(statement, ctx)`; with `before_statement`,
+/// `enter_statement` also calls its `before_statement(statement, ctx)` (and `exit_statement`
+/// its `after_statement`).
 macro_rules! track_position {
     (after_statement) => {
         $crate::passes::track_position!(@hooks self, statement, ctx, {
+            let _ = (statement, ctx);
+        }, {
+            self.after_statement(statement, ctx);
+        });
+    };
+    (before_statement) => {
+        $crate::passes::track_position!(@hooks self, statement, ctx, {
+            self.before_statement(statement, ctx);
+        }, {
             self.after_statement(statement, ctx);
         });
     };
     () => {
         $crate::passes::track_position!(@hooks self, statement, ctx, {
             let _ = (statement, ctx);
+        }, {
+            let _ = (statement, ctx);
         });
     };
-    (@hooks $self:ident, $statement:ident, $ctx:ident, $after:block) => {
+    (@hooks $self:ident, $statement:ident, $ctx:ident, $before:block, $after:block) => {
         fn enter_statement(
-            &mut self,
-            statement: &mut oxc_ast::ast::Statement<'a>,
-            _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+            &mut $self,
+            $statement: &mut oxc_ast::ast::Statement<'a>,
+            $ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
         ) {
-            self.position.enter_statement(statement, self.query);
+            $self.position.enter_statement($statement, $self.query);
+            $before
         }
 
         fn exit_statement(

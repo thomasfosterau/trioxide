@@ -10,7 +10,6 @@ function sum(...xs) {
 	return s;
 }
 export function main() {
-	let b;
 	let total = 0;
 	for (let i = 0; i < 10; i++) {
 		let x, y;
@@ -33,5 +32,6 @@ export function main() {
 	}
 	const message = "total " + total;
 	console.log("log:", message);
+	let b;
 	console.log(sum(1, 2, 3), (b = 2, 1 + b), 7);
 }

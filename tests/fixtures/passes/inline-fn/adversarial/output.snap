@@ -74,8 +74,8 @@ function fact(n) {
 	return n <= 1 ? 1 : n * fact(n - 1);
 }
 export function main() {
-	let b, a_1, b_1, a_2, b_2, a_3, a_4, b_3, a_5, b_4;
 	console.log(12, 5);
+	let b;
 	console.log((b = 102, 2 * b + 1), 7);
 	console.log(late(undefined, next("argument")), order.join(","));
 	const values = [
@@ -122,7 +122,9 @@ export function main() {
 	console.log(at, missing);
 	console.log(sign(-1), sign(0), sign(1));
 	order.length = 0;
-	const r = (a_1 = g1(), b_1 = h1(), a_1 + (b_1 = b_1 + 1, b_1));
+	const a_1 = g1();
+	let b_1 = h1();
+	const r = a_1 + (b_1 = b_1 + 1, b_1);
 	console.log(4, order.join(","), LATE, nameOf(() => 1));
 	try {
 		const p = fives[0];
@@ -152,8 +154,10 @@ export function main() {
 	}
 	const small = guarded_result_1;
 	console.log(big, small, order.join(","));
+	let a_2, b_2;
 	console.log((a_2 = next("a"), b_2 = next("b"), b_2 - a_2), order.join(","));
 	console.log((next("extra"), 1), order.join(","));
+	let a_3, a_4, b_3, a_5, b_4;
 	console.log((a_5 = next("p"), b_4 = (a_4 = next("q"), b_3 = (a_3 = next("r"), 7 + a_3 * 0), b_3 + a_4 * 0), b_4 + a_5 * 0), order.join(","));
 	{
 		console.log(6, 10);

@@ -6,7 +6,9 @@
 //! one caller edge; up to [`LARGE`] nodes).
 //!
 //! **Forms.** A body that is one `return e` becomes an expression wherever the call is:
-//! `(x = arg, e')`, its temporaries declared at the top of the enclosing statement list. Other
+//! `(x = arg, e')`, its temporaries declared (`let x;`) just before the statement holding the
+//! call. When the call is that statement's first evaluation (`const r = f(a)` or `return f(a)`)
+//! the temporaries are declared with their arguments instead (`const x = a;`). Other
 //! bodies are inlined where the call is a statement of its own (`f(a);`), a declaration's
 //! initialiser (`const x = f(a);`), a `return`'s argument, or the right side of an assignment
 //! statement to a name: the parameters become `const`s (`let` when `f` reassigns them), the
@@ -575,10 +577,21 @@ struct Site {
     callee: NodeId,
 }
 
-/// A statement list being visited: the temporaries to declare at its top, and its scope.
-struct Frame {
+/// A statement list being visited: its scope, where the visit is in it, and the declarations
+/// of temporaries to put before its items.
+struct Frame<'a> {
     scope: ScopeId,
-    temporaries: Vec<String>,
+    /// The index of the item being visited (in the list as it was), if any yet.
+    item: Option<usize>,
+    /// How many statements deep inside that item the visit is.
+    depth: usize,
+    /// The call whose arguments the item evaluates first, if it has one.
+    leading: Option<Span>,
+    /// Uninitialised temporaries, by item.
+    temporaries: Vec<(usize, Vec<String>)>,
+    /// Temporaries declared with their values, by item (after the uninitialised ones, which
+    /// the values may assign).
+    declarations: Vec<(usize, Statement<'a>)>,
 }
 
 struct Visitor<'a, 'f> {
@@ -587,7 +600,7 @@ struct Visitor<'a, 'f> {
     decisions: Decisions,
     index: Index<'a>,
     namer: Namer,
-    frames: Vec<Frame>,
+    frames: Vec<Frame<'a>>,
     /// Callees inlined somewhere.
     inlined: FxHashSet<NodeId>,
     allocator: &'a Allocator,
@@ -660,7 +673,7 @@ enum Mode {
 }
 
 impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
-    track_position!();
+    track_position!(before_statement);
 
     fn enter_statements(
         &mut self,
@@ -669,7 +682,11 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
     ) {
         self.frames.push(Frame {
             scope: ctx.current_scope_id(),
+            item: None,
+            depth: 0,
+            leading: None,
             temporaries: Vec::new(),
+            declarations: Vec::new(),
         });
     }
 
@@ -678,15 +695,21 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
         statements: &mut ArenaVec<'a, Statement<'a>>,
         ctx: &mut TraverseCtx<'a, ()>,
     ) {
+        // Where each item of the list as it was starts now.
+        let mut starts = Vec::with_capacity(statements.len());
         if self.position.live() {
             let mut index = 0;
             while index < statements.len() {
+                starts.push(index);
                 index += self.statement(statements, index, ctx);
             }
+        } else {
+            starts.extend(0..statements.len());
         }
         let frame = self.frames.pop().expect("a frame per statement list");
-        if !frame.temporaries.is_empty() {
-            let declarators = frame.temporaries.iter().map(|name| {
+        let mut before: Vec<(usize, Statement<'a>)> = frame.declarations;
+        for (item, names) in frame.temporaries.into_iter().rev() {
+            let declarators = names.iter().map(|name| {
                 VariableDeclarator::new(
                     Span::default(),
                     BindingPattern::new_binding_identifier(
@@ -707,11 +730,16 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
                 false,
                 ctx,
             );
-            let at = statements
-                .iter()
-                .position(|statement| !matches!(statement, Statement::ImportDeclaration(_)))
-                .unwrap_or(statements.len());
-            statements.insert(at, declaration);
+            let at = before.partition_point(|(other, _)| *other < item);
+            before.insert(at, (item, declaration));
+        }
+        for (item, mut declaration) in before.into_iter().rev() {
+            // At the statement's start, so its leading comments stay above its temporaries.
+            let start = statements[starts[item]].span().start;
+            if let Statement::VariableDeclaration(declaration) = &mut declaration {
+                declaration.span = Span::empty(start);
+            }
+            statements.insert(starts[item], declaration);
         }
     }
 
@@ -775,6 +803,10 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
             );
             return;
         }
+        let leading = self
+            .frames
+            .last()
+            .is_some_and(|frame| frame.depth == 1 && frame.leading == Some(span));
         let receiver = receiver_of(call, self.allocator);
         let mut arguments = self.apply(call, site.callee, plan, frame_scope, ctx);
         let mut sequence = Vec::new();
@@ -788,17 +820,18 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
                 Some(Value::Local {
                     name,
                     init,
+                    mutable,
                     callee_code,
-                    ..
                 }) => {
                     renames.insert(*symbol, name.clone());
-                    sequence.push((name, init, callee_code));
+                    sequence.push((name, init, mutable, callee_code));
                 }
                 None => {}
             }
         }
         let mut parts: Vec<Expression<'a>> = Vec::new();
-        for (name, mut init, callee_code) in sequence {
+        let mut declarations = Vec::new();
+        for (name, mut init, mutable, callee_code) in sequence {
             if callee_code {
                 Rename {
                     scoping: ctx.scoping(),
@@ -809,6 +842,10 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
                     mode: None,
                 }
                 .visit_expression(&mut init);
+            }
+            if leading {
+                declarations.push((name, init, mutable));
+                continue;
             }
             let target = AssignmentTarget::new_assignment_target_identifier(
                 span,
@@ -822,8 +859,13 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
                 init,
                 ctx,
             ));
-            if let Some(frame) = self.frames.last_mut() {
-                frame.temporaries.push(name);
+            if let Some(frame) = self.frames.last_mut()
+                && let Some(item) = frame.item
+            {
+                match frame.temporaries.last_mut() {
+                    Some((last, names)) if *last == item => names.push(name),
+                    _ => frame.temporaries.push((item, vec![name])),
+                }
             }
         }
         parts.append(&mut arguments.extra);
@@ -861,8 +903,82 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
         }
         ForgetNames.visit_expression(&replacement);
         *expression = slot.wrap(replacement, ctx);
+        if let Some(frame) = self.frames.last_mut()
+            && let Some(item) = frame.item
+        {
+            let mut declarations = declarations.into_iter().peekable();
+            while let Some(&(_, _, mutable)) = declarations.peek() {
+                let mut declarators = ArenaVec::new_in(ctx);
+                while let Some((name, init, _)) =
+                    declarations.next_if(|(_, _, other)| *other == mutable)
+                {
+                    ForgetNames.visit_expression(&init);
+                    declarators.push(VariableDeclarator::new(
+                        Span::default(),
+                        BindingPattern::new_binding_identifier(
+                            Span::default(),
+                            Ident::from_str_in(&name, ctx),
+                            ctx,
+                        ),
+                        None,
+                        Some(init),
+                        false,
+                        ctx,
+                    ));
+                }
+                let kind = if mutable {
+                    VariableDeclarationKind::Let
+                } else {
+                    VariableDeclarationKind::Const
+                };
+                let declaration = Statement::new_variable_declaration(
+                    Span::default(),
+                    kind,
+                    declarators,
+                    false,
+                    ctx,
+                );
+                frame.declarations.push((item, declaration));
+            }
+        }
         self.inlined.insert(site.callee);
         self.decisions.applied(span);
+    }
+}
+
+impl<'a> Visitor<'a, '_> {
+    fn before_statement(&mut self, statement: &Statement<'a>, _ctx: &TraverseCtx<'a, ()>) {
+        let Some(frame) = self.frames.last_mut() else {
+            return;
+        };
+        if frame.depth == 0 {
+            frame.item = Some(frame.item.map_or(0, |item| item + 1));
+            frame.leading = leading_call(statement);
+        }
+        frame.depth += 1;
+    }
+
+    fn after_statement(&mut self, _statement: &Statement<'a>, _ctx: &TraverseCtx<'a, ()>) {
+        if let Some(frame) = self.frames.last_mut() {
+            frame.depth -= 1;
+        }
+    }
+}
+
+/// The call a statement evaluates before anything else, when it is a whole initialiser of its
+/// first declaration (`const r = f(a)`) or a `return` argument: the call's arguments can be
+/// evaluated by declarations just before the statement.
+fn leading_call(statement: &Statement<'_>) -> Option<Span> {
+    let call = match statement {
+        Statement::VariableDeclaration(declaration) if !declaration.declare => {
+            declaration.declarations.first()?.init.as_ref()?
+        }
+        Statement::ReturnStatement(ret) => ret.argument.as_ref()?,
+        _ => return None,
+    };
+    match call {
+        Expression::CallExpression(call) => Some(call.span),
+        _ => None,
     }
 }
 
@@ -1184,7 +1300,10 @@ impl<'a> Visitor<'a, '_> {
                 callee_code: false,
             };
             let value = match how {
-                How::CopyArgument(at) => Value::Copy(taken[at].take().expect("present")),
+                How::CopyArgument(at) => Value::Copy(unnamed(
+                    taken[at].take().expect("present"),
+                    &AstBuilder::new(self.allocator),
+                )),
                 How::CopyUndefined => Value::Copy(undefined(call.span, scope, ctx)),
                 How::LocalArgument(at) => local(
                     unnamed(
