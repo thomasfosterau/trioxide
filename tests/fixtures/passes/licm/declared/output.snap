@@ -1,0 +1,20 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/licm/declared
+input_file: tests/fixtures/passes/licm/declared/input.ts
+---
+//- input.ts
+// Negative cases: in the library world an exported function's array parameter is only
+// Declared: its `length` could be a getter.
+export function sum(values) {
+	let total = 0;
+	for (let i = 0; i < values.length; i++) total += values[i];
+	return total;
+}
+export function main() {
+	console.log(sum([
+		1,
+		2,
+		3
+	]));
+}

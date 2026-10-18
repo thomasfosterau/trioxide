@@ -1,0 +1,28 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/licm-loop-binding
+input_file: tests/fixtures/passes/review-s5b/licm-loop-binding/input.ts
+---
+//- input.ts
+// Review: `.length` of a binding declared inside the loop is not invariant.
+function slices(src, n) {
+	let t = 0;
+	for (let i = 0; i < n; i++) {
+		const a = src.slice(i);
+		t += a.length;
+	}
+	let j = 0;
+	while (j < n) {
+		const b = src.slice(j);
+		t += b.length;
+		j++;
+	}
+	return t;
+}
+export function main() {
+	console.log(slices([
+		1,
+		2,
+		3
+	], 3));
+}

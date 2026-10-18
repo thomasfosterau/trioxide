@@ -12,7 +12,8 @@ export function main() {
 		2,
 		3
 	];
-	for (const k of ["0", "length"]) {
+	for (let items = ["0", "length"], i = 0; i < items.length; i++) {
+		const k = items[i];
 		try {
 			delete xs[k];
 			console.log("deleted", k);
@@ -34,7 +35,8 @@ export function main() {
 		console.log("threw writing a", error.name);
 	}
 	const bytes = new Uint8Array(2);
-	for (const k of ["1", "length"]) {
+	for (let items = ["1", "length"], i = 0; i < items.length; i++) {
+		const k = items[i];
 		try {
 			delete bytes[k];
 			console.log("deleted byte", k);

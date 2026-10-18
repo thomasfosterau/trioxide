@@ -52,7 +52,10 @@ export function main() {
 		new Rect(2, 3),
 		Rect.square(4)
 	];
-	for (const shape of shapes) console.log(shape.describe());
+	for (let i = 0; i < shapes.length; i++) {
+		const shape = shapes[i];
+		console.log(shape.describe());
+	}
 	const circle = shapes[0];
 	circle.radius = 2;
 	console.log(circle.radius, circle.describe());

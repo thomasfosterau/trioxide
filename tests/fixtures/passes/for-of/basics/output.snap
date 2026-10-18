@@ -1,0 +1,117 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/for-of/basics
+input_file: tests/fixtures/passes/for-of/basics/input.ts
+---
+//- input.ts
+// Positive cases: `for…of` over arrays the analysis made becomes an indexed loop, and spreads
+// of arrays without holes become `slice`/`concat`.
+function sum() {
+	const values = [
+		1,
+		2,
+		3,
+		4
+	];
+	let total = 0;
+	for (let i = 0, length = values.length; i < length; i++) {
+		const value = values[i];
+		total += value;
+	}
+	return total;
+}
+function heads() {
+	const pairs = [["a", 1], ["b", 2]];
+	let out = "";
+	// Destructuring, `let`, `var` and an existing binding as the target.
+	for (let i = 0; i < pairs.length; i++) {
+		const [key, count] = pairs[i];
+		out += key.repeat(count);
+	}
+	for (let i = 0; i < pairs.length; i++) {
+		let [key] = pairs[i];
+		key += "!";
+		out += key;
+	}
+	for (let i = 0; i < pairs.length; i++) {
+		var entry = pairs[i];
+		out += entry[1];
+	}
+	let last = "";
+	for (let items = ["x", "y"], i = 0; i < items.length; i++) {
+		last = items[i];
+		out += last;
+	}
+	return `${out}:${entry[0]}:${last}`;
+}
+function control() {
+	const grid = [
+		[
+			1,
+			2,
+			3
+		],
+		[
+			4,
+			5,
+			6
+		],
+		[
+			7,
+			8,
+			9
+		]
+	];
+	let out = "";
+	rows: for (let i = 0, length = grid.length; i < length; i++) {
+		const row = grid[i];
+		for (let j = 0, length = row.length; j < length; j++) {
+			const cell = row[j];
+			if (cell === 5) continue rows;
+			if (cell === 8) break rows;
+			if (cell % 2 === 0) continue;
+			out += cell;
+		}
+	}
+	return out;
+}
+function closures() {
+	const makers = [];
+	// Each iteration has its own binding.
+	for (let items = [
+		10,
+		20,
+		30
+	], i = 0, length = items.length; i < length; i++) {
+		const value = items[i];
+		makers.push(() => value);
+	}
+	const result = [];
+	for (let i = 0, length = makers.length; i < length; i++) {
+		const make = makers[i];
+		result.push(make());
+	}
+	return result;
+}
+function fromCall() {
+	let total = 0;
+	for (let items = digits(), i = 0, length = items.length; i < length; i++) {
+		const value = items[i];
+		total = total * 10 + value;
+	}
+	return total;
+}
+function digits() {
+	return [4, 2];
+}
+function spreads() {
+	const a = [1, 2];
+	const b = [3];
+	const copy = a.slice();
+	copy.push(9);
+	const joined = a.concat(b);
+	return `${a.join()} ${copy.join()} ${joined.join()}`;
+}
+export function main() {
+	console.log(sum(), heads(), control(), closures(), fromCall(), spreads());
+}

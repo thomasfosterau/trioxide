@@ -1,0 +1,74 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/pipelines-short-circuit
+input_file: tests/fixtures/passes/review-s5b/pipelines-short-circuit/input.ts
+---
+//- input.ts
+const some_callback_1 = (y) => y === 1;
+const map_callback = (x) => {
+	if (x === 3) throw new Error("late");
+	return x;
+};
+const find_callback = (y) => y === 1;
+const every_callback = (y) => y < 2;
+const some_callback = (y) => y === 2;
+// Review: a short-circuiting terminal must not skip the remaining calls, or a late throw, of
+// an earlier stage that has effects.
+function some() {
+	const xs = [
+		1,
+		2,
+		3,
+		4
+	];
+	const log = [];
+	const r = xs.map((x) => {
+		log.push(x);
+		return x;
+	}).some(some_callback);
+	return String(r) + log.join(",");
+}
+function every() {
+	const xs = [
+		1,
+		2,
+		3,
+		4
+	];
+	const log = [];
+	const r = xs.filter((x) => {
+		log.push(x);
+		return true;
+	}).every(every_callback);
+	return String(r) + log.join(",");
+}
+function find() {
+	const xs = [
+		1,
+		2,
+		3,
+		4
+	];
+	const log = [];
+	const r = xs.filter((x) => {
+		log.push(x);
+		return x > 0;
+	}).find(find_callback);
+	return String(r) + log.join(",");
+}
+function lateThrow() {
+	const xs = [
+		1,
+		2,
+		3
+	];
+	try {
+		const r = xs.map(map_callback).some(some_callback_1);
+		return String(r);
+	} catch (error) {
+		return error.message;
+	}
+}
+export function main() {
+	console.log(some(), every(), find(), lateThrow());
+}

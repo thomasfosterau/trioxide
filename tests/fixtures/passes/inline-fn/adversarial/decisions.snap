@@ -72,6 +72,8 @@ input_file: tests/fixtures/passes/inline-fn/adversarial/input.ts
 74:1 dce applied
 142:1 dce applied
 158:9 dce skipped: unused, but its initialiser has effects
+35:23 licm applied
+29:3 for-of applied
 109:14 partial-eval skipped: the call may run code trioxide doesn't see
 22:27 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
 49:10 inline-fn applied

@@ -16,8 +16,17 @@
 //! The speed passes follow in the same group, so they read the same facts and cost no refresh
 //! (a group of their own would re-analyse the whole program for every module the foundation
 //! passes changed). Each rebuilds the scoping when it rewrites (`speed::rescope` keeps node
-//! ids, so the next one still gets facts about the nodes it kept):
+//! ids, so the next one still gets facts about the nodes it kept). The loop and shape passes
+//! come first, so a pipeline's callbacks are still written in its calls when it is lowered
+//! (`closure-hoist` would lift them out):
 //!
+//! - [`Licm`] (`"licm"`, pass 9): loop invariants and unchanging array lengths move out of
+//!   loops, under readable names.
+//! - [`HiddenClass`] (`"hidden-class"`, pass 10): late or conditional properties of classes
+//!   whose instances' keys nothing observes become fields; `delete` of them an assignment.
+//! - [`ForOf`] (`"for-of"`, pass 7): `for…of` over plain arrays becomes an indexed loop;
+//!   spreads of arrays without holes become `slice`/`concat`.
+//! - [`Pipelines`] (`"pipelines"`, pass 6): `map`/`filter`/… chains become one loop.
 //! - [`PartialEval`] (`"partial-eval"`, pass 11): top-level calls with constant arguments
 //!   evaluated by a fuel-bounded interpreter and replaced with the literal they return.
 //! - [`Scalar`] (`"scalar"`, pass 8, off by default): object and array literals that never
@@ -62,14 +71,19 @@
 //! island functions are not folded, and island functions are not removed. Functions forced to
 //! an island (`"use wasm"`, `@trioxide wasm`) are never removed either.
 
+mod arrays;
 mod checks;
 mod closure_hoist;
 mod dce;
 mod fold;
+mod for_of;
+mod hidden_class;
 mod imports;
 mod inline;
 mod inline_fn;
+mod licm;
 mod partial_eval;
+mod pipelines;
 mod scalar;
 mod simplify;
 mod speed;
@@ -85,10 +99,14 @@ pub use checks::Checks;
 pub use closure_hoist::ClosureHoist;
 pub use dce::Dce;
 pub use fold::Fold;
+pub use for_of::ForOf;
+pub use hidden_class::HiddenClass;
 pub use imports::{KeepImports, RecordImports};
 pub use inline::Inline;
 pub use inline_fn::{InlineFn, Params};
+pub use licm::Licm;
 pub use partial_eval::PartialEval;
+pub use pipelines::Pipelines;
 pub use scalar::Scalar;
 pub use simplify::Simplify;
 
@@ -124,7 +142,8 @@ fn wasm_tags(program: &oxc_ast::ast::Program<'_>) -> rustc_hash::FxHashSet<u32> 
 use crate::PassGroup;
 use util::Query;
 
-/// The default groups: the fact-driven foundation passes, then the syntactic cleanup.
+/// The default groups: the fact-driven foundation and speed passes, then the syntactic
+/// cleanup.
 pub fn default_groups() -> Vec<PassGroup> {
     let imports = Rc::new(RefCell::new(imports::Guard::default()));
     vec![
@@ -136,9 +155,14 @@ pub fn default_groups() -> Vec<PassGroup> {
                 Box::new(Checks),
                 Box::new(Fold),
                 Box::new(Dce),
-                // Speed passes (S5a; PLAN §4 passes 11, 8, 12, 5) read the same facts, so they
-                // cost no refresh: a group of their own would re-analyse the whole program for
-                // every module the foundation passes changed.
+                // Speed passes (S5b: PLAN §4 passes 9, 10, 7, 6; S5a: 11, 8, 12, 5) read the same
+                // facts, so they cost no refresh: a group of their own would re-analyse the whole
+                // program for every module the foundation passes changed. S5b's come first, so
+                // pipelines still find their callbacks in the calls closure-hoist would lift.
+                Box::new(Licm),
+                Box::new(HiddenClass),
+                Box::new(ForOf),
+                Box::new(Pipelines),
                 Box::new(PartialEval),
                 Box::new(Scalar),
                 Box::new(ClosureHoist),

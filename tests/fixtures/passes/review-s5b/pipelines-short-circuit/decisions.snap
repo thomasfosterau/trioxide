@@ -1,0 +1,19 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/pipelines-short-circuit
+input_file: tests/fixtures/passes/review-s5b/pipelines-short-circuit/input.ts
+---
+//- input.ts
+21:52 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
+7:13 pipelines skipped: an earlier callback has effects, which the search's early exit would cut short
+14:13 pipelines skipped: an earlier callback has effects, which the search's early exit would cut short
+21:13 pipelines skipped: an earlier callback has effects, which the search's early exit would cut short
+28:15 pipelines skipped: an earlier callback has effects, which the search's early exit would cut short
+7:60 closure-hoist applied
+7:20 closure-hoist skipped: the closure captures `log`
+14:67 closure-hoist applied
+14:23 closure-hoist skipped: the closure captures `log`
+21:67 closure-hoist applied
+21:23 closure-hoist skipped: the closure captures `log`
+28:87 closure-hoist applied
+28:22 closure-hoist applied

@@ -12,6 +12,7 @@ input_file: tests/fixtures/passes/inline-fn/basics/input.ts
 6:22 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 7:11 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 7:22 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+13:3 for-of applied
 28:14 inline-fn applied
 29:15 inline-fn applied
 33:15 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own

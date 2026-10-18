@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/licm/declared
+input_file: tests/fixtures/passes/licm/declared/input.ts
+---
+//- input.ts
+6:23 licm skipped: the binding's array type is only Declared (trustTypes is off)

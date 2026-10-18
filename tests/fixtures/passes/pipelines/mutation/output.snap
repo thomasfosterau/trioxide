@@ -1,0 +1,89 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/pipelines/mutation
+input_file: tests/fixtures/passes/pipelines/mutation/input.ts
+---
+//- input.ts
+// Adversarial: callbacks that change the array they iterate. The range is fixed when the
+// call starts, elements are read at each step, and deleted elements are skipped.
+function pushes() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const seen = [];
+	for (let i = 0, length = a.length; i < length; i++) {
+		if (!(i in a)) continue;
+		const x = a[i];
+		seen.push(x);
+		a.push(x * 10);
+	}
+	return seen.concat(a);
+}
+function pops() {
+	const a = [
+		1,
+		2,
+		3,
+		4
+	];
+	const seen = [];
+	for (let i = 0, length = a.length; i < length; i++) {
+		if (!(i in a)) continue;
+		const x = a[i];
+		seen.push(x);
+		a.pop();
+	}
+	return seen;
+}
+function rewrites() {
+	const a = [
+		1,
+		2,
+		3
+	];
+	const result = new Array(a.length);
+	for (let i = 0, length = a.length; i < length; i++) {
+		if (!(i in a)) continue;
+		const x = a[i];
+		if (i + 1 < a.length) a[i + 1] = a[i + 1] * 100;
+		result[i] = x;
+	}
+	return result;
+}
+function deletes() {
+	const a = [
+		1,
+		2,
+		3,
+		4
+	];
+	let out = "";
+	a.forEach((x, i) => {
+		out += x;
+		delete a[i + 1];
+	});
+	return out;
+}
+function shrinksDuringFind() {
+	const a = [
+		1,
+		2,
+		3,
+		4
+	];
+	let found;
+	for (let i = 0, length = a.length; i < length; i++) {
+		const x = a[i];
+		a.length = 2;
+		if (x === 4) {
+			found = x;
+			break;
+		}
+	}
+	return found;
+}
+export function main() {
+	console.log(pushes(), pops(), rewrites(), deletes(), shrinksDuringFind());
+}

@@ -20,4 +20,5 @@ input_file: tests/fixtures/passes/dce/adversarial/input.ts
 56:9 dce skipped: unused, but its initialiser has effects
 57:9 dce skipped: unused, but its initialiser has effects
 58:9 dce skipped: unused, but its initialiser has effects
+47:3 for-of skipped: the array's type is unknown
 39:18 simplify applied

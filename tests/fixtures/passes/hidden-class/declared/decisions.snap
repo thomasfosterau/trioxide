@@ -1,0 +1,7 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/hidden-class/declared
+input_file: tests/fixtures/passes/hidden-class/declared/input.ts
+---
+//- input.ts
+4:14 hidden-class skipped: the class's instances may reach code the analysis doesn't see

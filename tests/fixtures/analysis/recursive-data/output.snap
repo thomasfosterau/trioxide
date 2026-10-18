@@ -16,7 +16,8 @@ function make(depth) {
 }
 function count(tree) {
 	let total = 1;
-	for (const child of tree.children) {
+	for (let children = tree.children, i = 0, length = children.length; i < length; i++) {
+		const child = children[i];
 		total += count(child);
 	}
 	return total;

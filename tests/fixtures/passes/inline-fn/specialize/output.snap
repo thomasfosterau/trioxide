@@ -8,7 +8,7 @@ input_file: tests/fixtures/passes/inline-fn/specialize/input.ts
 // signature and every call; a parameter callers disagree on stays.
 function scale(values, offset) {
 	let total = 0;
-	for (let i = 0; i < values.length; i++) {
+	for (let i = 0, valuesLength = values.length; i < valuesLength; i++) {
 		total += values[i] * 4 + offset;
 	}
 	return total;

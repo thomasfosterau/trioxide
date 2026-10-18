@@ -1,0 +1,8 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/for-of-shadowed
+input_file: tests/fixtures/passes/review-s5b/for-of-shadowed/input.ts
+---
+//- input.ts
+6:3 for-of applied
+10:3 for-of applied

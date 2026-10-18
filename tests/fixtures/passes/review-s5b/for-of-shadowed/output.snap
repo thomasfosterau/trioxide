@@ -1,0 +1,29 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/review-s5b/for-of-shadowed
+input_file: tests/fixtures/passes/review-s5b/for-of-shadowed/input.ts
+---
+//- input.ts
+// Review: the loop body may declare the array's name, or `i`, itself.
+function run() {
+	const xs = [
+		1,
+		2,
+		3
+	];
+	const out = [];
+	for (let items = xs, i = 0; i < items.length; i++) {
+		const x = items[i];
+		const xs = [x];
+		out.push(xs[0]);
+	}
+	for (let j = 0; j < xs.length; j++) {
+		const y = xs[j];
+		const i = y * 10;
+		out.push(i);
+	}
+	return out;
+}
+export function main() {
+	console.log(run());
+}

@@ -16,6 +16,7 @@ mod facts;
 mod interp;
 mod link;
 mod numeric;
+mod observe;
 mod render;
 mod shapes;
 mod summary;

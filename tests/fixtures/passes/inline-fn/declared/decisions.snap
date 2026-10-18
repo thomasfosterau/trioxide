@@ -4,5 +4,6 @@ description: tests/fixtures/passes/inline-fn/declared
 input_file: tests/fixtures/passes/inline-fn/declared/input.ts
 ---
 //- input.ts
+4:14 hidden-class skipped: the class's instances may reach code the analysis doesn't see
 16:10 inline-fn skipped: the receiver of `area` isn't proven to be an object (the call would throw on `null` or `undefined`)
 20:15 inline-fn applied

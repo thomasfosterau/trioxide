@@ -9,6 +9,8 @@ src/main.ts
       8:17  returns values of different types (or a value on some paths only)
       9:27  creates an array literal
       10:22  reads `SEEDS`, which is defined outside the function (only module-level constants can be read)
+    passes:
+      applied: for-of ×1
   main (19:8): JS
     why: ineligible: calls `run`, which can't be compiled to WASM
     failed rules:
@@ -16,6 +18,8 @@ src/main.ts
       8:17  in `run`: returns values of different types (or a value on some paths only)
       9:27  in `run`: creates an array literal
       10:22  in `run`: reads `SEEDS`, which is defined outside the function (only module-level constants can be read)
+    passes:
+      for-of skipped at 20:3: an array it may be is not followed by the analysis (it reaches unknown code, or gets properties added)
 
 src/ease.ts
   ease (5:8): JS
@@ -47,3 +51,5 @@ src/view.ts
       4:24  can't prove what parameter `root` receives
       4:43  parameter `lines` is an array of anything, not of numbers
       5:16  uses the global `document` (a host API)
+    passes:
+      for-of skipped at 6:3: an array it may be is not followed by the analysis (it reaches unknown code, or gets properties added)

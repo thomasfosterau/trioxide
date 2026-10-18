@@ -31,7 +31,8 @@ export function main() {
 	const second = make();
 	// A key trioxide can't know: the call goes to whatever the objects have under it.
 	const key = process.argv.length > 1e3 ? "toString" : "describe";
-	for (const object of [first, second]) {
+	for (let items = [first, second], i = 0; i < items.length; i++) {
+		const object = items[i];
 		console.log(object[key]());
 	}
 }

@@ -1,0 +1,10 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review-s5b/pipelines-result-binding
+input_file: tests/fixtures/passes/review-s5b/pipelines-result-binding/input.ts
+---
+//- input.ts
+10:19 pipelines applied
+21:13 pipelines applied
+31:13 pipelines applied
+44:17 pipelines applied

@@ -84,7 +84,10 @@ export function main() {
 		next("rest")
 	];
 	let sum_1 = 0;
-	for (const value of values) sum_1 += value;
+	for (let i_2 = 0, length = values.length; i_2 < length; i_2++) {
+		const value = values[i_2];
+		sum_1 += value;
+	}
 	const sum = sum_1;
 	console.log(sum);
 	let find_result_1;
@@ -94,9 +97,9 @@ export function main() {
 			5,
 			6
 		];
-		for (let i_2 = 0; i_2 < list_1.length; i_2++) {
-			if (list_1[i_2] === 6) {
-				find_result_1 = i_2;
+		for (let i_3 = 0, listLength_1 = list_1.length; i_3 < listLength_1; i_3++) {
+			if (list_1[i_3] === 6) {
+				find_result_1 = i_3;
 				break find;
 			}
 		}
@@ -110,9 +113,9 @@ export function main() {
 			5,
 			6
 		];
-		for (let i_3 = 0; i_3 < list_2.length; i_3++) {
-			if (list_2[i_3] === 7) {
-				find_result_2 = i_3;
+		for (let i_4 = 0, listLength_2 = list_2.length; i_4 < listLength_2; i_4++) {
+			if (list_2[i_4] === 7) {
+				find_result_2 = i_4;
 				break find;
 			}
 		}
@@ -122,9 +125,9 @@ export function main() {
 	console.log(at, missing);
 	console.log(sign(-1), sign(0), sign(1));
 	order.length = 0;
-	const a_1 = g1();
+	const a = g1();
 	let b_1 = h1();
-	const r = a_1 + (b_1 = b_1 + 1, b_1);
+	const r = a + (b_1 = b_1 + 1, b_1);
 	console.log(4, order.join(","), LATE, nameOf(() => 1));
 	try {
 		const p = fives[0];
@@ -154,11 +157,11 @@ export function main() {
 	}
 	const small = guarded_result_1;
 	console.log(big, small, order.join(","));
-	let a_2, b_2;
-	console.log((a_2 = next("a"), b_2 = next("b"), b_2 - a_2), order.join(","));
+	let a_1, b_2;
+	console.log((a_1 = next("a"), b_2 = next("b"), b_2 - a_1), order.join(","));
 	console.log((next("extra"), 1), order.join(","));
-	let a_3, a_4, b_3, a_5, b_4;
-	console.log((a_5 = next("p"), b_4 = (a_4 = next("q"), b_3 = (a_3 = next("r"), 7 + a_3 * 0), b_3 + a_4 * 0), b_4 + a_5 * 0), order.join(","));
+	let a_2, a_3, b_3, a_4, b_4;
+	console.log((a_4 = next("p"), b_4 = (a_3 = next("q"), b_3 = (a_2 = next("r"), 7 + a_2 * 0), b_3 + a_3 * 0), b_4 + a_4 * 0), order.join(","));
 	{
 		console.log(6, 10);
 	}
@@ -170,7 +173,7 @@ export function main() {
 		find: {
 			const list = [i];
 			const wanted = i;
-			for (let i_1 = 0; i_1 < list.length; i_1++) {
+			for (let i_1 = 0, listLength = list.length; i_1 < listLength; i_1++) {
 				if (list[i_1] === wanted) {
 					find_result = i_1;
 					break find;

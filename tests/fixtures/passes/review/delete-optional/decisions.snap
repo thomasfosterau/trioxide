@@ -1,0 +1,11 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/review/delete-optional
+input_file: tests/fixtures/passes/review/delete-optional/input.ts
+---
+//- input.ts
+6:10 checks applied
+24:26 checks applied
+38:10 checks applied
+39:10 checks applied
+17:44 fold skipped: the comparison's operands have effects

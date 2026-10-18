@@ -17,6 +17,7 @@ class Point {
 	}
 }
 class Grows {
+	b = undefined;
 	a = 1;
 	constructor() {
 		this.setup();
@@ -35,7 +36,7 @@ class Grows {
 class Shrinks {
 	value = 1;
 	clear() {
-		delete this.value;
+		this.value = undefined;
 	}
 }
 class WithParams {
