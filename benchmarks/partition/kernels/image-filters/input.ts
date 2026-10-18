@@ -14,7 +14,7 @@ const pixels = new Uint8ClampedArray(WIDTH * HEIGHT * 4);
 const blurred = new Uint8ClampedArray(WIDTH * HEIGHT * 4);
 const sharp = new Uint8ClampedArray(WIDTH * HEIGHT * 4);
 
-export function run(): number {
+export const run = (): number => {
   pixels.set(source);
   grayscale(pixels);
   boxBlur(pixels, blurred, WIDTH, HEIGHT);
@@ -22,7 +22,7 @@ export function run(): number {
   let sum = 0;
   for (let i = 0; i < sharp.length; i += 97) sum += sharp[i];
   return sum;
-}
+};
 
 export function main(): void {
   console.log(run());

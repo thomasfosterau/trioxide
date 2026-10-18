@@ -9,44 +9,44 @@ expression: json
       "path": "<root>/src/kernel.ts",
       "functions": [
         {
-          "name": "escapeTotal",
+          "name": "tileDigest",
           "span": {
-            "start": 299,
-            "end": 702
+            "start": 461,
+            "end": 720
           },
           "target": "wasm",
           "reason": "chosen by the cost model; exported by the island",
           "island": "kernel",
           "cost": {
-            "benefit": 1579033.6,
-            "cost": 700024.0,
+            "benefit": 2752705.8000000003,
+            "cost": 300024.0,
             "threshold": 0.0,
             "crossings": 24.0,
             "marshalling": 0.0,
-            "instantiation": 700000.0,
-            "calls": 2.0,
-            "work": 275867840.0,
+            "instantiation": 300000.0,
+            "calls": 3.0,
+            "work": 12585222.0,
             "bytes": 0.0
           }
         },
         {
-          "name": "escapeTime",
+          "name": "cellNoise",
           "span": {
-            "start": 797,
-            "end": 1044
+            "start": 817,
+            "end": 1115
           },
           "target": "wasm",
           "reason": "compiled into the island as a callee (its JS version is kept too)",
           "island": "kernel",
           "cost": {
-            "benefit": 1579033.6,
-            "cost": 700024.0,
+            "benefit": 2752705.8000000003,
+            "cost": 300024.0,
             "threshold": 0.0,
             "crossings": 24.0,
             "marshalling": 0.0,
-            "instantiation": 700000.0,
-            "calls": 2.0,
-            "work": 275867840.0,
+            "instantiation": 300000.0,
+            "calls": 3.0,
+            "work": 12585222.0,
             "bytes": 0.0
           }
         }
@@ -55,116 +55,41 @@ expression: json
         {
           "pass": "inline",
           "span": {
-            "start": 484,
-            "end": 488
+            "start": 569,
+            "end": 573
           },
-          "kind": "skipped",
-          "reason": "the binding's single value depends on what its callers pass (`passes.specialize` is off)"
+          "kind": "applied"
         },
         {
           "pass": "inline",
           "span": {
-            "start": 539,
-            "end": 543
+            "start": 606,
+            "end": 610
           },
-          "kind": "skipped",
-          "reason": "the binding's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "inline",
-          "span": {
-            "start": 579,
-            "end": 586
-          },
-          "kind": "skipped",
-          "reason": "the binding's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "inline",
-          "span": {
-            "start": 654,
-            "end": 661
-          },
-          "kind": "skipped",
-          "reason": "the binding's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "inline",
-          "span": {
-            "start": 667,
-            "end": 672
-          },
-          "kind": "skipped",
-          "reason": "the binding's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "inline",
-          "span": {
-            "start": 940,
-            "end": 945
-          },
-          "kind": "skipped",
-          "reason": "the binding's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "fold",
-          "span": {
-            "start": 484,
-            "end": 488
-          },
-          "kind": "skipped",
-          "reason": "the expression's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "fold",
-          "span": {
-            "start": 539,
-            "end": 543
-          },
-          "kind": "skipped",
-          "reason": "the expression's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "fold",
-          "span": {
-            "start": 579,
-            "end": 586
-          },
-          "kind": "skipped",
-          "reason": "the expression's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "fold",
-          "span": {
-            "start": 654,
-            "end": 661
-          },
-          "kind": "skipped",
-          "reason": "the expression's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "fold",
-          "span": {
-            "start": 667,
-            "end": 672
-          },
-          "kind": "skipped",
-          "reason": "the expression's single value depends on what its callers pass (`passes.specialize` is off)"
-        },
-        {
-          "pass": "fold",
-          "span": {
-            "start": 940,
-            "end": 945
-          },
-          "kind": "skipped",
-          "reason": "the expression's single value depends on what its callers pass (`passes.specialize` is off)"
+          "kind": "applied"
         },
         {
           "pass": "dce",
           "span": {
-            "start": 790,
-            "end": 1044
+            "start": 368,
+            "end": 378
+          },
+          "kind": "applied"
+        },
+        {
+          "pass": "dce",
+          "span": {
+            "start": 810,
+            "end": 1115
+          },
+          "kind": "skipped",
+          "reason": "unused, but a WASM island's glue may call it"
+        },
+        {
+          "pass": "dce",
+          "span": {
+            "start": 810,
+            "end": 1115
           },
           "kind": "skipped",
           "reason": "unused, but a WASM island's glue may call it"

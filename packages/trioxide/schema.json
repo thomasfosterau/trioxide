@@ -99,18 +99,21 @@
       "default": {
         "threshold": 0.0,
         "wasmPreferredThreshold": -1000000.0,
-        "arithmetic": 0.0,
-        "integer": 0.04,
+        "arithmetic": -0.05,
+        "integer": 0.3,
+        "conversion": -6.0,
+        "wrapping": 2.0,
         "math": 0.0,
-        "index": -2.0,
+        "remainder": -1.5,
+        "index": -2.5,
         "checkedIndex": -7.0,
         "iteration": 0.0,
         "trips": 256.0,
-        "crossing": 12.0,
-        "aggregate": 50.0,
+        "crossing": 8.0,
+        "aggregate": 65.0,
         "byte": 0.1,
         "numberArray": 12.0,
-        "instantiation": 700000.0
+        "instantiation": 300000.0
       }
     }
   },
@@ -264,13 +267,25 @@
           "type": "number",
           "format": "double",
           "description": "Nanoseconds saved per floating-point arithmetic operation or comparison.",
-          "default": 0.0
+          "default": -0.05
         },
         "integer": {
           "type": "number",
           "format": "double",
-          "description": "Nanoseconds saved per operation on proven integers, bitwise operator, `++` or `--`.",
-          "default": 0.04
+          "description": "Nanoseconds saved per operation on values the island holds as int32s (arithmetic,\ncomparisons, `++`, `--`, bitwise operators).",
+          "default": 0.3
+        },
+        "conversion": {
+          "type": "number",
+          "format": "double",
+          "description": "Nanoseconds saved per float operand of a bitwise operator or `Math.imul` (a\n`ToInt32` in WASM).",
+          "default": -6.0
+        },
+        "wrapping": {
+          "type": "number",
+          "format": "double",
+          "description": "Nanoseconds saved per `(a + b) | 0`-style wrapped operation (V8 leaves its int32 fast\npath when the sum overflows; WASM wraps natively).",
+          "default": 2.0
         },
         "math": {
           "type": "number",
@@ -278,11 +293,17 @@
           "description": "Nanoseconds saved per `Math.*` call or `**`.",
           "default": 0.0
         },
+        "remainder": {
+          "type": "number",
+          "format": "double",
+          "description": "Nanoseconds saved per `%` on values not proven integers (a call to `fmod` in WASM).",
+          "default": -1.5
+        },
         "index": {
           "type": "number",
           "format": "double",
           "description": "Nanoseconds saved per array element read or write whose index the island computes as\nan int32.",
-          "default": -2.0
+          "default": -2.5
         },
         "checkedIndex": {
           "type": "number",
@@ -306,13 +327,13 @@
           "type": "number",
           "format": "double",
           "description": "Nanoseconds per call into an island (the glue's checks and the arena reset).",
-          "default": 12.0
+          "default": 8.0
         },
         "aggregate": {
           "type": "number",
           "format": "double",
           "description": "Nanoseconds per array or object argument (or result) per call: allocating it in the\narena, the glue's aliasing and plain-view checks, the views it creates.",
-          "default": 50.0
+          "default": 65.0
         },
         "byte": {
           "type": "number",
@@ -330,7 +351,7 @@
           "type": "number",
           "format": "double",
           "description": "Nanoseconds to instantiate one island.",
-          "default": 700000.0
+          "default": 300000.0
         }
       },
       "description": "The cost model's weights and thresholds (`costModel` in `trioxide.json`).\n\nOperation weights are the nanoseconds WASM saves per operation compared with V8's\noptimised JS (negative where the island is slower); the cost terms are nanoseconds too.\nThe defaults are fitted to `benchmarks/partition/` (Node 22, V8 12.4) for the code the\nRust backend generates today."

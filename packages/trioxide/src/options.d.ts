@@ -86,7 +86,7 @@ export interface TrioxideOptions {
    * The partitioner's cost model: when moving a cluster of functions to WebAssembly pays
    * (`trioxide explain` shows its numbers). Fields not given keep their defaults.
    *
-   * @default {"threshold":0,"wasmPreferredThreshold":-1000000,"arithmetic":0,"integer":0.04,"math":0,"index":-2,"checkedIndex":-7,"iteration":0,"trips":256,"crossing":12,"aggregate":50,"byte":0.1,"numberArray":12,"instantiation":700000}
+   * @default {"threshold":0,"wasmPreferredThreshold":-1000000,"arithmetic":-0.05,"integer":0.3,"conversion":-6,"wrapping":2,"math":0,"remainder":-1.5,"index":-2.5,"checkedIndex":-7,"iteration":0,"trips":256,"crossing":8,"aggregate":65,"byte":0.1,"numberArray":12,"instantiation":300000}
    */
   costModel?: CostModel;
 }
@@ -233,15 +233,30 @@ export interface CostModel {
   /**
    * Nanoseconds saved per floating-point arithmetic operation or comparison.
    *
-   * @default 0
+   * @default -0.05
    */
   arithmetic?: number;
   /**
-   * Nanoseconds saved per operation on proven integers, bitwise operator, `++` or `--`.
+   * Nanoseconds saved per operation on values the island holds as int32s (arithmetic,
+   * comparisons, `++`, `--`, bitwise operators).
    *
-   * @default 0.04
+   * @default 0.3
    */
   integer?: number;
+  /**
+   * Nanoseconds saved per float operand of a bitwise operator or `Math.imul` (a
+   * `ToInt32` in WASM).
+   *
+   * @default -6
+   */
+  conversion?: number;
+  /**
+   * Nanoseconds saved per `(a + b) | 0`-style wrapped operation (V8 leaves its int32 fast
+   * path when the sum overflows; WASM wraps natively).
+   *
+   * @default 2
+   */
+  wrapping?: number;
   /**
    * Nanoseconds saved per `Math.*` call or `**`.
    *
@@ -249,10 +264,16 @@ export interface CostModel {
    */
   math?: number;
   /**
+   * Nanoseconds saved per `%` on values not proven integers (a call to `fmod` in WASM).
+   *
+   * @default -1.5
+   */
+  remainder?: number;
+  /**
    * Nanoseconds saved per array element read or write whose index the island computes as
    * an int32.
    *
-   * @default -2
+   * @default -2.5
    */
   index?: number;
   /**
@@ -278,14 +299,14 @@ export interface CostModel {
   /**
    * Nanoseconds per call into an island (the glue's checks and the arena reset).
    *
-   * @default 12
+   * @default 8
    */
   crossing?: number;
   /**
    * Nanoseconds per array or object argument (or result) per call: allocating it in the
    * arena, the glue's aliasing and plain-view checks, the views it creates.
    *
-   * @default 50
+   * @default 65
    */
   aggregate?: number;
   /**
@@ -303,7 +324,7 @@ export interface CostModel {
   /**
    * Nanoseconds to instantiate one island.
    *
-   * @default 700000
+   * @default 300000
    */
   instantiation?: number;
 }

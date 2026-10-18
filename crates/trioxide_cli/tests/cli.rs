@@ -173,7 +173,7 @@ fn unimplemented_features_say_so() {
             stderr(&out)
         );
     }
-    // `explain` needs something to explain.
+    // `explain` needs something to explain (the working directory has no index.html).
     let out = trioxide(&["explain"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).contains("needs a file"), "{}", stderr(&out));

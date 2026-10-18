@@ -1,37 +1,31 @@
-// The compute kernel: escape-time statistics over a grid of the complex plane. Thousands of
-// iterations per call and only numbers crossing the boundary, so the partitioner moves it
-// to WebAssembly.
+// The compute kernel: a digest of hashed value noise over a tile. int32 work per cell
+// (xorshift rounds, `Math.imul`, sums wrapped with `| 0`) and only numbers crossing the
+// boundary, so the partitioner moves it to WebAssembly, where 32-bit arithmetic wraps
+// natively instead of leaving V8's int32 fast path.
 
-/** Total escape iterations over a `columns`×`rows` grid of `[x0, x1] × [y0, y1]`. */
-export function escapeTotal(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  columns: number,
-  rows: number,
-  limit: number,
-): number {
-  let total = 0;
-  for (let row = 0; row < rows; row++) {
-    const cy = y0 + ((y1 - y0) * row) / rows;
-    for (let column = 0; column < columns; column++) {
-      total += escapeTime(x0 + ((x1 - x0) * column) / columns, cy, limit);
+/** The tile's width and height in cells. */
+const TILE = 256;
+
+/** A 32-bit digest of the noise of every cell of a tile, for a seed. */
+export function tileDigest(seed: number): number {
+  const key = seed | 0;
+  let digest = 0;
+  for (let y = 0; y < TILE; y++) {
+    for (let x = 0; x < TILE; x++) {
+      digest = (Math.imul(digest, 31) + cellNoise(key, x, y)) | 0;
     }
   }
-  return total;
+  return digest >>> 0;
 }
 
-/** How many iterations `z² + c` takes to leave the radius-2 disc, up to `limit`. */
-export function escapeTime(cx: number, cy: number, limit: number): number {
-  let x = 0;
-  let y = 0;
-  let i = 0;
-  while (x * x + y * y <= 4 && i < limit) {
-    const t = x * x - y * y + cx;
-    y = 2 * x * y + cy;
-    x = t;
-    i++;
+/** The noise of cell (`x`, `y`): a hash of the seed and the coordinates, in 0..255. */
+export function cellNoise(seed: number, x: number, y: number): number {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265261) ^ seed;
+  for (let round = 0; round < 4; round++) {
+    h ^= h << 13;
+    h ^= h >> 17;
+    h ^= h << 5;
+    h = (h + Math.imul(h, 1597334677)) | 0;
   }
-  return i;
+  return h >>> 24;
 }

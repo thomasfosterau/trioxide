@@ -341,21 +341,64 @@ fn explain(
     if let Some(file) = &query.file {
         query.file = Some(cwd.join(file));
     }
+    let mut project = open_project(global, entries.first().or(query.file.as_ref()))?;
     let entries: Vec<PathBuf> = if entries.is_empty() {
-        query.file.iter().cloned().collect()
+        // The whole program decides: the page's module scripts, else the target itself.
+        let pages = page_entries(project.root());
+        if pages.is_empty() {
+            let Some(file) = query.file.clone() else {
+                return Err(Failure::Usage(
+                    "trioxide explain needs a file (`trioxide explain src/main.ts[:fn]`), \
+                     --entry, or an index.html with module scripts"
+                        .into(),
+                ));
+            };
+            renderer.info(&format!(
+                "no --entry: analysing {} as the program's entry, so the arguments of its \
+                 exports are unknown (pass --entry <entry module> to explain it in context)",
+                file.display()
+            ));
+            vec![file]
+        } else {
+            pages
+        }
     } else {
         entries.iter().map(|entry| cwd.join(entry)).collect()
     };
-    if entries.is_empty() {
-        return Err(Failure::Usage(
-            "trioxide explain needs a file (`trioxide explain src/main.ts[:fn]`) or --entry".into(),
-        ));
-    }
-    let mut project = open_project(global, entries.first())?;
     project.plan(&entries)?;
     let report = project.explain(&query);
     for diagnostic in &report.diagnostics {
         renderer.project_diagnostic(diagnostic);
+    }
+    let wasm = project.options().wasm.enabled;
+    if !wasm {
+        renderer.info("WASM is off (--no-wasm or `wasm.enabled: false`): everything stays JS");
+    } else if project.options().mode == trioxide::Mode::JsOnly {
+        renderer.info("mode is js-only: only directives and overrides create islands");
+    }
+    if wasm
+        && let Some(function) = &query.function
+        && report.modules.iter().all(|m| m.log.functions.is_empty())
+    {
+        let all = project.explain(&ExplainQuery {
+            function: None,
+            ..query.clone()
+        });
+        let mut names: Vec<&str> = all
+            .modules
+            .iter()
+            .flat_map(|m| &m.log.functions)
+            .filter_map(|f| f.name.as_deref())
+            .collect();
+        names.dedup();
+        return Err(Failure::Error(if names.is_empty() {
+            format!("trioxide considered no function `{function}` there")
+        } else {
+            format!(
+                "trioxide considered no function `{function}` there; it considered {}",
+                names.join(", ")
+            )
+        }));
     }
     if json {
         let text = serde_json::to_string_pretty(&report).expect("reports serialise");
@@ -370,6 +413,33 @@ fn explain(
         print_stdout(&explain::render(&report, project.root(), &source));
     }
     Ok(())
+}
+
+/// The module scripts of `root/index.html` (`<script type="module" src="…">`), as Vite
+/// takes them for entries.
+fn page_entries(root: &Path) -> Vec<PathBuf> {
+    let Ok(html) = std::fs::read_to_string(root.join("index.html")) else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    for tag in html.split("<script").skip(1) {
+        let tag = &tag[..tag.find('>').unwrap_or(tag.len())];
+        if !tag.contains("type=\"module\"") {
+            continue;
+        }
+        let Some(start) = tag.find("src=\"").map(|i| i + 5) else {
+            continue;
+        };
+        let Some(len) = tag[start..].find('"') else {
+            continue;
+        };
+        let src = tag[start..start + len].trim_start_matches('/');
+        let path = root.join(src);
+        if path.is_file() {
+            entries.push(path);
+        }
+    }
+    entries
 }
 
 /// Builds `entries` and writes every module (unless `emit` is `wasm`) and island under

@@ -21,12 +21,12 @@ mod metrics;
 
 use std::path::{Path, PathBuf};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use trioxide_analysis::Facts;
+use trioxide_analysis::{CallEdge, Facts};
 use trioxide_common::{
     Diagnostic, ModuleId, Span,
-    log::{CostEstimate, FunctionDecision, RuleFailure, Target},
+    log::{CostEstimate, FunctionDecision, RuleFailure, Target, number},
 };
 pub use trioxide_rust::{ExportBinding, Placement, SourceModule};
 use trioxide_rust::{
@@ -229,6 +229,15 @@ impl Partitioner {
             }
         }
         decisions.sort_by_key(|(module, decision)| (*module, decision.span.start));
+        // A callee compiled into several islands is one function: one entry naming them all.
+        decisions.dedup_by(|(module, later), (kept_module, kept)| {
+            let same = module == kept_module && later.span == kept.span;
+            if same && let (Some(island), Some(islands)) = (&later.island, &mut kept.island) {
+                islands.push_str(", ");
+                islands.push_str(island);
+            }
+            same
+        });
         Partition {
             islands,
             decisions,
@@ -282,11 +291,28 @@ impl Partitioner {
         let mut chosen = Vec::new();
         let span_of: FxHashMap<FunctionId, Span> =
             candidates.iter().map(|c| (c.function, c.span)).collect();
+        // The calls the facade points at an island's glue: direct calls of an exported,
+        // never-reassigned binding, from its own module or one importing it directly.
+        let exported: FxHashSet<FunctionId> = candidates
+            .iter()
+            .filter(|c| c.exported)
+            .map(|c| c.function)
+            .collect();
+        let imports: FxHashMap<ModuleId, &[ModuleId]> =
+            modules.iter().map(|m| (m.id, m.imports)).collect();
+        let reaches = |edge: &CallEdge| {
+            metrics.direct.contains(&edge.site)
+                && exported.contains(&edge.callee)
+                && (edge.caller.module == edge.callee.module
+                    || imports
+                        .get(&edge.caller.module)
+                        .is_some_and(|imports| imports.contains(&edge.callee.module)))
+        };
         for cluster in eligibility::clusters(facts, &eligible) {
             let score = self
                 .options
                 .cost
-                .score(&cluster, facts, &metrics, threshold);
+                .score(&cluster, facts, &metrics, threshold, &reaches);
             let profitable = score.estimate.profitable();
             for &function in &cluster {
                 choice
@@ -316,7 +342,15 @@ impl Partitioner {
                         let Some(estimate) = choice.scores.get(&(module, candidate.span)) else {
                             continue;
                         };
-                        if chosen.contains(&candidate.function) {
+                        if estimate.calls == 0.0 {
+                            verdict(
+                                candidate,
+                                "stays JS: no call can reach an island (only direct calls of an \
+                                 exported function from its module or a module importing it \
+                                 can; the host, callbacks and re-exports call the JS version)"
+                                    .into(),
+                            )
+                        } else if chosen.contains(&candidate.function) {
                             verdict(
                                 candidate,
                                 "chosen by the cost model, but only island functions call it"
@@ -326,10 +360,10 @@ impl Partitioner {
                             verdict(
                                 candidate,
                                 format!(
-                                    "the cost model keeps it in JS: benefit − cost = {:.0} ≤ \
-                                     threshold {:.0}",
-                                    estimate.net(),
-                                    estimate.threshold
+                                    "the cost model keeps it in JS: benefit − cost = {} ≤ \
+                                     threshold {}",
+                                    number(estimate.net()),
+                                    number(estimate.threshold)
                                 ),
                             )
                         }

@@ -15,12 +15,21 @@ use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
 use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_syntax::{operator::BinaryOperator, scope::ScopeFlags};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_analysis::{Facts, Trust};
 use trioxide_common::{ModuleId, NodeRef, SymbolRef};
 use trioxide_types::{FunctionId, NumberType, Type, TypedArrayKind};
 
 use crate::{CostModel, SourceModule};
+
+/// The largest count the estimates use: deep loop nests saturate here instead of
+/// overflowing to infinity (and `∞ × 0` to NaN).
+const SATURATION: f64 = 1e18;
+
+/// `value`, at most [`SATURATION`].
+pub(crate) fn saturate(value: f64) -> f64 {
+    value.min(SATURATION)
+}
 
 /// What crosses the boundary for one parameter or result.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,10 +49,19 @@ pub(crate) enum Marshal {
 pub(crate) struct Ops {
     /// Floating-point arithmetic and comparisons.
     pub arithmetic: f64,
-    /// Arithmetic on proven integers, bitwise operators, `++`/`--`.
+    /// Arithmetic, comparisons, `++`/`--` and bitwise operators on values the island holds as
+    /// int32s.
     pub integer: f64,
+    /// Float operands of bitwise operators and `Math.imul`/`Math.clz32`: a `ToInt32` each.
+    pub conversion: f64,
+    /// `(a + b) | 0`-style arithmetic: int32 operations whose result may leave the int32
+    /// range and is wrapped back.
+    pub wrapping: f64,
     /// `Math.*` calls and `**`.
     pub math: f64,
+    /// `%` on values not proven integers: wasm32 has no float remainder instruction, so it is
+    /// a call to `fmod`.
+    pub remainder: f64,
     /// Array element reads and writes whose index the island computes as an int32.
     pub index: f64,
     /// Other element reads and writes: the index is a float, converted and checked per
@@ -56,19 +74,27 @@ pub(crate) struct Ops {
 impl Ops {
     /// `self + other × factor`.
     pub fn add_scaled(&mut self, other: &Self, factor: f64) {
-        self.arithmetic += other.arithmetic * factor;
-        self.integer += other.integer * factor;
-        self.math += other.math * factor;
-        self.index += other.index * factor;
-        self.checked_index += other.checked_index * factor;
-        self.iteration += other.iteration * factor;
+        let add =
+            |count: &mut f64, other: f64| *count = saturate(*count + saturate(other * factor));
+        add(&mut self.arithmetic, other.arithmetic);
+        add(&mut self.integer, other.integer);
+        add(&mut self.conversion, other.conversion);
+        add(&mut self.wrapping, other.wrapping);
+        add(&mut self.math, other.math);
+        add(&mut self.remainder, other.remainder);
+        add(&mut self.index, other.index);
+        add(&mut self.checked_index, other.checked_index);
+        add(&mut self.iteration, other.iteration);
     }
 
     /// Every operation counted once.
     pub fn total(&self) -> f64 {
         self.arithmetic
             + self.integer
+            + self.conversion
+            + self.wrapping
             + self.math
+            + self.remainder
             + self.index
             + self.checked_index
             + self.iteration
@@ -78,7 +104,10 @@ impl Ops {
     pub fn saving(&self, model: &CostModel) -> f64 {
         self.arithmetic * model.arithmetic
             + self.integer * model.integer
+            + self.conversion * model.conversion
+            + self.wrapping * model.wrapping
             + self.math * model.math
+            + self.remainder * model.remainder
             + self.index * model.index
             + self.checked_index * model.checked_index
             + self.iteration * model.iteration
@@ -90,7 +119,10 @@ impl Ops {
 enum Op {
     Arithmetic,
     Integer,
+    Conversion,
+    Wrapping,
     Math,
+    Remainder,
     Index,
     CheckedIndex,
     Iteration,
@@ -126,6 +158,9 @@ pub(crate) struct Metrics {
     pub functions: FxHashMap<FunctionId, FunctionMetrics>,
     /// How often each call site runs per run of the unit containing it.
     pub sites: FxHashMap<NodeRef, f64>,
+    /// Call sites whose callee is a plain identifier: the calls the facade can point at an
+    /// island's glue.
+    pub direct: FxHashSet<NodeRef>,
 }
 
 impl Metrics {
@@ -418,6 +453,25 @@ impl<'a> Visit<'a> for Collector<'_, '_> {
     }
 }
 
+/// Whether every local an expression reads is held as an int32 by the backend.
+struct Int32Locals<'w, 's, 'x> {
+    walker: &'x Walker<'w, 's>,
+    int32: bool,
+}
+
+impl<'a> Visit<'a> for Int32Locals<'_, '_, '_> {
+    fn visit_identifier_reference(&mut self, id: &oxc_ast::ast::IdentifierReference<'a>) {
+        let symbol = id
+            .reference_id
+            .get()
+            .and_then(|r| self.walker.scoping.get_reference(r).symbol_id());
+        // Globals (`Math`) aren't locals the backend types.
+        if let Some(symbol) = symbol {
+            self.int32 &= self.walker.int32_symbol(symbol);
+        }
+    }
+}
+
 struct Walker<'w, 's> {
     module: ModuleId,
     facts: &'w Facts,
@@ -448,39 +502,27 @@ impl Walker<'_, '_> {
         let count = match op {
             Op::Arithmetic => &mut ops.arithmetic,
             Op::Integer => &mut ops.integer,
+            Op::Conversion => &mut ops.conversion,
+            Op::Wrapping => &mut ops.wrapping,
             Op::Math => &mut ops.math,
+            Op::Remainder => &mut ops.remainder,
             Op::Index => &mut ops.index,
             Op::CheckedIndex => &mut ops.checked_index,
             Op::Iteration => &mut ops.iteration,
         };
-        *count += frame.freq;
+        *count = saturate(*count + frame.freq);
     }
 
-    /// Whether the Rust backend computes the index `expression` as an int32: the analysis
-    /// proves the value is one, and so every local it reads (the backend types a local by
-    /// its binding's range, not by the range at each use).
-    fn int32_index(&self, expression: &Expression<'_>) -> bool {
-        struct Locals<'w, 's, 'x> {
-            walker: &'x Walker<'w, 's>,
-            int32: bool,
-        }
-        impl<'a> Visit<'a> for Locals<'_, '_, '_> {
-            fn visit_identifier_reference(&mut self, id: &oxc_ast::ast::IdentifierReference<'a>) {
-                let symbol = id
-                    .reference_id
-                    .get()
-                    .and_then(|r| self.walker.scoping.get_reference(r).symbol_id());
-                let Some(symbol) = symbol else {
-                    self.int32 = false;
-                    return;
-                };
-                let fact = self.walker.facts.symbol_ty(SymbolRef {
-                    module: self.walker.module,
-                    symbol,
-                });
-                self.int32 &= self.walker.facts.is_usable(fact.trust)
-                    && matches!(fact.value, Type::Number(n) if is_int32(*n));
-            }
+    /// Whether the Rust backend computes `expression` as an int32: it is a numeric literal
+    /// (folded at compile time), or the analysis proves the value is one, and so every local
+    /// it reads (the backend types a local by its binding's range, not by the range at each
+    /// use).
+    fn int32(&self, expression: &Expression<'_>) -> bool {
+        if matches!(
+            expression.get_inner_expression(),
+            Expression::NumericLiteral(_)
+        ) {
+            return true;
         }
         let fact = self
             .facts
@@ -488,12 +530,21 @@ impl Walker<'_, '_> {
         if !(self.facts.is_usable(fact.trust) && is_int32(fact.value)) {
             return false;
         }
-        let mut locals = Locals {
+        let mut locals = Int32Locals {
             walker: self,
             int32: true,
         };
         locals.visit_expression(expression);
         locals.int32
+    }
+
+    /// Whether the backend holds the local `symbol` as an int32 (its range fact proves one).
+    fn int32_symbol(&self, symbol: oxc_syntax::symbol::SymbolId) -> bool {
+        let fact = self.facts.symbol_ty(SymbolRef {
+            module: self.module,
+            symbol,
+        });
+        self.facts.is_usable(fact.trust) && matches!(fact.value, Type::Number(n) if is_int32(*n))
     }
 
     /// Whether the analysis knows the value of `expression` is an integer.
@@ -614,7 +665,7 @@ impl Walker<'_, '_> {
     /// Walks a loop body (with its test and update) at `trips` times the current frequency.
     fn looped(&mut self, trips: f64, walk: impl FnOnce(&mut Self)) {
         let outer = self.frame().freq;
-        self.frame().freq = outer * trips;
+        self.frame().freq = saturate(outer * trips);
         self.add(Op::Iteration);
         walk(self);
         self.frame().freq = outer;
@@ -784,14 +835,38 @@ impl<'a> Visit<'a> for Walker<'_, '_> {
                 | BinaryOperator::ShiftRight
                 | BinaryOperator::ShiftRightZeroFill
         );
-        let integer = bitwise || (self.integer(&it.left) && self.integer(&it.right));
-        self.add(if it.operator == BinaryOperator::Exponential {
-            Op::Math
-        } else if integer {
-            Op::Integer
+        if bitwise {
+            self.add(Op::Integer);
+            // `(a + b) | 0`, `(a * b) >>> 0`: int32 arithmetic wrapped back into 32 bits
+            // (no float conversion when its operands are int32s).
+            let wraps = matches!(
+                it.operator,
+                BinaryOperator::BitwiseOR | BinaryOperator::ShiftRightZeroFill
+            ) && matches!(it.right.get_inner_expression(),
+                Expression::NumericLiteral(zero) if zero.value == 0.0)
+                && matches!(it.left.get_inner_expression(), Expression::BinaryExpression(inner)
+                    if matches!(inner.operator, BinaryOperator::Addition
+                        | BinaryOperator::Subtraction | BinaryOperator::Multiplication)
+                        && self.int32(&inner.left) && self.int32(&inner.right));
+            if wraps {
+                self.add(Op::Wrapping);
+            } else if !self.int32(&it.left) {
+                self.add(Op::Conversion);
+            }
+            if !self.int32(&it.right) {
+                self.add(Op::Conversion);
+            }
+        } else if it.operator == BinaryOperator::Exponential {
+            self.add(Op::Math);
+        } else if it.operator == BinaryOperator::Remainder
+            && !(self.integer(&it.left) && self.integer(&it.right))
+        {
+            self.add(Op::Remainder);
+        } else if self.int32(&it.left) && self.int32(&it.right) {
+            self.add(Op::Integer);
         } else {
-            Op::Arithmetic
-        });
+            self.add(Op::Arithmetic);
+        }
         walk::walk_binary_expression(self, it);
     }
 
@@ -801,13 +876,38 @@ impl<'a> Visit<'a> for Walker<'_, '_> {
     }
 
     fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
-        self.add(Op::Integer);
+        let int32 = match &it.argument {
+            oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => id
+                .reference_id
+                .get()
+                .and_then(|r| self.scoping.get_reference(r).symbol_id())
+                .is_some_and(|symbol| self.int32_symbol(symbol)),
+            _ => false,
+        };
+        self.add(if int32 { Op::Integer } else { Op::Arithmetic });
         walk::walk_update_expression(self, it);
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
         if it.operator != AssignmentOperator::Assign {
-            self.add(Op::Arithmetic);
+            let target = match &it.left {
+                AssignmentTarget::AssignmentTargetIdentifier(id) => id
+                    .reference_id
+                    .get()
+                    .and_then(|r| self.scoping.get_reference(r).symbol_id())
+                    .is_some_and(|symbol| self.int32_symbol(symbol)),
+                _ => false,
+            };
+            if it.operator.is_bitwise() && !target {
+                self.add(Op::Conversion);
+            }
+            self.add(
+                if it.operator.is_bitwise() || target && self.int32(&it.right) {
+                    Op::Integer
+                } else {
+                    Op::Arithmetic
+                },
+            );
         }
         let object = match &it.left {
             AssignmentTarget::ComputedMemberExpression(member) => Some(&member.object),
@@ -821,7 +921,7 @@ impl<'a> Visit<'a> for Walker<'_, '_> {
     }
 
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
-        self.add(if self.int32_index(&it.expression) {
+        self.add(if self.int32(&it.expression) {
             Op::Index
         } else {
             Op::CheckedIndex
@@ -845,8 +945,24 @@ impl<'a> Visit<'a> for Walker<'_, '_> {
                 if matches!(&member.object, Expression::Identifier(id) if id.name == "Math"));
         if math {
             self.add(Op::Math);
+            let converts = matches!(it.callee.get_inner_expression(),
+                Expression::StaticMemberExpression(member)
+                    if matches!(member.property.name.as_str(), "imul" | "clz32"));
+            if converts {
+                for argument in &it.arguments {
+                    if let Some(argument) = argument.as_expression()
+                        && !self.int32(argument)
+                    {
+                        self.add(Op::Conversion);
+                    }
+                }
+            }
         } else {
             self.site(it.node_id());
+            if !it.optional && matches!(it.callee, Expression::Identifier(_)) {
+                let site = self.node(it.node_id());
+                self.out.direct.insert(site);
+            }
         }
         walk::walk_call_expression(self, it);
     }

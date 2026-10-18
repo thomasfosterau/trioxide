@@ -4,7 +4,7 @@ use std::{fmt::Write as _, path::Path};
 
 use trioxide::{
     Report, Span,
-    log::{CostEstimate, FunctionDecision, ModuleLog, PassOutcome, Target},
+    log::{CostEstimate, FunctionDecision, ModuleLog, PassOutcome, Target, number},
 };
 
 /// Renders `report` for humans: per module, each function's verdict, why, the failed
@@ -81,21 +81,25 @@ fn cost_lines(out: &mut String, cost: &CostEstimate) {
     let comparison = if cost.profitable() { ">" } else { "≤" };
     let _ = writeln!(
         out,
-        "    cost model: benefit {:.0} − cost {:.0} = {:.0} {comparison} threshold {:.0}",
-        cost.benefit,
-        cost.cost,
-        cost.net(),
-        cost.threshold
+        "    cost model: benefit {} − cost {} = {} {comparison} threshold {}",
+        number(cost.benefit),
+        number(cost.cost),
+        number(cost.net()),
+        number(cost.threshold)
     );
     let _ = writeln!(
         out,
-        "      benefit: {:.0} operations over {:.0} call(s)",
-        cost.work, cost.calls
+        "      benefit: {} operations over {} call(s)",
+        number(cost.work),
+        number(cost.calls)
     );
     let _ = writeln!(
         out,
-        "      cost: crossings {:.0} + marshalling {:.0} ({:.0} bytes) + instantiation {:.0}",
-        cost.crossings, cost.marshalling, cost.bytes, cost.instantiation
+        "      cost: crossings {} + marshalling {} ({} bytes) + instantiation {}",
+        number(cost.crossings),
+        number(cost.marshalling),
+        number(cost.bytes),
+        number(cost.instantiation)
     );
 }
 

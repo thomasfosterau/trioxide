@@ -71,6 +71,9 @@ pub struct Candidate {
     /// The analysis proves nothing calls it (it is unreachable, or a parameter never
     /// receives a value).
     pub never_called: bool,
+    /// Its module exports it and never reassigns the binding, so calls from other modules
+    /// (and, with `ready()` glue, from its own) can be pointed at an island.
+    pub exported: bool,
     /// Whether it can be an island export, checked unless `directive` or `never_called`
     /// settles it.
     pub eligibility: Option<Eligibility>,
@@ -100,6 +103,15 @@ pub fn candidates(
         for info in functions.iter().filter(|f| f.id.module == module.id) {
             let directive = world.directive(info.id);
             let never = never_called(module, facts, info.func);
+            let exported = info
+                .func
+                .id
+                .as_ref()
+                .and_then(|id| id.symbol_id.get())
+                .is_some_and(|symbol| {
+                    let (names, reassigned) = module.exported_names(symbol);
+                    !names.is_empty() && !reassigned
+                });
             if directive.is_none() && !never {
                 roots.push(info.id);
             }
@@ -109,6 +121,7 @@ pub fn candidates(
                 span: info.func.span,
                 directive,
                 never_called: never,
+                exported,
                 eligibility: None,
             });
         }

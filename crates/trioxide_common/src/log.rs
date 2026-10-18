@@ -99,6 +99,16 @@ pub struct CostEstimate {
     pub bytes: f64,
 }
 
+/// A cost-model number for humans: whole units, or scientific notation from 10¹² on (a
+/// threshold of `-1e300` stays readable).
+pub fn number(value: f64) -> String {
+    if value.is_finite() && value.abs() < 1e12 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.2e}")
+    }
+}
+
 impl CostEstimate {
     /// `benefit - cost`, the margin compared with the threshold.
     pub fn net(&self) -> f64 {

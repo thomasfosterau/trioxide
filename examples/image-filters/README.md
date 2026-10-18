@@ -15,24 +15,24 @@ pnpm compare         # time run() JS-only, auto, and with every eligible functio
 ```
 src/filters.ts
   grayscale (5:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -3968670 ≤ threshold 0
-    cost model: benefit -3207168 − cost 761502 = -3968670 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -3633193 ≤ threshold 0
+    cost model: benefit -3271680 − cost 361513 = -3633193 ≤ threshold 0
       benefit: 1459200 operations over 1 call(s)
-      cost: crossings 12 + marshalling 61490 (614400 bytes) + instantiation 700000
+      cost: crossings 8 + marshalling 61505 (614400 bytes) + instantiation 300000
     passes:
       fold skipped at 6:27: the expression's single value depends on what its callers pass (`passes.specialize` is off)
   invert (15:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -3968670 ≤ threshold 0
-    cost model: benefit -3207168 − cost 761502 = -3968670 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -3625513 ≤ threshold 0
+    cost model: benefit -3264000 − cost 361513 = -3625513 ≤ threshold 0
       benefit: 1305600 operations over 1 call(s)
-      cost: crossings 12 + marshalling 61490 (614400 bytes) + instantiation 700000
+      cost: crossings 8 + marshalling 61505 (614400 bytes) + instantiation 300000
     passes:
       fold skipped at 16:27: the expression's single value depends on what its callers pass (`passes.specialize` is off)
   boxBlur (24:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -16775869 ≤ threshold 0
-    cost model: benefit -15983597 − cost 792272 = -16775869 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -18232962 ≤ threshold 0
+    cost model: benefit -17840664 − cost 392298 = -18232962 ≤ threshold 0
       benefit: 39245520 operations over 1 call(s)
-      cost: crossings 12 + marshalling 92260 (921600 bytes) + instantiation 700000
+      cost: crossings 8 + marshalling 92290 (921600 bytes) + instantiation 300000
     passes:
       inline skipped at 25:23, 26:25, 34:33, 34:58, 35:32, 40:18, 42:16, 42:47: the binding's single value depends on what its callers pass (`passes.specialize` is off)
       fold skipped at 25:23, 26:25, 34:33, 34:58, 35:32, 40:18, 42:16, 42:47: the expression's single value depends on what its callers pass (`passes.specialize` is off)
@@ -48,7 +48,7 @@ src/filters.ts
 `grayscale`, `invert` and `boxBlur` are eligible in the default mode (every typed array that
 reaches them is allocated in the program, and their other arguments are constants), so the
 cost model scores them, and keeps them in JS. Their benefit is negative: element accesses
-are slower in today's islands than in V8's optimised JS, by ~2 ns with an int32 index and
+are slower in today's islands than in V8's optimised JS, by ~2.5 ns with an int32 index and
 ~7 ns with a float index (which these loops get, as their counters are bounded by parameters
 and array lengths), and every `Uint8ClampedArray` store pays for a software `fmod` in the
 runtime. `benchmarks/partition/README.md` has the measurements and the causes. `sharpen` is
@@ -58,9 +58,9 @@ That is the cost model working as intended. `pnpm compare` (Node 22):
 
 | build | islands | `run()` |
 |---|---|---|
-| JS only | — | 35.2 ms |
-| auto | — | 34.5 ms |
-| every cluster | filters, image | 62.5 ms |
+| JS only | — | 35.58 ms |
+| auto | — | 36.97 ms |
+| every cluster | filters, image | 64.57 ms |
 
 Forcing them into WASM (`"use wasm"`, an `overrides` entry with `"target": "wasm"`, or
 `wasm-preferred` with a very low `costModel.wasmPreferredThreshold`) makes the program almost

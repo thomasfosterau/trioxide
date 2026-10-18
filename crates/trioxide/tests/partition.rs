@@ -1,7 +1,10 @@
 //! Automatic partitioning through the facade: modes, config overrides and directives, and
 //! automatic islands going through the same call rewriting and `Keep` as forced ones.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Write as _,
+    path::{Path, PathBuf},
+};
 
 use trioxide::{
     Mode, ModuleOutput, Options, Override, OverrideTarget, Project,
@@ -66,7 +69,7 @@ fn auto_islands_take_over_calls_and_keep_their_exports() {
     let main = module(&output, "src/main.ts");
     assert!(
         main.code
-            .contains("import { escapeTotal } from \"\\0trioxide:island/kernel\";"),
+            .contains("import { tileDigest } from \"\\0trioxide:island/kernel\";"),
         "{}",
         main.code
     );
@@ -79,16 +82,16 @@ fn auto_islands_take_over_calls_and_keep_their_exports() {
     // The glue's ready() fallback imports the kernel module's JS versions: they stay exported.
     let kernel = module(&output, "src/kernel.ts");
     assert!(
-        kernel.code.contains("export function escapeTotal("),
+        kernel.code.contains("export function tileDigest("),
         "{}",
         kernel.code
     );
     assert!(
-        kernel.code.contains("function escapeTime("),
+        kernel.code.contains("function cellNoise("),
         "{}",
         kernel.code
     );
-    let total = decision(&output.report, "escapeTotal");
+    let total = decision(&output.report, "tileDigest");
     assert_eq!(total.target, Target::Wasm);
     assert_eq!(total.directive, None);
     let cost = total.cost.unwrap();
@@ -143,7 +146,7 @@ fn config_overrides_force_and_forbid_whole_files() {
         ],
         ..Options::default()
     });
-    let total = decision(&output.report, "escapeTotal");
+    let total = decision(&output.report, "tileDigest");
     assert_eq!(total.target, Target::Js);
     assert_eq!(total.directive, Some(Target::Js));
     assert_eq!(total.reason, "a config override keeps it in JS");
@@ -181,8 +184,8 @@ fn source_directives_win_over_the_cost_model() {
         let mut text = std::fs::read_to_string(from).unwrap();
         if file == "src/kernel.ts" {
             text = text.replace(
-                "): number {\n  let total = 0;",
-                "): number {\n  \"use js\";\n  let total = 0;",
+                "export function tileDigest(seed: number): number {\n",
+                "export function tileDigest(seed: number): number {\n  \"use js\";\n",
             );
         }
         if file == "src/ease.ts" {
@@ -194,7 +197,7 @@ fn source_directives_win_over_the_cost_model() {
     project.set_island_builder(Box::new(FakeBuilder));
     let output = project.build(&[root.join("src/main.ts")]).unwrap();
     assert!(!output.has_errors(), "{:?}", output.report.diagnostics);
-    let total = decision(&output.report, "escapeTotal");
+    let total = decision(&output.report, "tileDigest");
     assert_eq!(
         (total.target, total.directive),
         (Target::Js, Some(Target::Js))
@@ -204,14 +207,8 @@ fn source_directives_win_over_the_cost_model() {
         (ease.target, ease.directive),
         (Target::Wasm, Some(Target::Wasm))
     );
-    assert_eq!(
-        output
-            .islands
-            .iter()
-            .map(|i| i.spec.id.0.as_str())
-            .collect::<Vec<_>>(),
-        ["ease"]
-    );
+    // `cellNoise` is still a candidate of its own (its forbidden caller calls it from JS).
+    assert!(output.islands.iter().any(|i| i.spec.id.0 == "ease"));
 }
 
 #[test]
@@ -222,13 +219,129 @@ fn plan_explains_without_building() {
     project.set_island_builder(Box::new(trioxide::wasm::UnavailableIslandBuilder));
     let report = project.plan(&[root.join("src/main.ts")]).unwrap();
     assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
-    assert_eq!(decision(&report, "escapeTotal").target, Target::Wasm);
-    let narrowed = project.explain(&"src/kernel.ts:escapeTime".parse().unwrap());
+    assert_eq!(decision(&report, "tileDigest").target, Target::Wasm);
+    let narrowed = project.explain(&"src/kernel.ts:cellNoise".parse().unwrap());
     let names: Vec<_> = narrowed
         .modules
         .iter()
         .flat_map(|m| &m.log.functions)
         .filter_map(|f| f.name.as_deref())
         .collect();
-    assert_eq!(names, ["escapeTime"]);
+    assert_eq!(names, ["cellNoise"]);
+}
+
+/// A project in a temporary directory with `files`.
+fn project_with(files: &[(&str, &str)]) -> (tempfile::TempDir, Project) {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, text) in files {
+        std::fs::write(dir.path().join(name), text).unwrap();
+    }
+    std::fs::copy(
+        mixed().join("tsconfig.json"),
+        dir.path().join("tsconfig.json"),
+    )
+    .unwrap();
+    let mut project = Project::new(dir.path().to_path_buf(), Options::default()).unwrap();
+    project.set_island_builder(Box::new(FakeBuilder));
+    (dir, project)
+}
+
+/// An int32 kernel the cost model likes, under the name `name`, `export`ed or not.
+fn kernel(name: &str, export: &str) -> String {
+    format!(
+        "{export}function {name}(seed: number): number {{
+  let h = seed | 0;
+  for (let i = 0; i < 4000000; i++) h = (h + Math.imul(h, 1597334677)) | 0;
+  return h;
+}}
+"
+    )
+}
+
+#[test]
+fn only_calls_the_rewrite_can_redirect_count() {
+    // A module-private kernel: `ready()` glue can't reach it, so it isn't chosen.
+    let private = format!(
+        "{}export function main(): void {{ console.log(mix(7)); }}\n",
+        kernel("mix", "")
+    );
+    let (dir, mut project) = project_with(&[("input.ts", &private)]);
+    let output = project.build(&[dir.path().join("input.ts")]).unwrap();
+    assert_eq!(output.islands.len(), 0);
+    let mix = decision(&output.report, "mix");
+    assert_eq!(mix.target, Target::Js);
+    assert!(
+        mix.reason.contains("no call can reach an island"),
+        "{mix:?}"
+    );
+
+    // Exported but only called by the host (an entry export): its JS version runs.
+    let (dir, mut project) = project_with(&[("input.ts", &kernel("mix", "export "))]);
+    let output = project.build(&[dir.path().join("input.ts")]).unwrap();
+    assert_eq!(output.islands.len(), 0);
+
+    // Exported and called from an importing module: chosen, and the call goes to the glue.
+    let (dir, mut project) = project_with(&[
+        ("kernel.ts", &kernel("mix", "export ")),
+        (
+            "input.ts",
+            "import { mix } from \"./kernel.js\";\nexport function main(): void { console.log(mix(7)); }\n",
+        ),
+    ]);
+    let output = project.build(&[dir.path().join("input.ts")]).unwrap();
+    assert_eq!(output.islands.len(), 1);
+    assert_eq!(decision(&output.report, "mix").target, Target::Wasm);
+    assert!(
+        module(&output, "input.ts")
+            .code
+            .contains("trioxide:island/kernel"),
+        "{}",
+        module(&output, "input.ts").code
+    );
+}
+
+#[test]
+fn islands_that_do_not_build_are_reported_as_js() {
+    let root = mixed();
+    let mut project = Project::new(root.clone(), Options::default()).unwrap();
+    project.set_island_builder(Box::new(trioxide::wasm::UnavailableIslandBuilder));
+    let output = project.build(&[root.join("src/main.ts")]).unwrap();
+    assert_eq!(output.islands.len(), 0);
+    let digest = decision(&output.report, "tileDigest");
+    assert_eq!(digest.target, Target::Js);
+    assert!(digest.reason.contains("wasn't built"), "{digest:?}");
+}
+
+#[test]
+fn deep_loop_nests_saturate() {
+    // Each function loops 2^24 times and calls the next: the product overflows f64 unless
+    // the estimates saturate.
+    let mut text = String::new();
+    for i in 0..44 {
+        let call = if i == 43 {
+            String::new()
+        } else {
+            format!("s = (s + f{}(i)) | 0;", i + 1)
+        };
+        writeln!(
+            text,
+            "export function f{i}(x: number): number {{\n  let s = x | 0;\n  for (let i = 0; i < 16777215; i++) {{ {call} }}\n  return s;\n}}"
+        )
+        .unwrap();
+    }
+    let (dir, mut project) = project_with(&[
+        ("kernel.ts", &text),
+        (
+            "input.ts",
+            "import { f0 } from \"./kernel.js\";\nexport function main(): void { console.log(f0(1)); }\n",
+        ),
+    ]);
+    let report = project.plan(&[dir.path().join("input.ts")]).unwrap();
+    let cost = decision(&report, "f0").cost.unwrap();
+    for value in [cost.benefit, cost.cost, cost.work, cost.calls] {
+        assert!(value.is_finite(), "{cost:?}");
+    }
+    let json = serde_json::to_string(&report).unwrap();
+    let back: trioxide::Report = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, report);
 }

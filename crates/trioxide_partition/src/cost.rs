@@ -10,11 +10,11 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use trioxide_analysis::Facts;
+use trioxide_analysis::{CallEdge, Facts};
 use trioxide_common::log::CostEstimate;
 use trioxide_types::FunctionId;
 
-use crate::metrics::{Metrics, Ops};
+use crate::metrics::{Metrics, Ops, saturate};
 
 /// The cost model's weights and thresholds (`costModel` in `trioxide.json`).
 ///
@@ -31,10 +31,19 @@ pub struct CostModel {
     pub wasm_preferred_threshold: f64,
     /// Nanoseconds saved per floating-point arithmetic operation or comparison.
     pub arithmetic: f64,
-    /// Nanoseconds saved per operation on proven integers, bitwise operator, `++` or `--`.
+    /// Nanoseconds saved per operation on values the island holds as int32s (arithmetic,
+    /// comparisons, `++`, `--`, bitwise operators).
     pub integer: f64,
+    /// Nanoseconds saved per float operand of a bitwise operator or `Math.imul` (a
+    /// `ToInt32` in WASM).
+    pub conversion: f64,
+    /// Nanoseconds saved per `(a + b) | 0`-style wrapped operation (V8 leaves its int32 fast
+    /// path when the sum overflows; WASM wraps natively).
+    pub wrapping: f64,
     /// Nanoseconds saved per `Math.*` call or `**`.
     pub math: f64,
+    /// Nanoseconds saved per `%` on values not proven integers (a call to `fmod` in WASM).
+    pub remainder: f64,
     /// Nanoseconds saved per array element read or write whose index the island computes as
     /// an int32.
     pub index: f64,
@@ -60,25 +69,31 @@ pub struct CostModel {
 }
 
 impl Default for CostModel {
-    /// Fitted to `benchmarks/partition/` (see its README): V8's optimised JS and today's
-    /// islands run scalar code about equally fast (integer work slightly faster in WASM),
-    /// element accesses are slower in WASM, and every crossing costs.
+    /// Fitted to `benchmarks/partition/` (see its README): int32 work and wrapped
+    /// `(a + b) | 0` arithmetic are faster in today's islands than in V8's optimised JS;
+    /// floating-point arithmetic is a tie; `ToInt32` of floats, float `%`, element accesses
+    /// and every crossing cost more in WASM.
+    /// Instantiation is charged below its measured 0.65 ms, as `ready()` glue compiles off
+    /// the main thread and runs the JS versions meanwhile.
     fn default() -> Self {
         Self {
             threshold: 0.0,
             wasm_preferred_threshold: -1_000_000.0,
-            arithmetic: 0.0,
-            integer: 0.04,
+            arithmetic: -0.05,
+            integer: 0.3,
+            conversion: -6.0,
+            wrapping: 2.0,
             math: 0.0,
-            index: -2.0,
+            remainder: -1.5,
+            index: -2.5,
             checked_index: -7.0,
             iteration: 0.0,
             trips: 256.0,
-            crossing: 12.0,
-            aggregate: 50.0,
+            crossing: 8.0,
+            aggregate: 65.0,
             byte: 0.1,
             number_array: 12.0,
-            instantiation: 700_000.0,
+            instantiation: 300_000.0,
         }
     }
 }
@@ -92,13 +107,17 @@ pub(crate) struct Score {
 }
 
 impl CostModel {
-    /// Scores `cluster` against `threshold`.
+    /// Scores `cluster` against `threshold`. Only the calls `reaches` accepts count: the
+    /// ones the facade will point at the island (direct calls of exported bindings from
+    /// modules that import them, or from their own module). The host calling an entry
+    /// module's export runs its JS version, so it doesn't count.
     pub(crate) fn score(
         &self,
         cluster: &[FunctionId],
         facts: &Facts,
         metrics: &Metrics,
         threshold: f64,
+        reaches: &dyn Fn(&CallEdge) -> bool,
     ) -> Score {
         let members: FxHashSet<FunctionId> = cluster.iter().copied().collect();
         let mut works = FxHashMap::default();
@@ -106,38 +125,34 @@ impl CostModel {
         let mut ops = Ops::default();
         let mut entries = Vec::new();
         for &function in cluster {
-            let mut freq = 0.0;
-            let mut outside = false;
-            for edge in facts.call_graph().callers(function) {
-                if members.contains(&edge.caller) {
-                    continue;
-                }
-                outside = true;
-                freq += metrics.sites.get(&edge.site).copied().unwrap_or(1.0);
-            }
-            // Code trioxide doesn't see (the host calling an export) calls it at least once.
-            let open = facts.function(function).is_none_or(|info| info.open);
-            if open || !outside && facts.call_graph().callers(function).next().is_none() {
-                freq += 1.0;
-                outside = true;
-            }
-            if !outside {
+            let freq: f64 = facts
+                .call_graph()
+                .callers(function)
+                .filter(|edge| !members.contains(&edge.caller) && reaches(edge))
+                .map(|edge| metrics.sites.get(&edge.site).copied().unwrap_or(1.0))
+                .sum();
+            if freq == 0.0 {
                 continue;
             }
             entries.push(function);
-            calls += freq;
+            calls = saturate(calls + freq);
             ops.add_scaled(
                 &self.work(function, facts, metrics, &mut works, &mut Vec::new()),
                 freq,
             );
-            bytes += freq * metrics.bytes(function, facts, self);
-            aggregates += freq * metrics.aggregates(function, facts);
+            bytes = saturate(bytes + freq * metrics.bytes(function, facts, self));
+            aggregates = saturate(aggregates + freq * metrics.aggregates(function, facts));
         }
         let benefit = ops.saving(self);
         let work = ops.total();
         let crossings = calls * self.crossing;
         let marshalling = bytes * self.byte + aggregates * self.aggregate;
-        let instantiation = self.instantiation;
+        // Lowering makes one island per module of the exports.
+        let mut modules: Vec<_> = entries.iter().map(|f| f.module).collect();
+        modules.sort_unstable();
+        modules.dedup();
+        #[expect(clippy::cast_precision_loss, reason = "module counts are small")]
+        let instantiation = self.instantiation * modules.len() as f64;
         Score {
             estimate: CostEstimate {
                 benefit,

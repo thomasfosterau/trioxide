@@ -9,10 +9,10 @@ for (let i = 0; i < N * N; i++) {
   b[i] = (i % 13) / 5;
 }
 
-export function run(): number {
+export const run = (): number => {
   matmul(a, b, out, N);
   return out[0] + out[N * N - 1] + out[(N * N) >> 1];
-}
+};
 
 export function main(): void {
   console.log(run().toFixed(6));

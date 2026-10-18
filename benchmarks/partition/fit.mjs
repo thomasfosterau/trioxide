@@ -17,9 +17,9 @@ const results = JSON.parse(readFileSync(path.join(here, 'results.json'), 'utf8')
 const ridgeAt = process.argv.indexOf('--ridge');
 const ridge = ridgeAt > 0 ? Number(process.argv[ridgeAt + 1]) : 1e-3;
 
-const NAMES = ['arithmetic', 'integer', 'math', 'index', 'checkedIndex', 'iteration', 'crossing', 'aggregate', 'byte'];
+const NAMES = ['arithmetic', 'integer', 'conversion', 'wrapping', 'math', 'remainder', 'index', 'checkedIndex', 'iteration', 'crossing', 'aggregate', 'byte'];
 const row = (f) => [
-  f.arithmetic, f.integer, f.math, f.index, f.checkedIndex, f.iteration, -f.calls, -f.aggregates, -f.bytes,
+  f.arithmetic, f.integer, f.conversion ?? 0, f.wrapping ?? 0, f.math, f.remainder ?? 0, f.index, f.checkedIndex, f.iteration, -f.calls, -f.aggregates, -f.bytes,
 ];
 
 // Normal equations of the scaled, ridge-regularised problem.

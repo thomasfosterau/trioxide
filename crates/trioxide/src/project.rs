@@ -203,11 +203,46 @@ impl Project {
         self.graph.add_entries(entries)?;
         self.built_from_entries = true;
         self.analyse();
+        // Without a toolchain a build would run every island as JS; say so now.
+        if !self.island_sources().is_empty() {
+            let toolchain = trioxide_wasm::toolchain::Toolchain::detect();
+            if !toolchain.can_build_islands() {
+                let missing: Vec<&str> = toolchain.missing().iter().map(|m| m.what).collect();
+                let ids: Vec<_> = self
+                    .partition
+                    .islands
+                    .iter()
+                    .map(|p| p.id.clone())
+                    .collect();
+                self.fall_back_to_js(
+                    &ids,
+                    &format!(
+                        "a build would run it as JS: {} is missing (`trioxide check-toolchain`)",
+                        missing.join(" and ")
+                    ),
+                );
+            }
+        }
         for index in 0..self.graph.modules().len() {
             let id = ModuleId::new(u32::try_from(index).expect("module count fits u32"));
             self.compile(id);
         }
         Ok(self.report())
+    }
+
+    /// Records in the decision log that the islands `ids` run as JS, and why.
+    fn fall_back_to_js(&mut self, ids: &[trioxide_wasm::IslandId], why: &str) {
+        for (_, decision) in &mut self.partition.decisions {
+            if decision.target == trioxide_common::log::Target::Wasm
+                && decision
+                    .island
+                    .as_ref()
+                    .is_some_and(|island| ids.iter().any(|id| id.0 == *island))
+            {
+                decision.target = trioxide_common::log::Target::Js;
+                decision.reason = format!("{}, but {why}", decision.reason);
+            }
+        }
     }
 
     /// Adds an island to every following [`build`](Self::build), as if the partitioner had
@@ -277,6 +312,17 @@ impl Project {
         let (artifacts, diagnostics) =
             islands::build(builder.as_ref(), &sources, self.options.wasm.require);
         self.diagnostics.extend(diagnostics);
+        let failed: Vec<_> = self
+            .partition
+            .islands
+            .iter()
+            .filter(|plan| !artifacts.iter().any(|a| a.spec.id == plan.id))
+            .map(|plan| plan.id.clone())
+            .collect();
+        self.fall_back_to_js(
+            &failed,
+            "its island wasn't built, so it runs as JS (see the warnings)",
+        );
         self.links = self
             .partition
             .islands

@@ -129,10 +129,10 @@ function cluster(functions) {
 }
 
 const ZERO = {
-  arithmetic: 0, integer: 0, math: 0, index: 0, checkedIndex: 0, iteration: 0,
+  arithmetic: 0, integer: 0, conversion: 0, wrapping: 0, math: 0, remainder: 0, index: 0, checkedIndex: 0, iteration: 0,
   crossing: 0, aggregate: 0, byte: 0, instantiation: 0,
 };
-const FEATURES = ['arithmetic', 'integer', 'math', 'index', 'checkedIndex', 'iteration'];
+const FEATURES = ['arithmetic', 'integer', 'conversion', 'wrapping', 'math', 'remainder', 'index', 'checkedIndex', 'iteration'];
 
 /**
  * The cost model's verdict on the kernel (auto mode, the default weights or `--weights`),

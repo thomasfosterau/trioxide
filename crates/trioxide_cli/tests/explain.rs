@@ -31,10 +31,11 @@ fn explain(dir: &Path, args: &[&str]) -> String {
 #[test]
 fn explains_the_mixed_example() {
     let dir = example("mixed");
-    let text = explain(&dir, &["--entry", "src/main.ts"]);
+    // No --entry: the page's module script (index.html) is the entry.
+    let text = explain(&dir, &[]);
     // The kernel becomes WASM; the boundary-heavy helper and the DOM code stay JS.
     assert!(
-        text.contains("escapeTotal (6:8): WASM in island `kernel`"),
+        text.contains("tileDigest (10:8): WASM in island `kernel`"),
         "{text}"
     );
     assert!(text.contains("ease (5:8): JS"), "{text}");
@@ -55,6 +56,6 @@ fn explains_the_mixed_example() {
 #[test]
 fn explains_one_function() {
     let dir = example("mixed");
-    let text = explain(&dir, &["--entry", "src/main.ts", "src/view.ts:render"]);
+    let text = explain(&dir, &["src/view.ts:render"]);
     insta::assert_snapshot!("explain_mixed_render", text);
 }

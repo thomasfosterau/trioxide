@@ -407,26 +407,33 @@ call edge into a component from JS code is a boundary entry.
 Every weight is in nanoseconds, fitted to `benchmarks/partition/` (Node 22; its README has the
 measurements, the fit and the confusion table) and meant to be refitted as the backend
 improves:
-- *benefit*: the operations the island would run per run of the program, by kind (float and
-  integer arithmetic, `Math.*` calls, element accesses with an int32 index and with a float
-  index, loop iterations), each times the time WASM saves per operation. Loops multiply by
-  their trip count: from the loop test when it compares the counter (an induction variable of
-  the loop facts) with a value whose range is known, else a default (`trips`, 256); typed
-  arrays reaching a parameter from allocation sites of known length give `p.length` bounds.
-  Callees count at their call sites' frequency; a recursive call counts as a loop. Integer
-  operations are the ones whose operands' range facts prove integers; an access is int32-
-  indexed when the index and every local in it are proven int32, as the backend types them.
-  Measured today: scalar code is a tie (integer work slightly faster in WASM), element accesses
-  are slower in WASM (~2 ns int32-indexed, ~7 ns float-indexed), so the defaults reflect that.
-- *cost*: boundary crossings (each call site into the island, weighted by the trip counts of
-  the loops around it, so calls from loops weigh heavily; a function the host may call counts
-  one call), marshalling (a cost per array or object argument or result per call, plus per
-  byte copied in, and out again when the island writes it; a `number[]` costs a multiple per
-  byte, as it is converted element by element), plus a fixed instantiation cost per island
+- *benefit*: the operations the island would run per run of the program, by kind, each
+  times the time WASM saves per operation (negative where the island is slower): float
+  arithmetic; int32 operations (operands the backend holds as int32: every local in them has
+  an int32 range fact, as the backend types locals by their binding's range); `ToInt32` of a
+  float operand of a bitwise operator or `Math.imul`; `(a + b) | 0`-style wrapped int32
+  arithmetic; `Math.*` calls; float `%` (an `fmod` call in WASM); element accesses with an
+  int32 and with a float index; loop iterations. Loops multiply by their trip count: from
+  the loop test when it compares the counter (an induction variable of the loop facts, plus
+  or minus a constant) with a value whose range is known, else a default (`trips`, 256);
+  typed arrays reaching a parameter from allocation sites of known length give `p.length`
+  bounds and marshalling sizes, and `for…of` over array literals their length. Callees count
+  at their call sites' frequency; a recursive call counts as a loop. Counts saturate at 10¹⁸.
+- *cost*: boundary crossings, marshalling (a cost per array or object argument or result per
+  call, plus per byte copied in, and out again when the island writes it; a `number[]` costs
+  a multiple per byte, as it is converted element by element), plus a fixed instantiation
+  cost per island (per module of its exports). Crossings count only the calls the facade
+  redirects: direct calls of an exported, never-reassigned binding from its own module or a
+  module importing it directly, weighted by the trip counts of the loops around the call
+  (only the caller's own loops: a caller itself called from a hot loop counts once). The host
+  calling an entry module's export, callbacks, namespace imports and re-exports run the JS
+  version, so they don't count, and a function only they call is never an export.
 - an island is kept if `benefit − cost > threshold` (`threshold`, 0 in `auto`;
   `wasmPreferredThreshold`, −1 ms, in `wasm-preferred`); otherwise it stays JS (and still
-  gets the JS passes). The cluster's members that JS calls (or the host may call) become the
-  island's exports; the others are compiled in as internal functions.
+  gets the JS passes). The cluster's members with redirected calls become the island's
+  exports; the others are compiled in as internal functions. An island that doesn't build
+  (no toolchain, a cargo error) runs as JS, and its functions' verdicts say so; `explain`
+  checks the toolchain and says when a build would fall back.
 
 **Automatic islands use the forced islands' machinery** (`trioxide_rust::islands`): the
 chosen functions are lowered with the forced ones, one island per module (a module's
@@ -461,8 +468,8 @@ functions for the cost model.
 *Default-mode reach (S8, measured with `benchmarks/partition/reach.mjs`).* The analysis now
 proves typed arrays allocated anywhere in the program, `number[]` elements from literals,
 `push` and `map` of proven numbers, and fresh object literals' fields at struct parameters,
-so 59 of 88 functions across the benchmarks, the hand-written islands and the examples
-qualify without `trustTypes` (86 with it). What still needs `trustTypes`: the arguments of
+so 63 of 92 functions across the benchmarks, the hand-written islands and the examples
+qualify without `trustTypes` (90 with it). What still needs `trustTypes`: the arguments of
 exported entry functions (the host passes them; the glue could check them at the call and
 fall back to JS, which would make them provable); parameters reached through function values
 held in arrays; typed arrays from builtins the heap doesn't model (`subarray`, buffer views,
@@ -471,7 +478,9 @@ objects from factories with default parameters or object spread.
 `trioxide_rust::ExtraFacts::param_field` is the hook for field facts at entry.
 
 **Explainability.** `trioxide explain [file[:fn]] [--entry <file>…] [--json]` plans the
-program (analysis, partitioning and the JS passes, no island builds: `Project::plan`) and
+program (analysis, partitioning and the JS passes, no island builds: `Project::plan`) from
+`--entry`, else the module scripts of the root's `index.html`, else the target file (with a
+note that its exports' arguments are then unknown), and
 prints, per function, the decision (JS, WASM, forced or forbidden), why, every failed
 eligibility rule with its position, the cost-model numbers (benefit, each cost term,
 threshold, and the calls, operations and bytes behind them) and the JS passes that fired or
