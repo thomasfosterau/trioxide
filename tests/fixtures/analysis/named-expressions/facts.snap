@@ -1,0 +1,63 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/named-expressions
+input_file: tests/fixtures/analysis/named-expressions/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
+    calls 4:22 -> fact
+    calls 18:15 -> K.make
+  fact (4:33): pure
+    calls 5:29 -> fact
+  K.<fields> (9:21): pure
+  K.constructor (11:16): writes
+  K.make (14:16): reads writes allocates throws
+    calls 15:14 -> K.<fields>
+    calls 15:14 -> K.constructor
+classes:
+  K (9:13): fields [value] stable
+nodes:
+  3:17 bind `main`: function@proven
+  4:9 bind `factorials`: (number[1, inf] int nonNaN nonNegZero)[]@proven
+  4:22 call `[3, 4].map(function fact(n: number): ...`: (number[1, inf] int nonNaN nonNegZero)[]@proven escape=none stable-shape
+  4:22 member `[3, 4].map`: unknown
+  4:22 array `[3, 4]`: (number[3, 4] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  4:42 bind `fact`: function@proven
+  4:47 bind `n`: number[1, 4] int nonNaN nonNegZero@proven
+  5:12 cond `n <= 1 ? 1 : n * fact(n - 1)`: number[1, inf] int nonNaN nonNegZero@proven
+  5:12 binary `n <= 1`: boolean@proven
+  5:12 ref `n`: number[1, 4] int nonNaN nonNegZero@proven
+  5:25 binary `n * fact(n - 1)`: number[2, inf] int nonNaN nonNegZero@proven
+  5:25 ref `n`: number[2, 4] int nonNaN nonNegZero@proven
+  5:29 call `fact(n - 1)`: number[1, inf] int nonNaN nonNegZero@proven
+  5:29 ref `fact`: function@proven
+  5:34 binary `n - 1`: number[1, 3] int nonNaN nonNegZero@proven
+  5:34 ref `n`: number[2, 4] int nonNaN nonNegZero@proven
+  7:3 call `console.log(factorials.join(","))`: unknown
+  7:3 member `console.log`: unknown
+  7:3 ref `console`: unknown
+  7:15 call `factorials.join(",")`: string@proven
+  7:15 member `factorials.join`: unknown
+  7:15 ref `factorials`: (number[1, inf] int nonNaN nonNegZero)[]@proven
+  9:9 bind `C`: function@proven
+  9:19 bind `K`: function@proven
+  11:17 bind `value`: 10@proven
+  12:7 assign `this.value = value`: 10@proven
+  12:7 member `this.value`: unknown
+  12:7 this `this`: K@proven
+  12:20 ref `value`: 10@proven
+  14:17 bind `value`: 5@proven
+  14:33 ref `K`: unknown
+  15:14 new `new K(value * 2)`: K@proven escape=known
+  15:18 ref `K`: function@proven
+  15:20 binary `value * 2`: 10@proven
+  15:20 ref `value`: 5@proven
+  18:3 call `console.log(C.make(5).value)`: unknown
+  18:3 member `console.log`: unknown
+  18:3 ref `console`: unknown
+  18:15 member `C.make(5).value`: 10@proven
+  18:15 call `C.make(5)`: K@proven
+  18:15 member `C.make`: function@proven
+  18:15 ref `C`: function@proven

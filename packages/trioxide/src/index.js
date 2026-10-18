@@ -32,7 +32,10 @@ export function build(entries, options = {}) {
 }
 
 /**
- * Builds `entries` and returns the decision log for `target` (`file` or `file:function`).
+ * Plans the program reachable from `entries` (analysis, partitioning and the JS passes, no
+ * island builds) and returns the decision log for `target` (`file` or `file:function`;
+ * every module if omitted): per function, JS or WASM and why, the failed eligibility rules,
+ * the cost-model numbers, and the passes that fired. `trioxide explain --json` prints the same.
  * @param {string[]} entries
  * @param {string} [target]
  * @param {TrioxideOptions & { root?: string }} [options]
@@ -40,7 +43,7 @@ export function build(entries, options = {}) {
 export function explain(entries, target, options = {}) {
   const { root, ...rest } = options;
   const project = new binding.Project(path.resolve(root ?? process.cwd()), rest);
-  project.build(entries.map((entry) => path.resolve(entry)));
+  project.plan(entries.map((entry) => path.resolve(entry)));
   return project.explain(target ?? null);
 }
 

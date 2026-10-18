@@ -1,0 +1,14 @@
+{
+  "name": "trioxide-example-image-filters",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "trioxide build src/main.ts --out-dir dist",
+    "start": "trioxide build src/main.ts --out-dir dist && node -e \"import('./dist/src/main.js').then((m) => m.main())\"",
+    "explain": "trioxide explain --entry src/main.ts",
+    "compare": "node ../../benchmarks/partition/compare.mjs src/main.ts"
+  },
+  "devDependencies": {
+    "trioxide": "workspace:*"
+  }
+}

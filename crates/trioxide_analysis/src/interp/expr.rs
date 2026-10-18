@@ -151,13 +151,19 @@ impl<'a> Cx<'_, '_, 'a> {
                 self.or_declared(value, new.node_id.get(), new.span)
             }
             Expression::TaggedTemplateExpression(tagged) => {
-                let tag = self.expr(&tagged.tag);
-                let strings = self.template_strings(&tagged.quasi);
-                let mut args = vec![strings];
-                for expression in &tagged.quasi.expressions {
-                    args.push(self.expr(expression));
-                }
-                let value = self.call_value(tagged.node_id.get(), &tag, None, &args, false);
+                // A call like any other (`p.f`x`` has `this` = `p`): the strings array, then
+                // each substitution.
+                let value =
+                    self.call_with(tagged.node_id.get(), &tagged.tag, false, |cx: &mut Self| {
+                        let mut values = vec![cx.template_strings(&tagged.quasi)];
+                        for expression in &tagged.quasi.expressions {
+                            values.push(cx.expr(expression));
+                        }
+                        super::call::Args {
+                            values,
+                            spread: false,
+                        }
+                    });
                 self.or_declared(value, tagged.node_id.get(), tagged.span)
             }
             Expression::ChainExpression(chain) => {
@@ -2130,6 +2136,17 @@ impl<'a> Cx<'_, '_, 'a> {
                                 }
                             });
                         }
+                    } else if matches!(key, Key::Unknown) {
+                        // May be `length` or any index: the length is no longer known, and
+                        // the value may be an element.
+                        self.store_elem(site, value);
+                        self.mark(site, |obj| {
+                            obj.dynamic = true;
+                            obj.length = None;
+                            obj.holey = true;
+                        });
+                        self.coerce(value, true);
+                        self.escape_value(value, Escape::Known);
                     } else {
                         self.mark(site, |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Known);

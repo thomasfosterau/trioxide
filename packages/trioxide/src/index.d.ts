@@ -14,15 +14,44 @@ import type { TrioxideOptions } from './options.d.ts';
 
 export type * from './options.d.ts';
 
+/** A byte range in a module's source. */
+export interface Span {
+  start: number;
+  end: number;
+}
+
 /** Per function: JS or WASM, and why. */
 export interface FunctionDecision {
   name: string | null;
-  span: { start: number; end: number };
+  span: Span;
   target: 'js' | 'wasm';
+  /** Why, in one sentence; for an ineligible function, the first failed rule. */
   reason: string;
-  culprit?: { start: number; end: number };
+  culprit?: Span;
   island?: string;
-  cost?: { benefit: number; cost: number; threshold: number };
+  /** The cost model's numbers for the function's cluster, when it was scored. */
+  cost?: CostEstimate;
+  /** What a directive or config override asked for: `wasm` forced, `js` forbidden. */
+  directive?: 'js' | 'wasm';
+  /** Every failed eligibility rule; `function`/`path` say where, when not in this function. */
+  failures?: Array<{ message: string; span: Span; function?: string; path?: string }>;
+}
+
+/** The cost model's numbers for one island, in nanoseconds per run of the program. */
+export interface CostEstimate {
+  benefit: number;
+  /** `crossings + marshalling + instantiation`. */
+  cost: number;
+  threshold: number;
+  crossings: number;
+  marshalling: number;
+  instantiation: number;
+  /** Estimated calls into the island. */
+  calls: number;
+  /** Estimated operations the island runs. */
+  work: number;
+  /** Estimated bytes copied in and out. */
+  bytes: number;
 }
 
 /** One pass decision at one site. */
@@ -52,6 +81,8 @@ export declare class Project {
   update(path: string, source?: string | null): Invalidation;
   /** The compiled form of one module. */
   transform(path: string): ModuleOutput;
+  /** Plans the program from `entries` without building islands; returns the decision log. */
+  plan(entries: string[]): Report;
   /** The decision log for `target` (`file` or `file:function`; everything if omitted). */
   explain(target?: string | null): Report;
 }
@@ -65,7 +96,10 @@ export declare function build(
   options?: TrioxideOptions & { root?: string },
 ): BuildOutput & { report: Report };
 
-/** Builds `entries` and returns the decision log for `target`. */
+/**
+ * Plans `entries` (no island builds) and returns the decision log for `target` (`file` or
+ * `file:function`; every module if omitted), as `trioxide explain --json` prints it.
+ */
 export declare function explain(
   entries: string[],
   target?: string,

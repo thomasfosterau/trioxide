@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use trioxide_analysis::{Analysis, AnalysisOptions};
 use trioxide_common::{Diagnostic, ModuleId, log::ModuleLog};
 use trioxide_js::{EmitOptions, PassOptions, transform_options};
-use trioxide_partition::{Partition, PartitionMode, PartitionOptions, Partitioner, SourceModule};
+use trioxide_partition::{
+    FileOverride, Partition, PartitionMode, PartitionOptions, Partitioner, Placement, SourceModule,
+};
 use trioxide_project::{
     CompilerSettings, ContentCache, ContentHash, GraphOptions, ImportTarget, ModuleGraph,
     find_tsconfig,
@@ -13,8 +15,8 @@ use trioxide_types::{SourceText, TypeOracle, default_oracle};
 use trioxide_wasm::{IslandBuilder, IslandSource};
 
 use crate::{
-    BuildOutput, Error, ExplainQuery, GlueMode, Invalidation, Mode, ModuleOutput, Options, Report,
-    Result, World,
+    BuildOutput, Error, ExplainQuery, GlueMode, Invalidation, Mode, ModuleOutput, Options,
+    OverrideTarget, Report, Result, World,
     analysis::{self, FactRefresher, analysis_inputs},
     islands,
     pipeline::{ModuleCompiler, ModuleSource},
@@ -193,9 +195,59 @@ impl Project {
         })
     }
 
+    /// Everything [`build`](Self::build) decides about the program reachable from `entries`,
+    /// without building islands: analysis, partitioning and the JS passes, whose decision log
+    /// [`explain`](Self::explain) then reports (`trioxide explain`). Fails only if an entry
+    /// can't be read.
+    pub fn plan(&mut self, entries: &[PathBuf]) -> Result<Report> {
+        self.graph.add_entries(entries)?;
+        self.built_from_entries = true;
+        self.analyse();
+        // Without a toolchain a build would run every island as JS; say so now.
+        if !self.island_sources().is_empty() {
+            let toolchain = trioxide_wasm::toolchain::Toolchain::detect();
+            if !toolchain.can_build_islands() {
+                let missing: Vec<&str> = toolchain.missing().iter().map(|m| m.what).collect();
+                let ids: Vec<_> = self
+                    .partition
+                    .islands
+                    .iter()
+                    .map(|p| p.id.clone())
+                    .collect();
+                self.fall_back_to_js(
+                    &ids,
+                    &format!(
+                        "a build would run it as JS: {} is missing (`trioxide check-toolchain`)",
+                        missing.join(" and ")
+                    ),
+                );
+            }
+        }
+        for index in 0..self.graph.modules().len() {
+            let id = ModuleId::new(u32::try_from(index).expect("module count fits u32"));
+            self.compile(id);
+        }
+        Ok(self.report())
+    }
+
+    /// Records in the decision log that the islands `ids` run as JS, and why.
+    fn fall_back_to_js(&mut self, ids: &[trioxide_wasm::IslandId], why: &str) {
+        for (_, decision) in &mut self.partition.decisions {
+            if decision.target == trioxide_common::log::Target::Wasm
+                && decision
+                    .island
+                    .as_ref()
+                    .is_some_and(|island| ids.iter().any(|id| id.0 == *island))
+            {
+                decision.target = trioxide_common::log::Target::Js;
+                decision.reason = format!("{}, but {why}", decision.reason);
+            }
+        }
+    }
+
     /// Adds an island to every following [`build`](Self::build), as if the partitioner had
-    /// chosen it: a debug and test hook until the Rust backend (S6) and partitioner (S8)
-    /// produce islands. Its glue is not wired into any module; callers import it themselves.
+    /// chosen it: a debug and test hook for hand-written islands. Its glue is not wired into
+    /// any module; callers import it themselves.
     pub fn add_debug_island(&mut self, island: IslandSource) {
         self.debug_islands.push(island);
     }
@@ -260,6 +312,17 @@ impl Project {
         let (artifacts, diagnostics) =
             islands::build(builder.as_ref(), &sources, self.options.wasm.require);
         self.diagnostics.extend(diagnostics);
+        let failed: Vec<_> = self
+            .partition
+            .islands
+            .iter()
+            .filter(|plan| !artifacts.iter().any(|a| a.spec.id == plan.id))
+            .map(|plan| plan.id.clone())
+            .collect();
+        self.fall_back_to_js(
+            &failed,
+            "its island wasn't built, so it runs as JS (see the warnings)",
+        );
         self.links = self
             .partition
             .islands
@@ -399,6 +462,20 @@ impl Project {
                 Mode::WasmPreferred => PartitionMode::WasmPreferred,
             },
             wasm: self.options.wasm.enabled,
+            cost: self.options.cost_model,
+            overrides: self
+                .options
+                .overrides
+                .iter()
+                .map(|o| FileOverride {
+                    files: o.files.clone(),
+                    placement: match o.target {
+                        OverrideTarget::Js => Placement::Js,
+                        OverrideTarget::Wasm => Placement::Wasm,
+                    },
+                })
+                .collect(),
+            root: self.root.clone(),
         });
         let imports: Vec<Vec<ModuleId>> = self
             .graph

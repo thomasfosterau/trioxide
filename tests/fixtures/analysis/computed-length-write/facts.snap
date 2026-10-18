@@ -1,0 +1,49 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/computed-length-write
+input_file: tests/fixtures/analysis/computed-length-write/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  main (3:8) open: reads writes allocates throws calls-unknown
+nodes:
+  3:17 bind `main`: function@proven
+  4:9 bind `xs`: unknown[]@proven
+  4:14 array `[1, 2, 3, 4]`: unknown[]@proven escape=none
+  5:12 bind `i`: 0@proven
+  5:19 binary `i < 1`: boolean@proven
+  5:19 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  5:26 unary `i++`: 0@proven
+  5:26 ref `i`: number[0, 1] int nonNaN nonNegZero@proven
+  6:11 bind `key`: string@proven
+  6:17 binary `"len" + "gth"`: string@proven
+  7:5 assign `(xs as unknown as Record<string, numb...`: 2@proven
+  7:5 member `(xs as unknown as Record<string, numb...`: unknown
+  7:6 cast `xs as unknown as Record<string, number>`: unknown[]@proven
+  7:6 cast `xs as unknown`: unknown[]@proven
+  7:6 ref `xs`: unknown[]@proven
+  7:23 ref `Record`: unknown
+  7:47 ref `key`: string@proven
+  9:3 call `console.log(xs.length)`: unknown
+  9:3 member `console.log`: unknown
+  9:3 ref `console`: unknown
+  9:15 member `xs.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  9:15 ref `xs`: unknown[]@proven
+  10:9 bind `ys`: unknown[]@proven
+  10:14 array `[1, 2, 3]`: unknown[]@proven escape=none
+  11:9 bind `index`: string@proven
+  11:17 member `["1", "5"][1]`: string@proven
+  11:17 array `["1", "5"]`: string[]@proven escape=none stable-shape
+  12:3 assign `(ys as unknown as Record<string, numb...`: 9@proven
+  12:3 member `(ys as unknown as Record<string, numb...`: unknown
+  12:4 cast `ys as unknown as Record<string, number>`: unknown[]@proven
+  12:4 cast `ys as unknown`: unknown[]@proven
+  12:4 ref `ys`: unknown[]@proven
+  12:21 ref `Record`: unknown
+  12:45 ref `index`: string@proven
+  13:3 call `console.log(ys.length)`: unknown
+  13:3 member `console.log`: unknown
+  13:3 ref `console`: unknown
+  13:15 member `ys.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  13:15 ref `ys`: unknown[]@proven
