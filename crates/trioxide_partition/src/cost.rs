@@ -133,7 +133,10 @@ impl CostModel {
                 .call_graph()
                 .callers(function)
                 .filter(|edge| !members.contains(&edge.caller) && reaches(edge))
-                .map(|edge| metrics.sites.get(&edge.site).copied().unwrap_or(1.0))
+                .map(|edge| {
+                    metrics.sites.get(&edge.site).copied().unwrap_or(1.0)
+                        * metrics.runs(edge.caller)
+                })
                 .sum();
             if freq == 0.0 {
                 continue;

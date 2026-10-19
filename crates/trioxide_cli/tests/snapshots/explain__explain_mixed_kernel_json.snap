@@ -18,14 +18,14 @@ expression: json
           "reason": "chosen by the cost model; exported by the island",
           "island": "kernel",
           "cost": {
-            "benefit": 388740.04620000033,
-            "cost": 300039.3,
+            "benefit": 777480.0924000007,
+            "cost": 300078.6,
             "threshold": 0.0,
-            "crossings": 39.3,
+            "crossings": 78.6,
             "marshalling": 0.0,
             "instantiation": 300000.0,
-            "calls": 3.0,
-            "work": 12585222.0,
+            "calls": 6.0,
+            "work": 25170444.0,
             "bytes": 0.0
           }
         },
@@ -39,14 +39,14 @@ expression: json
           "reason": "compiled into the island as a callee (its JS version is kept too)",
           "island": "kernel",
           "cost": {
-            "benefit": 388740.04620000033,
-            "cost": 300039.3,
+            "benefit": 777480.0924000007,
+            "cost": 300078.6,
             "threshold": 0.0,
-            "crossings": 39.3,
+            "crossings": 78.6,
             "marshalling": 0.0,
             "instantiation": 300000.0,
-            "calls": 3.0,
-            "work": 12585222.0,
+            "calls": 6.0,
+            "work": 25170444.0,
             "bytes": 0.0
           }
         }

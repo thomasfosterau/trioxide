@@ -110,3 +110,39 @@ export const run = (): number => pick(a);
     let int32 = decision(kernel, input, "pick", |m| m.index = 1.0);
     assert_eq!(benefit(&int32), 0.0, "{int32:?}");
 }
+
+/// Calls into an island count how often their caller runs too: a helper called from a loop
+/// calls the kernel once per iteration of that loop, and a recursive caller once per call
+/// from outside its cycle.
+#[test]
+fn call_frequency_propagates_through_callers() {
+    let kernel = "export function step(a: Float64Array): void {
+  for (let i = 0; i < a.length; i++) a[i] = a[i] * 0.5 + 1;
+}
+";
+    let input = "import { step } from \"./kernel.js\";
+const a = new Float64Array(16);
+function frame(): void {
+  step(a);
+}
+function twice(): void {
+  frame();
+  frame();
+}
+function countdown(n: number): void {
+  if (n > 0) {
+    step(a);
+    countdown(n - 1);
+  }
+}
+export const run = (): number => {
+  for (let f = 0; f < 100; f++) twice();
+  countdown(3);
+  return a[0];
+};
+";
+    let scored = decision(kernel, input, "step", |_| {});
+    let cost = scored.cost.expect("scored");
+    // 100 × 2 calls through `frame`, and `countdown`'s cycle runs once from `run`.
+    assert_eq!(cost.calls, 201.0, "{scored:?}");
+}

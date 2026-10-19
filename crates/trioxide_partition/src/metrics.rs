@@ -164,6 +164,9 @@ pub(crate) struct Metrics {
     /// Call sites whose callee is a plain identifier: the calls the facade can point at an
     /// island's glue.
     pub direct: FxHashSet<NodeRef>,
+    /// How often each unit runs per run of the program, through the call graph (see
+    /// [`Metrics::runs`]).
+    pub invocations: FxHashMap<FunctionId, f64>,
 }
 
 impl Metrics {
@@ -213,7 +216,15 @@ impl Metrics {
             };
             walker.visit_program(program);
         }
+        metrics.invocations = invocations(facts, &metrics.sites);
         metrics
+    }
+
+    /// How often `unit` runs per run of the program: the sum over its call sites of how often
+    /// the caller runs times how often the site runs per run of the caller, and at least once
+    /// for a unit unknown code may call (module code, what the host calls).
+    pub fn runs(&self, unit: FunctionId) -> f64 {
+        self.invocations.get(&unit).copied().unwrap_or(1.0)
     }
 
     /// The arrays and objects passed to or returned from one call of `function`.
@@ -1024,4 +1035,143 @@ fn flip(operator: BinaryOperator) -> Option<BinaryOperator> {
         BinaryOperator::GreaterEqualThan => BinaryOperator::LessEqualThan,
         _ => return None,
     })
+}
+
+/// [`Metrics::invocations`]: frequencies propagated over the call graph's strongly connected
+/// components, callers first. A component's members each run as often as calls from outside
+/// it reach it (at least once when code trioxide doesn't see may call one of them, or nothing
+/// calls it): recursion within it is the cost model's to count (a recursive call is a loop).
+fn invocations(facts: &Facts, sites: &FxHashMap<NodeRef, f64>) -> FxHashMap<FunctionId, f64> {
+    let graph = facts.call_graph();
+    let mut units: Vec<FunctionId> = Vec::new();
+    let mut index_of: FxHashMap<FunctionId, usize> = FxHashMap::default();
+    for edge in graph.edges() {
+        for unit in [edge.caller, edge.callee] {
+            index_of.entry(unit).or_insert_with(|| {
+                units.push(unit);
+                units.len() - 1
+            });
+        }
+    }
+    let successors: Vec<Vec<usize>> = units
+        .iter()
+        .map(|&unit| {
+            graph
+                .edges_from(unit)
+                .map(|edge| index_of[&edge.callee])
+                .collect()
+        })
+        .collect();
+    let components = strongly_connected(&successors);
+    let mut component_of = vec![0; units.len()];
+    for (component, members) in components.iter().enumerate() {
+        for &member in members {
+            component_of[member] = component;
+        }
+    }
+    let mut runs: FxHashMap<FunctionId, f64> = FxHashMap::default();
+    // Tarjan's algorithm yields components callees first.
+    for (component, members) in components.iter().enumerate().rev() {
+        let mut inflow = 0.0;
+        let mut root = false;
+        for &member in members {
+            let unit = units[member];
+            let callers = facts.callers_complete(unit);
+            if !(callers.trust == Trust::Proven && callers.value)
+                || graph.callers(unit).next().is_none()
+            {
+                root = true;
+            }
+            for edge in graph.callers(unit) {
+                if component_of[index_of[&edge.caller]] == component {
+                    continue;
+                }
+                #[expect(clippy::cast_precision_loss, reason = "callee counts are small")]
+                let share = graph.callees(edge.site).count().max(1) as f64;
+                let caller = runs.get(&edge.caller).copied().unwrap_or(1.0);
+                let per_call = sites.get(&edge.site).copied().unwrap_or(1.0);
+                inflow = saturate(inflow + caller * per_call / share);
+            }
+        }
+        // What unknown code (the host) calls runs at least once; not once more than its known
+        // callers run it (a host calls `run` or `main`, which calls `run`, not both).
+        let total = if root { inflow.max(1.0) } else { inflow };
+        for &member in members {
+            runs.insert(units[member], total);
+        }
+    }
+    runs
+}
+
+/// The strongly connected components of a graph given by successor lists, callees first
+/// (Tarjan's algorithm, iteratively).
+fn strongly_connected(successors: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    const UNSEEN: usize = usize::MAX;
+    let count = successors.len();
+    let mut index = vec![UNSEEN; count];
+    let mut low = vec![0; count];
+    let mut on_stack = vec![false; count];
+    let mut stack = Vec::new();
+    let mut components = Vec::new();
+    let mut next = 0;
+    for start in 0..count {
+        if index[start] != UNSEEN {
+            continue;
+        }
+        // (node, position in its successor list)
+        let mut work = vec![(start, 0)];
+        index[start] = next;
+        low[start] = next;
+        next += 1;
+        stack.push(start);
+        on_stack[start] = true;
+        while let Some(&mut (node, ref mut position)) = work.last_mut() {
+            if let Some(&successor) = successors[node].get(*position) {
+                *position += 1;
+                if index[successor] == UNSEEN {
+                    index[successor] = next;
+                    low[successor] = next;
+                    next += 1;
+                    stack.push(successor);
+                    on_stack[successor] = true;
+                    work.push((successor, 0));
+                } else if on_stack[successor] {
+                    low[node] = low[node].min(index[successor]);
+                }
+                continue;
+            }
+            work.pop();
+            if let Some(&(parent, _)) = work.last() {
+                low[parent] = low[parent].min(low[node]);
+            }
+            if low[node] == index[node] {
+                let mut component = Vec::new();
+                while let Some(member) = stack.pop() {
+                    on_stack[member] = false;
+                    component.push(member);
+                    if member == node {
+                        break;
+                    }
+                }
+                components.push(component);
+            }
+        }
+    }
+    components
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strongly_connected;
+
+    #[test]
+    fn components_come_callees_first() {
+        // 0 → 1 → 2 → 1, 2 → 3, 4 alone.
+        let successors = vec![vec![1], vec![2], vec![1, 3], vec![], vec![]];
+        let mut components = strongly_connected(&successors);
+        for component in &mut components {
+            component.sort_unstable();
+        }
+        assert_eq!(components, vec![vec![3], vec![1, 2], vec![0], vec![4]]);
+    }
 }
