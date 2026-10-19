@@ -136,6 +136,10 @@ pub struct ClassInfo<'a> {
     pub computed_members: bool,
     /// Whether the class has an `extends` clause.
     pub has_heritage: bool,
+    /// Whether the constructor (if written) passes `this` on only in ways the interpreter
+    /// follows ([`crate::shapes::keeps_this`]): constructing an instance then doesn't by
+    /// itself make it escape.
+    pub constructor_keeps_this: bool,
 }
 
 impl ClassInfo<'_> {
@@ -653,6 +657,7 @@ impl<'a> World<'a> {
                 members: Vec::new(),
                 computed_members: false,
                 has_heritage: class.heritage.is_some(),
+                constructor_keeps_this: true,
             };
             for element in &class.body.body {
                 let (key, computed, is_static, role, unit, node) = match element {
@@ -666,6 +671,7 @@ impl<'a> World<'a> {
                         let unit = module.node(method.value.node_id.get());
                         if role == MethodRole::Constructor {
                             info.constructor = Some(unit);
+                            info.constructor_keeps_this = crate::shapes::keeps_this(&method.value);
                         }
                         (
                             &method.key,

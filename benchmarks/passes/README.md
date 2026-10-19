@@ -11,6 +11,7 @@ processes of their own, alternating rounds, median and range), under V8's defaul
 |------|----------------|----------|
 | `inline-vector` | 5, function inlining | vector helpers and methods called in a loop |
 | `scalar-points` | 8, scalar replacement | `{x, y}` points that never leave the loop |
+| `scalar-instances` | 8, scalar replacement | `new Point(x, y)` instances that never leave the loop |
 | `partial-eval-table` | 11, partial evaluation | evaluating a module that builds lookup tables |
 | `closure-hoist-loop` | 12, closure hoisting | closures that capture nothing, made per iteration |
 | `array-pipelines` | 6, array pipelines | `map`/`filter`/`reduce` chains and searches over arrays |

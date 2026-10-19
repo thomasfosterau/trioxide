@@ -1,0 +1,44 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/scalar/instances-adversarial
+input_file: tests/fixtures/passes/scalar/instances-adversarial/input.ts
+---
+//- input.ts
+23:14 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+46:14 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+47:14 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+90:14 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+23:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+46:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+47:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+81:12 fold applied
+90:14 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+113:12 fold applied
+115:12 fold applied
+117:12 fold applied
+119:12 fold applied
+121:17 fold applied
+80:11 dce skipped: unused, but its initialiser has effects
+112:9 dce skipped: unused, but its initialiser has effects
+114:9 dce skipped: unused, but its initialiser has effects
+116:9 dce skipped: unused, but its initialiser has effects
+118:9 dce skipped: unused, but its initialiser has effects
+59:15 hidden-class skipped: the class's instances may reach code the analysis doesn't see
+62:7 hidden-class skipped: the class's instances may reach code the analysis doesn't see
+94:7 hidden-class skipped: the class's instances may reach code the analysis doesn't see
+86:21 partial-eval skipped: the interpreter doesn't model this statement
+80:11 scalar skipped: reading the class may throw (its declaration may not have run)
+102:9 scalar skipped: a key is called as a method (which passes the object as `this`)
+104:9 scalar skipped: an argument the constructor ignores may have effects
+107:9 scalar applied
+110:9 scalar skipped: a key the literal doesn't have is used (it would be read through the prototype)
+112:9 scalar skipped: the constructor does more than assign fields
+114:9 scalar skipped: the class extends another
+116:9 scalar skipped: the class has instance accessors
+118:9 scalar skipped: the constructor assigns a parameter twice
+120:9 scalar applied
+125:9 scalar skipped: the callee may be something other than the class
+128:9 scalar applied
+131:9 scalar skipped: an argument is an anonymous function or class
+134:9 scalar skipped: the object itself is used (compared, passed, spread or inspected)
+120:9 simplify applied

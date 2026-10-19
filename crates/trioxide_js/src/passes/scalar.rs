@@ -20,6 +20,16 @@
 //! use of one is rejected too (and with all keys set at creation, no key is read before it is
 //! written).
 //!
+//! **Instances.** `const p = new C(a, b)` works the same way when `C` is a class declared in
+//! the module ([`ClassPlan`]): no heritage, decorators or instance accessors, fields with
+//! literal initialisers (or none), and a constructor that only assigns parameters or literals
+//! to `this.key` (each key and parameter once; no defaults, rest or parameter properties). The
+//! locals are the assigned arguments in argument order, then the other keys' values; arguments
+//! the constructor ignores must be pure (they are dropped). The site must be a non-escaping
+//! `Instance` of exactly that class with a stable shape, and the callee must point to exactly
+//! the class and be pure (so it isn't read in its temporal dead zone). Method calls are
+//! rejected as for literals, and a read of a method (no field of that name) as an unknown key.
+//!
 //! Off by default (`passes: { "scalar": true }` turns it on): V8's optimising tier already
 //! replaces such objects in hot code, so the measured wins are in code that isn't hot yet.
 //!
@@ -73,11 +83,18 @@ impl Pass for Scalar {
         }
         let mut decisions = Decisions::new(self.name());
         let tagged = super::wasm_tags(program);
+        let mut classes = Classes {
+            scoping: ctx.scoping(),
+            plans: FxHashMap::default(),
+        };
+        classes.visit_program(program);
+        let classes = classes.plans;
         let mut find = Find {
             query,
             scoping: ctx.scoping(),
             keep: ctx.keep,
             tagged: &tagged,
+            classes: &classes,
             candidates: FxHashMap::default(),
             functions: Vec::new(),
             dead: 0,
@@ -95,7 +112,9 @@ impl Pass for Scalar {
                 decisions.skipped(candidate.span, reason);
                 continue;
             }
-            if let Some(reason) = Self::facts_problem(&candidate, query, ctx.scoping(), symbol) {
+            if let Some(reason) =
+                Self::facts_problem(&candidate, query, ctx.scoping(), symbol, &classes)
+            {
                 decisions.skipped(candidate.span, reason);
                 continue;
             }
@@ -117,6 +136,7 @@ impl Pass for Scalar {
                 Replacement {
                     names,
                     written: candidate.written,
+                    class: candidate.instance.as_ref().map(|(class, _, _)| *class),
                 },
             );
         }
@@ -126,6 +146,7 @@ impl Pass for Scalar {
         let mut rewrite = Rewrite {
             scoping: ctx.scoping(),
             accepted: &accepted,
+            classes: &classes,
             ast: AstBuilder::new(ctx.allocator),
         };
         rewrite.visit_program(program);
@@ -141,6 +162,7 @@ impl Scalar {
         query: Query<'_>,
         scoping: &Scoping,
         symbol: SymbolId,
+        classes: &FxHashMap<SymbolId, Result<ClassPlan, &'static str>>,
     ) -> Option<String> {
         if scoping.symbol_is_mutated(symbol) {
             return Some("the binding is reassigned".into());
@@ -151,7 +173,18 @@ impl Scalar {
         let Some(allocation) = query.facts.allocation(site) else {
             return Some("the analysis has no facts about the literal".into());
         };
-        if !matches!(allocation.kind, AllocKind::Object | AllocKind::Array) {
+        if let Some((class, callee, ignored)) = &candidate.instance {
+            if let Some(reason) = Self::instance_problem(query, classes, *class, *callee, ignored) {
+                return Some(reason);
+            }
+            let class = classes[class]
+                .as_ref()
+                .ok()
+                .and_then(|plan| query.node(plan.node));
+            if !class.is_some_and(|class| allocation.kind == AllocKind::Instance(class)) {
+                return Some("the analysis doesn't see an instance of the class here".into());
+            }
+        } else if !matches!(allocation.kind, AllocKind::Object | AllocKind::Array) {
             return Some("the analysis doesn't see a plain object or array here".into());
         }
         if !query.usable(allocation.escape.trust) || allocation.escape.value != Escape::None {
@@ -180,6 +213,36 @@ impl Scalar {
         }
         None
     }
+
+    /// Why the facts don't allow replacing `new C(…)` by its fields, if they don't: the callee
+    /// must be exactly the class (and its read can't throw: not in its temporal dead zone),
+    /// and the arguments the constructor ignores must be pure.
+    fn instance_problem(
+        query: Query<'_>,
+        classes: &FxHashMap<SymbolId, Result<ClassPlan, &'static str>>,
+        class: SymbolId,
+        callee: NodeId,
+        ignored: &[NodeId],
+    ) -> Option<String> {
+        let plan = classes[&class].as_ref().ok()?;
+        let class = query.node(plan.node)?;
+        let callee = query.node(callee)?;
+        let points = query.facts.points_to(callee);
+        if !(query.usable(points.trust) && points.value.is_some_and(|sites| sites == [class])) {
+            return Some("the callee may be something other than the class".into());
+        }
+        let pure = query.facts.is_pure(callee);
+        if !(pure.value && query.usable(pure.trust)) {
+            return Some("reading the class may throw (its declaration may not have run)".into());
+        }
+        for &argument in ignored {
+            let pure = query.node(argument).map(|node| query.facts.is_pure(node));
+            if !pure.is_some_and(|pure| pure.value && query.usable(pure.trust)) {
+                return Some("an argument the constructor ignores may have effects".into());
+            }
+        }
+        None
+    }
 }
 
 /// A declaration that may become locals.
@@ -194,12 +257,17 @@ struct Candidate {
     /// The function the declaration is in (`None`: the module).
     function: Option<NodeId>,
     rejected: Option<String>,
+    /// For `new C(…)`: the class's binding, the callee, and the arguments the constructor
+    /// ignores (they are dropped, so they must be pure).
+    instance: Option<(SymbolId, NodeId, Vec<NodeId>)>,
 }
 
 /// The names a replaced binding's keys get.
 struct Replacement {
     names: FxHashMap<String, String>,
     written: bool,
+    /// For `new C(…)`: the class's binding.
+    class: Option<SymbolId>,
 }
 
 /// The keys of a literal, if it has the plain form.
@@ -289,12 +357,282 @@ fn computed_key(expression: &Expression<'_>) -> Option<String> {
     }
 }
 
+/// A constant a field starts with.
+#[derive(Clone)]
+enum Constant {
+    Number { value: f64, negative: bool },
+    String(String),
+    Boolean(bool),
+    Null,
+    Undefined,
+}
+
+impl Constant {
+    fn of(expression: &Expression<'_>) -> Option<Self> {
+        Some(match expression.get_inner_expression() {
+            Expression::NumericLiteral(literal) => Self::Number {
+                value: literal.value,
+                negative: false,
+            },
+            Expression::UnaryExpression(unary)
+                if unary.operator == oxc_syntax::operator::UnaryOperator::UnaryNegation =>
+            {
+                let Expression::NumericLiteral(literal) = unary.argument.get_inner_expression()
+                else {
+                    return None;
+                };
+                Self::Number {
+                    value: literal.value,
+                    negative: true,
+                }
+            }
+            Expression::StringLiteral(literal) if !literal.lone_surrogates => {
+                Self::String(literal.value.to_string())
+            }
+            Expression::BooleanLiteral(literal) => Self::Boolean(literal.value),
+            Expression::NullLiteral(_) => Self::Null,
+            _ => return None,
+        })
+    }
+
+    fn expression<'a>(&self, span: Span, ast: &AstBuilder<'a>) -> Expression<'a> {
+        use oxc_syntax::{number::NumberBase, operator::UnaryOperator};
+        let number =
+            |value| Expression::new_numeric_literal(span, value, None, NumberBase::Decimal, ast);
+        match self {
+            Self::Number { value, negative } => {
+                if *negative {
+                    Expression::new_unary_expression(
+                        span,
+                        UnaryOperator::UnaryNegation,
+                        number(*value),
+                        ast,
+                    )
+                } else {
+                    number(*value)
+                }
+            }
+            Self::String(value) => Expression::new_string_literal(
+                span,
+                Ident::from_str_in(value, ast).as_str(),
+                None,
+                ast,
+            ),
+            Self::Boolean(value) => Expression::new_boolean_literal(span, *value, ast),
+            Self::Null => Expression::new_null_literal(span, ast),
+            Self::Undefined => {
+                Expression::new_unary_expression(span, UnaryOperator::Void, number(0.0), ast)
+            }
+        }
+    }
+}
+
+/// Where an instance's key gets its value.
+#[derive(Clone)]
+enum Source {
+    /// The constructor's parameter at this index.
+    Parameter(usize),
+    Constant(Constant),
+}
+
+/// A class whose instances `scalar` can replace: no heritage, no instance accessors, fields
+/// with constant initialisers, and a constructor that only assigns parameters or constants to
+/// `this.key`, each key and parameter at most once.
+struct ClassPlan {
+    /// The class (its allocation site).
+    node: NodeId,
+    /// The constructor's parameter count.
+    parameters: usize,
+    /// The instance keys in the order instances get them, and their values.
+    keys: Vec<(String, Source)>,
+}
+
+impl ClassPlan {
+    fn of(class: &oxc_ast::ast::Class<'_>, scoping: &Scoping) -> Result<Self, &'static str> {
+        if class.heritage.is_some() {
+            return Err("the class extends another");
+        }
+        if class.declare || class.r#abstract || !class.decorators.is_empty() {
+            return Err("the class is declared, abstract or decorated");
+        }
+        let mut keys: Vec<(String, Source)> = Vec::new();
+        let mut constructor = None;
+        for element in &class.body.body {
+            match element {
+                oxc_ast::ast::ClassElement::MethodDefinition(method) => {
+                    if !method.decorators.is_empty() {
+                        return Err("a method is decorated");
+                    }
+                    match method.kind {
+                        oxc_ast::ast::MethodDefinitionKind::Constructor => {
+                            constructor = Some(&method.value);
+                        }
+                        oxc_ast::ast::MethodDefinitionKind::Method => {}
+                        oxc_ast::ast::MethodDefinitionKind::Get
+                        | oxc_ast::ast::MethodDefinitionKind::Set => {
+                            if !method.r#static {
+                                return Err("the class has instance accessors");
+                            }
+                        }
+                    }
+                }
+                oxc_ast::ast::ClassElement::PropertyDefinition(property) => {
+                    if property.r#static || property.declare {
+                        continue;
+                    }
+                    if !property.decorators.is_empty() || property.computed {
+                        return Err("a field is decorated or has a computed key");
+                    }
+                    let key = static_key(&property.key).ok_or("a field has an unusual key")?;
+                    let value = match &property.value {
+                        None => Constant::Undefined,
+                        Some(value) => {
+                            Constant::of(value).ok_or("a field's initialiser isn't a literal")?
+                        }
+                    };
+                    if keys.iter().any(|(known, _)| *known == key) {
+                        return Err("the class declares a field twice");
+                    }
+                    keys.push((key, Source::Constant(value)));
+                }
+                oxc_ast::ast::ClassElement::AccessorProperty(property) => {
+                    if !property.r#static {
+                        return Err("the class has `accessor` fields");
+                    }
+                }
+                oxc_ast::ast::ClassElement::StaticBlock(_)
+                | oxc_ast::ast::ClassElement::TSIndexSignature(_) => {}
+            }
+        }
+        let Some(constructor) = constructor else {
+            return Ok(Self {
+                node: class.node_id(),
+                parameters: 0,
+                keys,
+            });
+        };
+        let params = &constructor.params;
+        if params.rest.is_some() {
+            return Err("the constructor has a rest parameter");
+        }
+        let mut parameters = Vec::new();
+        for param in &params.items {
+            let BindingPattern::BindingIdentifier(id) = &param.pattern else {
+                return Err("a constructor parameter is a pattern");
+            };
+            if param.initializer.is_some()
+                || param.accessibility.is_some()
+                || param.readonly
+                || param.r#override
+                || !param.decorators.is_empty()
+            {
+                return Err(
+                    "a constructor parameter has a default, is a parameter property or is decorated",
+                );
+            }
+            parameters.push(id.symbol_id());
+        }
+        let body = constructor
+            .body
+            .as_ref()
+            .ok_or("the constructor has no body")?;
+        if !body.directives.is_empty() {
+            return Err("the constructor has directives");
+        }
+        let mut assigned: Vec<String> = Vec::new();
+        let mut used = vec![false; parameters.len()];
+        for statement in &body.statements {
+            let assignment = match statement {
+                Statement::ExpressionStatement(statement) => match &statement.expression {
+                    Expression::AssignmentExpression(assignment)
+                        if assignment.operator
+                            == oxc_syntax::operator::AssignmentOperator::Assign =>
+                    {
+                        assignment
+                    }
+                    _ => return Err("the constructor does more than assign fields"),
+                },
+                _ => return Err("the constructor does more than assign fields"),
+            };
+            let AssignmentTarget::StaticMemberExpression(member) = &assignment.left else {
+                return Err("the constructor does more than assign fields");
+            };
+            if !matches!(member.object, Expression::ThisExpression(_)) {
+                return Err("the constructor does more than assign fields");
+            }
+            let key = member.property.name.to_string();
+            if key == "__proto__" {
+                return Err("the constructor sets `__proto__`");
+            }
+            if assigned.contains(&key) {
+                return Err("the constructor assigns a key twice");
+            }
+            let source = match assignment.right.get_inner_expression() {
+                Expression::Identifier(ident) => {
+                    let symbol = ident
+                        .reference_id
+                        .get()
+                        .and_then(|reference| scoping.get_reference(reference).symbol_id());
+                    let index = symbol
+                        .and_then(|symbol| parameters.iter().position(|&param| param == symbol))
+                        .ok_or(
+                            "the constructor assigns something other than a parameter or literal",
+                        )?;
+                    if std::mem::replace(&mut used[index], true) {
+                        return Err("the constructor assigns a parameter twice");
+                    }
+                    Source::Parameter(index)
+                }
+                value => Source::Constant(Constant::of(value).ok_or(
+                    "the constructor assigns something other than a parameter or literal",
+                )?),
+            };
+            assigned.push(key.clone());
+            match keys.iter_mut().find(|(known, _)| *known == key) {
+                Some(entry) => entry.1 = source,
+                None => keys.push((key, source)),
+            }
+        }
+        Ok(Self {
+            node: class.node_id(),
+            parameters: parameters.len(),
+            keys,
+        })
+    }
+
+    /// The key a parameter is assigned to.
+    fn parameter_key(&self, index: usize) -> Option<&str> {
+        self.keys.iter().find_map(|(key, source)| {
+            matches!(source, Source::Parameter(at) if *at == index).then_some(key.as_str())
+        })
+    }
+}
+
+/// The classes declared in a module, and whether each can be replaced.
+struct Classes<'s> {
+    scoping: &'s Scoping,
+    plans: FxHashMap<SymbolId, Result<ClassPlan, &'static str>>,
+}
+
+impl<'a> Visit<'a> for Classes<'_> {
+    fn visit_class(&mut self, class: &oxc_ast::ast::Class<'a>) {
+        if class.r#type == oxc_ast::ast::ClassType::ClassDeclaration
+            && let Some(id) = &class.id
+        {
+            self.plans
+                .insert(id.symbol_id(), ClassPlan::of(class, self.scoping));
+        }
+        walk::walk_class(self, class);
+    }
+}
+
 /// Finds candidates and checks every use of them.
 struct Find<'s, 'q> {
     query: Query<'q>,
     scoping: &'s Scoping,
     keep: &'s crate::Keep,
     tagged: &'s FxHashSet<u32>,
+    classes: &'s FxHashMap<SymbolId, Result<ClassPlan, &'static str>>,
     candidates: FxHashMap<SymbolId, Candidate>,
     /// Enclosing functions, and whether each is an island.
     functions: Vec<(NodeId, bool)>,
@@ -614,34 +952,87 @@ impl Find<'_, '_> {
             else {
                 continue;
             };
-            let empty = match init {
-                Expression::ObjectExpression(object) => object.properties.is_empty(),
-                Expression::ArrayExpression(array) => array.elements.is_empty(),
+            if self.dead > 0 {
+                // Facts in code that never runs are vacuous.
+                continue;
+            }
+            let (keys, rejected, instance) = match init {
+                Expression::ObjectExpression(object) if object.properties.is_empty() => continue,
+                Expression::ArrayExpression(array) if array.elements.is_empty() => continue,
+                Expression::ObjectExpression(_) | Expression::ArrayExpression(_) => {
+                    match literal_keys(init) {
+                        Ok(keys) => (keys, None, None),
+                        Err(reason) => (Vec::new(), Some(reason.to_string()), None),
+                    }
+                }
+                Expression::NewExpression(new) => {
+                    let Some((class, plan)) = self.class_of(&new.callee) else {
+                        continue;
+                    };
+                    match Self::instance(new, plan) {
+                        Ok((keys, ignored)) => {
+                            (keys, None, Some((class, new.callee.node_id(), ignored)))
+                        }
+                        Err(reason) => (Vec::new(), Some(reason.to_string()), None),
+                    }
+                }
                 _ => continue,
             };
-            if empty {
+            if keys.is_empty() && rejected.is_none() {
                 // Nothing to replace.
                 continue;
             }
-            let rejected = if self.dead > 0 {
-                // Facts in code that never runs are vacuous.
-                continue;
-            } else {
-                literal_keys(init).err().map(str::to_string)
-            };
             self.candidates.insert(
                 id.symbol_id(),
                 Candidate {
                     site: init.node_id(),
                     span: declarator.span,
-                    keys: literal_keys(init).unwrap_or_default(),
+                    keys,
                     objects: Vec::new(),
                     written: false,
                     function: function.map(|(node, _)| node),
                     rejected,
+                    instance,
                 },
             );
         }
+    }
+}
+
+impl<'s> Find<'s, '_> {
+    /// The class a `new` callee names, if it is one declared in this module, and its plan.
+    fn class_of(
+        &self,
+        callee: &Expression<'_>,
+    ) -> Option<(SymbolId, &'s Result<ClassPlan, &'static str>)> {
+        let Expression::Identifier(ident) = callee.without_parentheses() else {
+            return None;
+        };
+        let symbol = self.symbol_of(ident)?;
+        self.classes.get(&symbol).map(|plan| (symbol, plan))
+    }
+
+    /// The keys of `new C(…)`'s instance and the arguments the constructor ignores, if the
+    /// class and the call have the plain form.
+    fn instance(
+        new: &oxc_ast::ast::NewExpression<'_>,
+        plan: &Result<ClassPlan, &'static str>,
+    ) -> Result<(Vec<String>, Vec<NodeId>), &'static str> {
+        let plan = plan.as_ref().map_err(|reason| *reason)?;
+        let mut ignored = Vec::new();
+        for (index, argument) in new.arguments.iter().enumerate() {
+            let argument = argument.as_expression().ok_or("an argument is spread")?;
+            if index >= plan.parameters || plan.parameter_key(index).is_none() {
+                ignored.push(argument.node_id());
+            } else if is_anonymous(argument) {
+                // `this.f = f` keeps it unnamed; a local would name it.
+                return Err("an argument is an anonymous function or class");
+            }
+        }
+        Ok((
+            plan.keys.iter().map(|(key, _)| key.clone()).collect(),
+            ignored,
+        ))
     }
 }
 
@@ -649,6 +1040,7 @@ impl Find<'_, '_> {
 struct Rewrite<'s, 'a> {
     scoping: &'s Scoping,
     accepted: &'s FxHashMap<SymbolId, Replacement>,
+    classes: &'s FxHashMap<SymbolId, Result<ClassPlan, &'static str>>,
     ast: AstBuilder<'a>,
 }
 
@@ -664,6 +1056,38 @@ impl<'a> Rewrite<'_, 'a> {
             .and_then(|reference| self.scoping.get_reference(reference).symbol_id())?;
         let replacement = self.accepted.get(&symbol)?;
         replacement.names.get(&key?).map(String::as_str)
+    }
+
+    /// The values `new C(…)`'s instance keys get: the arguments the constructor assigns, in
+    /// argument order (the ones it ignores are pure and dropped), then the rest.
+    fn instance_values(
+        &self,
+        plan: &ClassPlan,
+        new: &mut oxc_ast::ast::NewExpression<'a>,
+        span: Span,
+    ) -> Vec<(String, Expression<'a>)> {
+        let mut values = Vec::new();
+        let given = new.arguments.len();
+        for (index, argument) in new.arguments.iter_mut().enumerate() {
+            if index < plan.parameters
+                && let Some(key) = plan.parameter_key(index)
+                && let Some(argument) = argument.as_expression_mut()
+            {
+                values.push((key.to_string(), argument.take_in(&self.ast)));
+            }
+        }
+        for (key, source) in &plan.keys {
+            match source {
+                Source::Parameter(index) if *index < given => {}
+                Source::Parameter(_) => {
+                    values.push((key.clone(), Constant::Undefined.expression(span, &self.ast)));
+                }
+                Source::Constant(constant) => {
+                    values.push((key.clone(), constant.expression(span, &self.ast)));
+                }
+            }
+        }
+        values
     }
 
     fn identifier(&self, span: Span, name: &str) -> IdentifierReference<'a> {
@@ -723,6 +1147,13 @@ impl<'a> VisitMut<'a> for Rewrite<'_, 'a> {
                             .map(|value| (index.to_string(), value.take_in(&self.ast)))
                     })
                     .collect(),
+                Expression::NewExpression(new) => {
+                    let plan = replacement
+                        .class
+                        .and_then(|class| self.classes[&class].as_ref().ok());
+                    plan.map(|plan| self.instance_values(plan, new, declarator.span))
+                        .unwrap_or_default()
+                }
                 _ => Vec::new(),
             };
             for (key, value) in values {
