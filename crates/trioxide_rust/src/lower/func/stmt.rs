@@ -1058,14 +1058,49 @@ impl<'a> FnCx<'_, '_, 'a> {
                         undef: !known || (elem == Elem::Number && !fresh),
                     },
                 );
-                match (right, increment) {
-                    (Some(right), _) => self.binary_values(op, current, right, None, span),
-                    (None, Some(one)) => self.arith(op, current, one, None, span),
-                    _ => None,
+                let delta = match (op, right, increment) {
+                    (BinaryOperator::Addition | BinaryOperator::Subtraction, Some(right), _) => {
+                        self.expr(right)
+                    }
+                    (_, Some(right), _) => {
+                        let value = self.binary_values(op, current, right, None, span);
+                        return self
+                            .element_store(value, elem, array_expr, index, prelude, span, out);
+                    }
+                    (_, None, increment) => increment,
+                };
+                let Some(delta) = delta else { return };
+                if let Elem::Typed(_) = elem
+                    && let Some(delta) = int32_delta(op, &delta)
+                {
+                    // JS reads the element before evaluating `delta`, which can't change it.
+                    out.extend(prelude);
+                    out.push(Stmt::ArrayAdd {
+                        array: array_expr,
+                        index,
+                        delta,
+                    });
+                    return;
                 }
+                self.arith(op, current, delta, None, span)
             }
             _ => None,
         };
+        self.element_store(value, elem, array_expr, index, prelude, span, out);
+    }
+
+    /// The store of `a[i] = value` (or `op=`), once the array, index and value are lowered.
+    #[expect(clippy::too_many_arguments, reason = "the parts of one lowered store")]
+    fn element_store(
+        &mut self,
+        value: Option<V>,
+        elem: Elem,
+        array_expr: Expr,
+        index: Index,
+        mut prelude: Vec<Stmt>,
+        span: Span,
+        out: &mut Vec<Stmt>,
+    ) {
         let Some(value) = value else { return };
         match (&value.kind, elem) {
             (Kind::Num { undef: false }, _) | (Kind::Num { undef: true }, Elem::Typed(_)) => {}
@@ -1111,6 +1146,31 @@ impl<'a> FnCx<'_, '_, 'a> {
             index,
             value,
         });
+    }
+}
+
+/// The `i32` that `a[i] op= delta` adds, when it is an int32 that evaluates without effects:
+/// any one for `+=` (and `++`), a constant other than `i32::MIN` (negated) for `-=`.
+fn int32_delta(op: BinaryOperator, delta: &V) -> Option<Expr> {
+    let int = match (&delta.ty, &delta.expr) {
+        (Ty::I32, _) => delta.expr.clone(),
+        (_, Expr::Lit(Lit::F64(x)))
+            if x.fract() == 0.0 && (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(x) =>
+        {
+            #[expect(clippy::cast_possible_truncation, reason = "an int32, checked above")]
+            Expr::Lit(Lit::I32(*x as i32))
+        }
+        _ => return None,
+    };
+    if int.has_effects() {
+        return None;
+    }
+    match (op, int) {
+        (BinaryOperator::Addition, int) => Some(int),
+        (BinaryOperator::Subtraction, Expr::Lit(Lit::I32(n))) if n != i32::MIN => {
+            Some(Expr::Lit(Lit::I32(-n)))
+        }
+        _ => None,
     }
 }
 

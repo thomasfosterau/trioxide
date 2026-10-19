@@ -97,6 +97,10 @@ pub struct CostEstimate {
     pub work: f64,
     /// Estimated bytes copied in and out per run.
     pub bytes: f64,
+    /// Whether the island's functions call themselves (or each other) recursively: a
+    /// recursive call counts as a loop of the cost model's default trip count.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub recursive: bool,
 }
 
 /// A cost-model number for humans: whole units, or scientific notation from 10¹² on (a

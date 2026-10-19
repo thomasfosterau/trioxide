@@ -52,6 +52,8 @@ export interface CostEstimate {
   work: number;
   /** Estimated bytes copied in and out. */
   bytes: number;
+  /** Present (true) when the island recurses: a recursive call counts as a loop of `trips` iterations. */
+  recursive?: boolean;
 }
 
 /** One pass decision at one site. */

@@ -48,7 +48,8 @@ function rewrites() {
 		if (!(i in a)) continue;
 		const x = a[i];
 		if (i + 1 < a.length) a[i + 1] = a[i + 1] * 100;
-		result[i] = x;
+		const v = x;
+		result[i] = v;
 	}
 	return result;
 }

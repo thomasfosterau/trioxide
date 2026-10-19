@@ -233,6 +233,16 @@ pub enum Stmt {
         /// The value, a number.
         value: Expr,
     },
+    /// `a[i] += delta` on a typed array, for an int32 `delta`, in the element type's own
+    /// arithmetic (`array::add`: the same element JavaScript's `f64` sum and store give).
+    ArrayAdd {
+        /// The array.
+        array: Expr,
+        /// The index.
+        index: Index,
+        /// The `i32` to add.
+        delta: Expr,
+    },
     /// `s.f = v` on a mutable struct reference.
     FieldSet {
         /// The struct.
@@ -507,6 +517,13 @@ pub enum Expr {
         /// The index.
         index: Box<Index>,
     },
+    /// `ToInt32` of an element read, as `i32`: 0 out of bounds (`undefined`) and for holes.
+    GetInt32 {
+        /// The array.
+        array: Box<Expr>,
+        /// The index.
+        index: Box<Index>,
+    },
     /// A new zero-filled array.
     NewArray {
         /// Its elements.
@@ -542,7 +559,9 @@ impl Expr {
             Expr::Binary(_, a, b) | Expr::NumberLogic { lhs: a, rhs: b, .. } => {
                 a.any(pred) || b.any(pred)
             }
-            Expr::Get { array, index } => array.any(pred) || index.value.any(pred),
+            Expr::Get { array, index } | Expr::GetInt32 { array, index } => {
+                array.any(pred) || index.value.any(pred)
+            }
             Expr::Math(_, args) | Expr::Call(_, args) => args.iter().any(|e| e.any(pred)),
             Expr::MethodCall(_, receiver, args) => {
                 receiver.any(pred) || args.iter().any(|e| e.any(pred))

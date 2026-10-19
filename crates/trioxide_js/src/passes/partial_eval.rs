@@ -25,6 +25,10 @@
 //! would become two), with no hole, accessor or `__proto__` key; it is made fresh at the same
 //! point, so nothing could have seen its identity before.
 //!
+//! **The function goes** when no reference to it is left but in its own body: a top-level,
+//! unexported function declaration that isn't an island and that no code trioxide doesn't
+//! see can call (`callers_complete`), as inlining does.
+//!
 //! [`Facts::symbol_constant`]: trioxide_analysis::Facts::symbol_constant
 
 use std::{fmt::Write as _, rc::Rc};
@@ -44,13 +48,13 @@ use oxc_syntax::{number::ToJsString, scope::ScopeFlags, symbol::SymbolId};
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::{FxHashMap, FxHashSet};
 use trioxide_analysis::Constant;
-use trioxide_common::{NodeId, SymbolRef};
+use trioxide_common::{NodeId, NodeRef, SymbolRef};
 
 use super::{
     Decisions, Position,
-    speed::is_island,
+    speed::{is_island, rescope},
     track_position,
-    util::{Query, Slot, constant_expr, has_dynamic_scope, weak},
+    util::{Query, Slot, constant_expr, has_dynamic_scope, live_references, weak},
 };
 use crate::{Pass, PassContext};
 
@@ -109,6 +113,7 @@ impl Pass for PartialEval {
                 functions,
                 islands,
                 results: FxHashMap::default(),
+                callees: FxHashMap::default(),
                 skipped: Vec::new(),
                 depth: 0,
                 dead: 0,
@@ -117,8 +122,9 @@ impl Pass for PartialEval {
             for (span, reason) in find.skipped {
                 decisions.skipped(span, reason);
             }
-            find.results
+            (find.results, find.callees)
         };
+        let (results, callees) = results;
         if results.is_empty() {
             return decisions.flush(ctx.log);
         }
@@ -127,10 +133,80 @@ impl Pass for PartialEval {
             position: Position::default(),
             decisions,
             results,
+            callees,
+            replaced: FxHashSet::default(),
         };
         ctx.traverse(&mut replace, program, ());
-        replace.decisions.flush(ctx.log)
+        let Replace {
+            mut decisions,
+            replaced,
+            ..
+        } = replace;
+        if remove_unreferenced(program, ctx, &replaced, &mut decisions) {
+            *ctx.scoping_mut() = rescope(program);
+        }
+        decisions.flush(ctx.log)
     }
+}
+
+/// Removes the module's top-level function declarations among `functions` (whose calls the
+/// pass replaced) that nothing references any more but their own bodies. Returns whether it
+/// removed any.
+fn remove_unreferenced<'a>(
+    program: &mut Program<'a>,
+    ctx: &PassContext<'a, '_>,
+    functions: &FxHashSet<SymbolId>,
+    decisions: &mut Decisions,
+) -> bool {
+    if functions.is_empty() {
+        return false;
+    }
+    let references = live_references(program, ctx.scoping());
+    let mut keep = Vec::with_capacity(program.body.len());
+    for statement in &program.body {
+        let Statement::FunctionDeclaration(function) = statement else {
+            keep.push(true);
+            continue;
+        };
+        let Some(id) = function
+            .id
+            .as_ref()
+            .filter(|id| functions.contains(&id.symbol_id()))
+        else {
+            keep.push(true);
+            continue;
+        };
+        let elsewhere = references.get(&id.symbol_id()).is_some_and(|spans| {
+            spans
+                .iter()
+                .any(|span| !function.span.contains_inclusive(*span))
+        });
+        let node = NodeRef {
+            module: ctx.module,
+            node: function.node_id(),
+        };
+        let unit = ctx.facts.callers_complete(node);
+        let gone = !elsewhere
+            && !is_island(ctx.keep, Some(node), false)
+            && unit.value
+            && ctx.facts.is_usable(unit.trust);
+        if gone {
+            decisions.applied_with(function.span, "removed: its calls were evaluated");
+        } else if !elsewhere {
+            decisions.skipped(
+                function.span,
+                "its calls were evaluated, but code trioxide doesn't see may call it",
+            );
+        }
+        keep.push(!gone);
+    }
+    if keep.iter().all(|kept| *kept) {
+        return false;
+    }
+    let mut comments = super::Comments::default();
+    comments.remove(&mut program.body, &keep);
+    comments.apply(program);
+    true
 }
 
 /// A literal a call evaluated to, ready to print.
@@ -151,6 +227,8 @@ struct Find<'s, 'q, 'p, 'a> {
     functions: FxHashMap<SymbolId, &'p Function<'a>>,
     islands: FxHashSet<SymbolId>,
     results: FxHashMap<NodeId, Literal>,
+    /// The function each evaluated call calls.
+    callees: FxHashMap<NodeId, SymbolId>,
     skipped: Vec<(Span, String)>,
     /// Functions, classes and arrows entered.
     depth: usize,
@@ -193,6 +271,11 @@ impl<'a> Visit<'a> for Find<'_, '_, '_, 'a> {
             match self.evaluate(call) {
                 Ok(literal) => {
                     self.results.insert(call.node_id(), literal);
+                    if let Expression::Identifier(callee) = &call.callee
+                        && let Some(symbol) = self.resolve(callee)
+                    {
+                        self.callees.insert(call.node_id(), symbol);
+                    }
                     return;
                 }
                 Err(Some(reason)) => self.skipped.push((call.span, reason)),
@@ -1658,6 +1741,9 @@ struct Replace<'f> {
     position: Position,
     decisions: Decisions,
     results: FxHashMap<NodeId, Literal>,
+    callees: FxHashMap<NodeId, SymbolId>,
+    /// The functions some of whose calls were replaced.
+    replaced: FxHashSet<SymbolId>,
 }
 
 impl<'a> Traverse<'a, ()> for Replace<'_> {
@@ -1667,7 +1753,8 @@ impl<'a> Traverse<'a, ()> for Replace<'_> {
         let Expression::CallExpression(call) = expression else {
             return;
         };
-        let Some(literal) = self.results.remove(&call.node_id()) else {
+        let node = call.node_id();
+        let Some(literal) = self.results.remove(&node) else {
             return;
         };
         let span = call.span;
@@ -1678,6 +1765,9 @@ impl<'a> Traverse<'a, ()> for Replace<'_> {
         }
         *expression = slot.wrap(replacement, ctx);
         self.decisions.applied(span);
+        if let Some(&callee) = self.callees.get(&node) {
+            self.replaced.insert(callee);
+        }
     }
 }
 

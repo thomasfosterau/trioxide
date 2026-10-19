@@ -231,7 +231,10 @@ back to TS where it knows nothing:
 - *Effects* are computed twice, once counting only `Proven` facts and once counting
   `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
-  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged.
+  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged. A
+  comparison narrows its locals (`x + k < n` narrows an integer `x` too, for integer `k` and
+  `n` within ±2^52, where the rounded sum compares as the exact one does), and one that leaves
+  a proven value no number narrows it to `never`, so the branch is unreachable there.
 
 Beyond types, the `Facts` API answers per call site (callees and whether that is all that
 can run there), per expression (effects including callees and implicit calls, `is_pure`,
@@ -454,7 +457,9 @@ read `length` once themselves where the loop facts allow).
 
 **Speed passes** (S5b; each module's doc comment has the full preconditions):
 - *Pipelines (6)*: a chain of `map`/`filter` ending in `map`, `filter`, `forEach`, `reduce`,
-  `some`, `every`, `find`, `findIndex` or `includes` (one call too) that initialises a binding,
+  `some`, `every`, `find`, `findIndex` or `includes` (one call too, but not a lone `map`: with
+  nothing to fuse, V8's builtin, which allocates its result at full length, beats a loop
+  pushing into `[]`, 0.65× in `benchmarks/passes/`) that initialises a binding,
   is returned, or (`forEach`) is a statement becomes one indexed loop with the callbacks
   written in. The receiver must be a plain array with intact builtins, and each call's site
   complete with only its callback as callee; callbacks are arrows or function expressions
@@ -536,7 +541,8 @@ parameters every caller passes the same literal, whether or not inlining is on.
   `Number` and `String`) and replaced with a literal of at most 128 values when the call has
   no unknown calls (`expr_effects`, so builtins are the real ones) and the result is a tree
   of fresh objects with no holes. Anything it doesn't model, a throw or running out of fuel
-  leaves the call.
+  leaves the call. A function no reference to which is left but in its own body then goes, as
+  with inlining (top level, not exported, not an island, `callers_complete` usable-true).
 - *Closure hoisting (12)*: a closure that captures nothing (only module-level and global
   names; no contextual `this`, `arguments`, `super` or `new.target`; no private names, which
   only parse inside their class) with `escapes = None`, that is either a `const` only ever
@@ -622,8 +628,11 @@ backend still generates in `f64` (`benchmarks/README.md`):
   a multiple per byte, as it is converted element by element), plus a fixed instantiation
   cost per island (per module of its exports). Crossings count only the calls the facade
   redirects: direct calls of an exported, never-reassigned binding from its own module or a
-  module importing it directly, weighted by the trip counts of the loops around the call
-  (only the caller's own loops: a caller itself called from a hot loop counts once). The host
+  module importing it directly, weighted by the trip counts of the loops around the call and
+  by how often the caller itself runs: frequencies propagate over the call graph's strongly
+  connected components, callers first, a cycle's members running as often as calls from
+  outside it reach it, and a unit unknown code may call (module code, the host's entries)
+  running at least once (recursion inside a cycle is the work estimate's, as a loop). The host
   calling an entry module's export, callbacks, namespace imports and re-exports run the JS
   version, so they don't count, and a function only they call is never an export.
 - an island is kept if `benefit − cost > threshold` (`threshold`, 0 in `auto`;
@@ -681,8 +690,11 @@ program (analysis, partitioning and the JS passes, no island builds: `Project::p
 note that its exports' arguments are then unknown), and
 prints, per function, the decision (JS, WASM, forced or forbidden), why, every failed
 eligibility rule with its position, the cost-model numbers (benefit, each cost term,
-threshold, and the calls, operations and bytes behind them) and the JS passes that fired or
-skipped inside it. `--json` prints the `Report`; the npm package's `explain()` returns the
+threshold, and the calls, operations and bytes behind them, flagging an island that recurses,
+whose recursive calls count as loops of the default trip count) and the JS passes that fired or
+skipped inside it. In `js-only` mode the candidates are still scored, so the verdicts say what
+the cost model would choose, but no island is created on its own. `--entry` paths are relative
+to the project root, as `build`'s entries are. `--json` prints the `Report`; the npm package's `explain()` returns the
 same. This is how users come to trust the partitioner.
 
 ---
@@ -753,7 +765,11 @@ failed, a failing callee's result) are dropped, so diagnostics name the cause.
   returned value's) range fact proves int32/uint32 without `-0`; values computed in `f64` are
   then converted exactly. An operation runs on `i32`/`u32` only when both operands do and the
   node's range fact proves the result in range; `+`/`-` on int32s feeding ToInt32 wrap, as JS
-  does. Everything else is `f64`.
+  does. Everything else is `f64`. `ToInt32` (bitwise operators, `Math.imul`) of a constant is
+  folded, and of an element read takes the element's int32 directly (0 out of bounds);
+  `a[i]++`, `a[i]--` and `a[i] += k` (an int32 `k` without effects, or `-=` a constant) on a
+  typed array run in the element type's own wrapping arithmetic, which gives what JavaScript's
+  `f64` sum and store give.
 - *Arrays.* Locals holding arrays are either created in the call (`&'static mut [E]`) or
   read-only (`&[E]`); writes through a variable that may hold a parameter, copies between array
   variables, returning a parameter and passing one array twice to a callee that writes to it
@@ -882,7 +898,10 @@ the plugin options, decide app/library: `library` only for `build.lib`), `buildS
 (create the Project and run whole-program analysis from Rollup inputs, taking the module
 scripts of HTML inputs as entries), `resolveId`/`load` for `\0trioxide:island/<id>` glue
 modules, `transform` (serve `ModuleOutput`, `moduleType: 'js'`), `generateBundle` (emit
-`.wasm` assets with hashed names and point the glue at them), `hotUpdate` (Vite 6+'s
+`.wasm` assets with hashed names and point the glue at them; the glue's `new URL` carries
+`/* @vite-ignore */`, so Vite doesn't look for the placeholder as a file), `writeBundle` (write
+the `.wasm` files an SSR build dropped, since it drops assets unless `build.ssrEmitAssets` is
+on), `hotUpdate` (Vite 6+'s
 replacement for `handleHotUpdate`: `Project::update`, then invalidate the dependants whose
 output actually changed, so ordinary edits keep Vite's normal HMR propagation). In dev, WASM
 is off unless `dev.wasm: true`; dev glue gets its `.wasm` inlined as a `data:` URL, which

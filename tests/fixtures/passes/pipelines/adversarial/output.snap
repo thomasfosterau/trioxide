@@ -93,7 +93,8 @@ function tdz() {
 		const result = new Array(items.length);
 		for (let i = 0, length = items.length; i < length; i++) {
 			if (!(i in items)) continue;
-			result[i] = t.length;
+			const v = t.length;
+			result[i] = v;
 		}
 		const t = result;
 		return String(t);

@@ -4,6 +4,7 @@ description: tests/fixtures/passes/licm/basics
 input_file: tests/fixtures/passes/licm/basics/input.ts
 ---
 //- input.ts
+const map_callback = (n) => `#${n}`;
 // Positive cases: invariant work moves out of loops, under readable names.
 function build(n) {
 	const values = [];
@@ -21,13 +22,7 @@ function scale(factor) {
 	return out.join();
 }
 function countdown() {
-	const items = build(3);
-	const result = [];
-	for (let j = 0, length = items.length; j < length; j++) {
-		const n = items[j];
-		result.push(`#${n}`);
-	}
-	const labels = result;
+	const labels = build(3).map(map_callback);
 	let i = labels.length;
 	let out = "";
 	// A `while` test: hoisted right before the loop.

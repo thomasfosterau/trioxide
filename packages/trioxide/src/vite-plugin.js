@@ -1,7 +1,7 @@
 // The implementation of `trioxide/vite` (see vite.d.ts for the options). `createPlugin` takes
 // the Project constructor as a parameter so tests can wrap it, e.g. to inject a fake island.
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { WASM_URL_PLACEHOLDER, findConfig, loadConfig } from './index.js';
@@ -38,6 +38,8 @@ export function createPlugin(pluginOptions = {}, { createProject }) {
   const islands = new Map();
   /** Code last served per canonical path (dev only), to see which dependants changed. */
   const served = new Map();
+  /** The `.wasm` files generateBundle emitted, by output file name. */
+  const wasmFiles = new Map();
 
   function getProject() {
     project ??= createProject(config.root, options);
@@ -113,9 +115,16 @@ export function createPlugin(pluginOptions = {}, { createProject }) {
       const islandId = id.slice(ISLAND_PREFIX.length);
       const island = islands.get(islandId);
       if (!island) this.error(`trioxide: unknown island "${islandId}"`);
-      // Dev inlines the module: Vite leaves `new URL("data:…", import.meta.url)` alone.
-      const url = isBuild ? wasmToken(islandId) : `data:application/wasm;base64,${Buffer.from(island.wasm).toString('base64')}`;
-      return { code: island.glue.replaceAll(WASM_URL_PLACEHOLDER, url), moduleType: 'js' };
+      // Dev inlines the module: Vite leaves `new URL("data:…", import.meta.url)` alone. A build
+      // points it at the `.wasm` generateBundle emits; the comment tells Vite not to look for
+      // the token as a file (it warns otherwise).
+      if (!isBuild) {
+        const url = `data:application/wasm;base64,${Buffer.from(island.wasm).toString('base64')}`;
+        return { code: island.glue.replaceAll(WASM_URL_PLACEHOLDER, url), moduleType: 'js' };
+      }
+      const quoted = JSON.stringify(WASM_URL_PLACEHOLDER);
+      const code = island.glue.replaceAll(quoted, `/* @vite-ignore */ ${JSON.stringify(wasmToken(islandId))}`);
+      return { code, moduleType: 'js' };
     },
 
     transform(code, id) {
@@ -168,6 +177,7 @@ export function createPlugin(pluginOptions = {}, { createProject }) {
 
     generateBundle(_outputOptions, bundle) {
       const files = new Map();
+      wasmFiles.clear();
       for (const [id, island] of islands) {
         const token = wasmToken(id);
         const chunks = Object.values(bundle).filter((chunk) => chunk.type === 'chunk' && chunk.code.includes(token));
@@ -176,12 +186,25 @@ export function createPlugin(pluginOptions = {}, { createProject }) {
           const name = `${id.replace(/[^\w.-]+/g, '_')}.wasm`;
           const ref = this.emitFile({ type: 'asset', name, source: island.wasm });
           files.set(id, this.getFileName(ref));
+          wasmFiles.set(this.getFileName(ref), island.wasm);
         }
         for (const chunk of chunks) {
           let relative = path.posix.relative(path.posix.dirname(chunk.fileName), files.get(id));
           if (!relative.startsWith('.')) relative = `./${relative}`;
           chunk.code = chunk.code.replaceAll(token, relative);
         }
+      }
+    },
+
+    writeBundle(outputOptions, bundle) {
+      // An SSR build drops emitted assets unless `build.ssrEmitAssets` is on, which would leave
+      // the glue pointing at a missing `.wasm` (and the island on its JS fallback): write it.
+      if (!outputOptions.dir) return;
+      for (const [fileName, wasm] of wasmFiles) {
+        if (fileName in bundle) continue;
+        const file = path.join(outputOptions.dir, fileName);
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, wasm);
       }
     },
 

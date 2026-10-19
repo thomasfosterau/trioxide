@@ -40,7 +40,7 @@ function product(): number {
 function indexed(): string[] {
   const letters = ["a", "b", "c"];
   // The index and array parameters of the first callback.
-  return letters.map((letter, index, all) => `${letter}${index}/${all.length}`);
+  return letters.map((letter, index, all) => `${letter}${index}/${all.length}`).map((s) => s);
 }
 
 function blockBodies(): number[] {

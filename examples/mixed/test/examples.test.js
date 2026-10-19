@@ -121,9 +121,8 @@ for (const [name, options, expectedIslands] of [
     expect(islands).toEqual(expectedIslands);
     const config = { root, configFile: false, logLevel: 'error', plugins: [trioxide(options), exposeIslands] };
     const outDir = path.join(work, `${name}-dist`);
-    // An SSR build doesn't emit assets by default, so the plugin's `.wasm` would be missing and
-    // the islands would stay on their JS fallback (reported to S3); emit them to test the WASM.
-    await build({ ...config, build: { ssr: 'src/main.ts', outDir, emptyOutDir: true, ssrEmitAssets: true } });
+    // An SSR build doesn't emit assets by default; the plugin writes its `.wasm` anyway.
+    await build({ ...config, build: { ssr: 'src/main.ts', outDir, emptyOutDir: true } });
     const assets = path.join(outDir, 'assets');
     const glues = existsSync(assets) ? readdirSync(assets).filter((file) => /^island-.*\.js$/.test(file)).sort() : [];
     expect(glues.map((glue) => glue.replace(/^island-|-[\w-]+\.js$/g, ''))).toEqual(islands);

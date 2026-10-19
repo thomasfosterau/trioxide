@@ -1,0 +1,55 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/int-ranges
+input_file: tests/fixtures/analysis/int-ranges/input.ts
+---
+//- input.ts
+const map_callback = (v) => Object.is(v, -0) ? "-0" : String(v);
+// Integer ranges for index arithmetic: a comparison that leaves no value makes its branch
+// unreachable, products of integers that can't be -0 say so, and `i + k < n` bounds `i`.
+function blur(src, width, height) {
+	let sum = 0;
+	for (let y = 0; y < height; y++) {
+		for (let dy = -1; dy <= 1; dy++) {
+			const ny = y + dy;
+			if (ny >= 0 && ny < height) sum += src[(ny * width + 1) * 4];
+		}
+	}
+	return sum;
+}
+function strided(xs) {
+	let sum = 0;
+	for (let i = 0, xsLength = xs.length; i + 3 < xsLength; i += 4) sum += xs[i] + xs[i + 3];
+	for (let i = 1, xsLength = xs.length; i - 1 < xsLength; i += 2) sum += xs[i - 1];
+	for (let i = 0, xsLength = xs.length; 2 + i <= xsLength; i += 3) sum += i;
+	for (let i = 5, xsLength = xs.length; xsLength > i + 2; i += 5) sum += i;
+	return sum;
+}
+function signs(a, b, z) {
+	const out = [];
+	for (let i = -3; i <= 3; i++) {
+		out.push(i * 4, i * -2, (i + 3) * 2, i * i);
+	}
+	out.push(z * 3, a * b, -0, -0);
+	return out;
+}
+function edges(n, big, half) {
+	let parts = "";
+	if (-0 < 0) parts += "unreachable";
+	if (big + 3 < 10) parts += "big-small ";
+	if (!(big + 3 < 10)) parts += "big-large ";
+	if (n - 5 >= 0) parts += "n-ge ";
+	else parts += "n-lt ";
+	if (half + 1 < 2) parts += "half ";
+	if (NaN < n) parts += "nan ";
+	if (!(n + 1 < NaN)) parts += "not-nan ";
+	return parts;
+}
+export function main() {
+	const src = new Uint8Array(192);
+	for (let i = 0; i < 192; i++) src[i] = i % 7;
+	console.log(blur(src, 8, 6));
+	console.log(strided(src), strided(new Uint8Array(2)), strided(new Uint8Array(0)));
+	console.log(signs(-1, 0, -0).map(map_callback).join());
+	console.log(edges(3, 2 ** 60, .5), edges(7, -(2 ** 60), 1.5));
+}
