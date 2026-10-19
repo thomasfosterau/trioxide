@@ -206,7 +206,13 @@ back to TS where it knows nothing:
   reaching a prototype without naming it (`__proto__`, `getPrototypeOf`, `.constructor`,
   `X.prototype` of anything but a program class, `Reflect`, `Function`, `eval`) turns all of
   them off. Without integrity, method models, `Object.prototype` lookups, holes and iteration
-  are `Unknown`. A key computed at run time that happens to be `"__proto__"` is not detected.
+  are `Unknown`. Replacing a prototype (S10): a `__proto__` write to an object the analysis
+  follows poisons it, as `Object.setPrototypeOf` does, and an instance whose site is poisoned
+  is typed as just an object; when the program names `__proto__`, `setPrototypeOf`,
+  `Reflect`, `Function` or `eval` anywhere, so do instances that reach unknown code. A
+  `this.__proto__ = …` in a constructor or a `__proto__` field ends the class's definite
+  fields. A key computed at run time that happens to be `"__proto__"` is not detected
+  unless the program also names it.
 - *Temporal dead zones.* Reading a `let`/`const`/`class` binding before its declaration
   runs throws: in its own unit when the read comes first in the text (or in a `switch`), in
   another unit when the declaring unit may call out before the declaration, and across an

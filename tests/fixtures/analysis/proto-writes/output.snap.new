@@ -1,0 +1,54 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
+description: tests/fixtures/analysis/proto-writes
+input_file: tests/fixtures/analysis/proto-writes/input.ts
+---
+//- input.ts
+// Writing `__proto__` changes an object's prototype: an instance stops being one of its
+// class, and its "fields" don't include `__proto__` (no own property is made).
+const proto = {
+	inherited: 9,
+	kind: "proto"
+};
+class InConstructor {
+	constructor(p) {
+		this.__proto__ = p;
+	}
+}
+class Later {
+	v = 1;
+}
+class ViaSet {
+	v = 1;
+}
+class ViaComputed {
+	v = 1;
+}
+class Kept {
+	v = 1;
+}
+function computedKey() {
+	return "__proto__";
+}
+export function main() {
+	const a = new InConstructor(proto);
+	const b = new Later();
+	b.__proto__ = proto;
+	const c = new ViaSet();
+	Object.setPrototypeOf(c, proto);
+	const d = new ViaComputed();
+	d["__proto__"] = proto;
+	const e = new ViaComputed();
+	e[computedKey()] = proto;
+	// Never given away nor reprototyped: still a `Kept`.
+	const kept = new Kept();
+	const literal = { v: 1 };
+	literal.__proto__ = proto;
+	console.log(a instanceof InConstructor, a.inherited, Object.keys(a));
+	console.log(b instanceof Later, b.v, b.kind, Object.keys(b));
+	console.log(c instanceof ViaSet, c.v, c.kind);
+	console.log(d instanceof ViaComputed, d.v, d.kind);
+	console.log(e instanceof ViaComputed, e.v, e.kind);
+	console.log(literal.kind, Object.keys(literal), 1);
+}

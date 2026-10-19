@@ -322,6 +322,22 @@ fn refine(ty: &Type, pts: &Pts, state: &State, depth: usize) -> Type {
         Type::Object(shape) if shape.properties.is_empty() && !shape.exact => {
             object_shape(pts, state, depth).unwrap_or_else(|| ty.clone())
         }
+        // An instance whose prototype may have been replaced (a `__proto__` write or
+        // `Object.setPrototypeOf` poisons it; unknown code may do it to what it holds when the
+        // program can) is just an object.
+        Type::Instance(_)
+            if pts.sites().is_some_and(|sites| {
+                sites.iter().any(|site| {
+                    state.heap.get(site).is_some_and(|obj| {
+                        matches!(obj.kind, ObjKind::Instance(_))
+                            && (obj.poisoned
+                                || (state.reprototypes && obj.escape == interp::Escape::Unknown))
+                    })
+                })
+            }) =>
+        {
+            Type::empty_object()
+        }
         Type::Array(element) if **element == Type::Unknown => array_element(pts, state, depth)
             .map_or_else(
                 || ty.clone(),

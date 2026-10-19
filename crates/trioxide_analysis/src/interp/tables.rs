@@ -682,6 +682,7 @@ pub fn install_all(mut owns: Vec<State>, global: &mut State) {
         defaults,
         open_instances,
         may_be_uninit,
+        reprototypes: _,
     } = global;
     std::thread::scope(|scope| {
         scope.spawn(|| extend(global_symbols, symbols));
