@@ -4,6 +4,7 @@ description: tests/fixtures/passes/pipelines/mutation
 input_file: tests/fixtures/passes/pipelines/mutation/input.ts
 ---
 //- input.ts
+27:17 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 7:3 pipelines applied
 17:3 pipelines applied
 26:10 pipelines applied
