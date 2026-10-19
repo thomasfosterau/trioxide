@@ -42,9 +42,10 @@ input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 102:13 partial-eval applied
 103:14 partial-eval applied
 111:13 partial-eval applied
+41:1 partial-eval applied
+44:1 partial-eval applied
+66:1 partial-eval applied
+75:1 partial-eval applied
 116:23 closure-hoist applied
 117:23 closure-hoist applied
 119:23 closure-hoist applied
-76:72 simplify applied
-76:80 simplify applied
-76:88 simplify applied

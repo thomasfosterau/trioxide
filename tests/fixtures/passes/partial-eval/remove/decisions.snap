@@ -1,0 +1,17 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/partial-eval/remove
+input_file: tests/fixtures/passes/partial-eval/remove/input.ts
+---
+//- input.ts
+7:23 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
+7:23 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
+30:12 partial-eval skipped: the call may run code trioxide doesn't see
+11:17 partial-eval applied
+17:12 partial-eval applied
+18:12 partial-eval applied
+24:12 partial-eval applied
+36:12 partial-eval applied
+43:12 partial-eval applied
+5:1 partial-eval applied
+13:1 partial-eval applied
