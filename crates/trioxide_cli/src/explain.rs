@@ -101,6 +101,12 @@ fn cost_lines(out: &mut String, cost: &CostEstimate) {
         number(cost.bytes),
         number(cost.instantiation)
     );
+    if cost.recursive {
+        let _ = writeln!(
+            out,
+            "      recursive: each recursive call counts as a loop of `costModel.trips` iterations"
+        );
+    }
 }
 
 /// The pass events inside `span`, grouped by pass.

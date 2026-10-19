@@ -675,8 +675,11 @@ program (analysis, partitioning and the JS passes, no island builds: `Project::p
 note that its exports' arguments are then unknown), and
 prints, per function, the decision (JS, WASM, forced or forbidden), why, every failed
 eligibility rule with its position, the cost-model numbers (benefit, each cost term,
-threshold, and the calls, operations and bytes behind them) and the JS passes that fired or
-skipped inside it. `--json` prints the `Report`; the npm package's `explain()` returns the
+threshold, and the calls, operations and bytes behind them, flagging an island that recurses,
+whose recursive calls count as loops of the default trip count) and the JS passes that fired or
+skipped inside it. In `js-only` mode the candidates are still scored, so the verdicts say what
+the cost model would choose, but no island is created on its own. `--entry` paths are relative
+to the project root, as `build`'s entries are. `--json` prints the `Report`; the npm package's `explain()` returns the
 same. This is how users come to trust the partitioner.
 
 ---
