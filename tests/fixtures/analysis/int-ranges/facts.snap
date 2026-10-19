@@ -1,0 +1,282 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/int-ranges
+input_file: tests/fixtures/analysis/int-ranges/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  blur (4:1): reads writes throws calls-unknown
+  strided (15:1): reads
+  signs (24:1): reads writes allocates throws
+  edges (33:1): pure
+  main (49:8) open: reads writes allocates throws calls-unknown
+    calls 52:15 -> blur
+    calls 53:15 -> strided
+    calls 53:29 -> strided
+    calls 53:57 -> strided
+    calls 54:15 -> <anonymous>
+    calls 54:15 -> signs
+    calls 55:15 -> edges
+    calls 55:39 -> edges
+  <anonymous> (54:36): reads writes allocates throws calls-unknown
+nodes:
+  4:10 bind `blur`: function@proven
+  4:15 bind `src`: Uint8Array@proven
+  4:20 ref `Uint8Array`: unknown
+  4:32 bind `width`: 8@proven
+  4:47 bind `height`: 6@proven
+  5:7 bind `sum`: 0@proven
+  6:12 bind `y`: 0@proven
+  6:19 binary `y < height`: boolean@proven
+  6:19 ref `y`: number[0, inf] int nonNaN nonNegZero@proven
+  6:23 ref `height`: 6@proven
+  6:31 unary `y++`: number[0, 5] int nonNaN nonNegZero@proven
+  6:31 ref `y`: number[0, 6] int nonNaN nonNegZero@proven
+  7:14 bind `dy`: -1@proven
+  7:19 unary `-1`: -1@proven
+  7:23 binary `dy <= 1`: boolean@proven
+  7:23 ref `dy`: number[-1, inf] int nonNaN nonNegZero@proven
+  7:32 unary `dy++`: number[-1, 1] int nonNaN nonNegZero@proven
+  7:32 ref `dy`: number[-1, 2] int nonNaN nonNegZero@proven
+  8:13 bind `ny`: number[-1, 6] int nonNaN nonNegZero@proven
+  8:18 binary `y + dy`: number[-1, 6] int nonNaN nonNegZero@proven
+  8:18 ref `y`: number[0, 5] int nonNaN nonNegZero@proven
+  8:22 ref `dy`: number[-1, 1] int nonNaN nonNegZero@proven
+  9:11 binary `ny >= 0 && ny < height`: boolean@proven
+  9:11 binary `ny >= 0`: boolean@proven
+  9:11 ref `ny`: number[-1, 6] int nonNaN nonNegZero@proven
+  9:22 binary `ny < height`: boolean@proven
+  9:22 ref `ny`: number[0, 6] int nonNaN nonNegZero@proven
+  9:27 ref `height`: 6@proven
+  9:35 assign `sum += src[(ny * width + 1) * 4]`: number nonNegZero@declared
+  9:35 ref `sum`: number nonNegZero@declared
+  9:42 member `src[(ny * width + 1) * 4]`: undefined | number@declared
+  9:42 ref `src`: Uint8Array@proven
+  9:46 binary `(ny * width + 1) * 4`: number[4, 164] int nonNaN nonNegZero@proven
+  9:47 binary `ny * width + 1`: number[1, 41] int nonNaN nonNegZero@proven
+  9:47 binary `ny * width`: number[0, 40] int nonNaN nonNegZero@proven
+  9:47 ref `ny`: number[0, 5] int nonNaN nonNegZero@proven
+  9:52 ref `width`: 8@proven
+  12:10 ref `sum`: number nonNegZero@proven
+  15:10 bind `strided`: function@proven
+  15:18 bind `xs`: Uint8Array@proven
+  15:22 ref `Uint8Array`: unknown
+  16:7 bind `sum`: 0@proven
+  17:12 bind `i`: 0@proven
+  17:19 binary `i + 3 < xs.length`: boolean@proven
+  17:19 binary `i + 3`: number[3, inf] int nonNaN nonNegZero@proven
+  17:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  17:27 member `xs.length`: number[0, 192] int nonNaN nonNegZero@proven
+  17:27 ref `xs`: Uint8Array@proven
+  17:38 assign `i += 4`: number[4, 192] int nonNaN nonNegZero@proven
+  17:38 ref `i`: number[0, 192] int nonNaN nonNegZero@proven
+  17:46 assign `sum += xs[i] + xs[i + 3]`: number nonNegZero@proven
+  17:46 ref `sum`: number nonNegZero@proven
+  17:53 binary `xs[i] + xs[i + 3]`: number@proven
+  17:53 member `xs[i]`: undefined | (number[0, 255] int nonNaN nonNegZero)@proven
+  17:53 ref `xs`: Uint8Array@proven
+  17:56 ref `i`: number[0, 188] int nonNaN nonNegZero@proven
+  17:61 member `xs[i + 3]`: undefined | (number[0, 255] int nonNaN nonNegZero)@proven
+  17:61 ref `xs`: Uint8Array@proven
+  17:64 binary `i + 3`: number[3, 191] int nonNaN nonNegZero@proven
+  17:64 ref `i`: number[0, 188] int nonNaN nonNegZero@proven
+  18:12 bind `i`: 1@proven
+  18:19 binary `i - 1 < xs.length`: boolean@proven
+  18:19 binary `i - 1`: number[0, inf] int nonNaN nonNegZero@proven
+  18:19 ref `i`: number[1, inf] int nonNaN nonNegZero@proven
+  18:27 member `xs.length`: number[0, 192] int nonNaN nonNegZero@proven
+  18:27 ref `xs`: Uint8Array@proven
+  18:38 assign `i += 2`: number[3, 194] int nonNaN nonNegZero@proven
+  18:38 ref `i`: number[1, 194] int nonNaN nonNegZero@proven
+  18:46 assign `sum += xs[i - 1]`: number nonNegZero@proven
+  18:46 ref `sum`: number nonNegZero@proven
+  18:53 member `xs[i - 1]`: undefined | (number[0, 255] int nonNaN nonNegZero)@proven
+  18:53 ref `xs`: Uint8Array@proven
+  18:56 binary `i - 1`: number[0, 191] int nonNaN nonNegZero@proven
+  18:56 ref `i`: number[1, 192] int nonNaN nonNegZero@proven
+  19:12 bind `i`: 0@proven
+  19:19 binary `2 + i <= xs.length`: boolean@proven
+  19:19 binary `2 + i`: number[2, inf] int nonNaN nonNegZero@proven
+  19:23 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  19:28 member `xs.length`: number[0, 192] int nonNaN nonNegZero@proven
+  19:28 ref `xs`: Uint8Array@proven
+  19:39 assign `i += 3`: number[3, 193] int nonNaN nonNegZero@proven
+  19:39 ref `i`: number[0, 193] int nonNaN nonNegZero@proven
+  19:47 assign `sum += i`: number nonNegZero@proven
+  19:47 ref `sum`: number nonNegZero@proven
+  19:54 ref `i`: number[0, 190] int nonNaN nonNegZero@proven
+  20:12 bind `i`: 5@proven
+  20:19 binary `xs.length > i + 2`: boolean@proven
+  20:19 member `xs.length`: number[0, 192] int nonNaN nonNegZero@proven
+  20:19 ref `xs`: Uint8Array@proven
+  20:31 binary `i + 2`: number[7, inf] int nonNaN nonNegZero@proven
+  20:31 ref `i`: number[5, inf] int nonNaN nonNegZero@proven
+  20:38 assign `i += 5`: number[10, 194] int nonNaN nonNegZero@proven
+  20:38 ref `i`: number[5, 194] int nonNaN nonNegZero@proven
+  20:46 assign `sum += i`: number nonNegZero@proven
+  20:46 ref `sum`: number nonNegZero@proven
+  20:53 ref `i`: number[5, 189] int nonNaN nonNegZero@proven
+  21:10 ref `sum`: number nonNegZero@proven
+  24:10 bind `signs`: function@proven
+  24:16 bind `a`: -1@proven
+  24:27 bind `b`: 0@proven
+  24:38 bind `z`: number[-0, -0] int nonNaN@proven
+  25:9 bind `out`: (number[-12, 12] int nonNaN)[]@proven
+  25:25 array `[]`: (number[-12, 12] int nonNaN)[]@proven escape=known stable-shape
+  26:12 bind `i`: -3@proven
+  26:16 unary `-3`: -3@proven
+  26:20 binary `i <= 3`: boolean@proven
+  26:20 ref `i`: number[-3, inf] int nonNaN nonNegZero@proven
+  26:28 unary `i++`: number[-3, 3] int nonNaN nonNegZero@proven
+  26:28 ref `i`: number[-3, 4] int nonNaN nonNegZero@proven
+  27:5 call `out.push(i * 4, i * -2, (i + 3) * 2, ...`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  27:5 member `out.push`: unknown
+  27:5 ref `out`: (number[-12, 12] int nonNaN)[]@proven
+  27:14 binary `i * 4`: number[-12, 12] int nonNaN nonNegZero@proven
+  27:14 ref `i`: number[-3, 3] int nonNaN nonNegZero@proven
+  27:21 binary `i * -2`: number[-6, 6] int nonNaN@proven
+  27:21 ref `i`: number[-3, 3] int nonNaN nonNegZero@proven
+  27:25 unary `-2`: -2@proven
+  27:29 binary `(i + 3) * 2`: number[0, 12] int nonNaN nonNegZero@proven
+  27:30 binary `i + 3`: number[0, 6] int nonNaN nonNegZero@proven
+  27:30 ref `i`: number[-3, 3] int nonNaN nonNegZero@proven
+  27:42 binary `i * i`: number[-9, 9] int nonNaN@proven
+  27:42 ref `i`: number[-3, 3] int nonNaN nonNegZero@proven
+  27:46 ref `i`: number[-3, 3] int nonNaN nonNegZero@proven
+  29:3 call `out.push(z * 3, a * b, -0 * 4, 0 * -4)`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  29:3 member `out.push`: unknown
+  29:3 ref `out`: (number[-12, 12] int nonNaN)[]@proven
+  29:12 binary `z * 3`: number[0, 0] int nonNaN@proven
+  29:12 ref `z`: number[-0, -0] int nonNaN@proven
+  29:19 binary `a * b`: number[0, 0] int nonNaN@proven
+  29:19 ref `a`: -1@proven
+  29:23 ref `b`: 0@proven
+  29:26 binary `-0 * 4`: number[0, 0] int nonNaN@proven
+  29:26 unary `-0`: number[-0, -0] int nonNaN@proven
+  29:34 binary `0 * -4`: number[0, 0] int nonNaN@proven
+  29:38 unary `-4`: -4@proven
+  30:10 ref `out`: (number[-12, 12] int nonNaN)[]@proven
+  33:10 bind `edges`: function@proven
+  33:16 bind `n`: number[3, 7] int nonNaN nonNegZero@proven
+  33:27 bind `big`: number int@proven
+  33:40 bind `half`: number[0.5, 1.5] nonNaN nonNegZero@proven
+  34:7 bind `parts`: string@proven
+  35:9 bind `two`: 2@proven
+  36:7 binary `two > 2`: boolean@proven
+  36:7 ref `two`: 2@proven
+  36:16 assign `parts += "unreachable"`: string@proven
+  36:16 ref `parts`: string@proven
+  37:9 bind `minusZero`: number[-0, -0] int nonNaN@proven
+  37:21 unary `-0`: number[-0, -0] int nonNaN@proven
+  38:7 binary `minusZero < 0`: boolean@proven
+  38:7 ref `minusZero`: number[-0, -0] int nonNaN@proven
+  38:22 assign `parts += "unreachable"`: string@proven
+  38:22 ref `parts`: string@proven
+  39:7 binary `big + 3 < 10`: boolean@proven
+  39:7 binary `big + 3`: number int nonNegZero@proven
+  39:7 ref `big`: number int@proven
+  39:21 assign `parts += "big-small "`: string@proven
+  39:21 ref `parts`: string@proven
+  40:7 unary `!(big + 3 < 10)`: boolean@proven
+  40:9 binary `big + 3 < 10`: boolean@proven
+  40:9 binary `big + 3`: number int nonNegZero@proven
+  40:9 ref `big`: number int@proven
+  40:24 assign `parts += "big-large "`: string@proven
+  40:24 ref `parts`: string@proven
+  41:7 binary `n - 5 >= 0`: boolean@proven
+  41:7 binary `n - 5`: number[-2, 2] int nonNaN nonNegZero@proven
+  41:7 ref `n`: number[3, 7] int nonNaN nonNegZero@proven
+  41:19 assign `parts += "n-ge "`: string@proven
+  41:19 ref `parts`: string@proven
+  42:8 assign `parts += "n-lt "`: string@proven
+  42:8 ref `parts`: string@proven
+  43:7 binary `half + 1 < 2`: boolean@proven
+  43:7 binary `half + 1`: number[1.5, 2.5] nonNaN nonNegZero@proven
+  43:7 ref `half`: number[0.5, 1.5] nonNaN nonNegZero@proven
+  43:21 assign `parts += "half "`: string@proven
+  43:21 ref `parts`: string@proven
+  44:7 binary `NaN + 1 < n`: boolean@proven
+  44:7 binary `NaN + 1`: number nonNegZero@proven
+  44:7 ref `NaN`: number@proven
+  44:17 ref `n`: number[3, 7] int nonNaN nonNegZero@proven
+  44:20 assign `parts += "nan "`: string@proven
+  44:20 ref `parts`: string@proven
+  45:7 unary `!(n + 1 < NaN)`: boolean@proven
+  45:9 binary `n + 1 < NaN`: boolean@proven
+  45:9 binary `n + 1`: number[4, 8] int nonNaN nonNegZero@proven
+  45:9 ref `n`: number[3, 7] int nonNaN nonNegZero@proven
+  45:17 ref `NaN`: number@proven
+  45:23 assign `parts += "not-nan "`: string@proven
+  45:23 ref `parts`: string@proven
+  46:10 ref `parts`: string@proven
+  49:17 bind `main`: function@proven
+  50:9 bind `src`: Uint8Array@proven
+  50:15 new `new Uint8Array(4 * 8 * 6)`: Uint8Array@proven escape=known
+  50:19 ref `Uint8Array`: unknown
+  50:30 binary `4 * 8 * 6`: 192@proven
+  50:30 binary `4 * 8`: 32@proven
+  51:12 bind `i`: 0@proven
+  51:19 binary `i < src.length`: boolean@proven
+  51:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  51:23 member `src.length`: 192@proven
+  51:23 ref `src`: Uint8Array@proven
+  51:35 unary `i++`: number[0, 191] int nonNaN nonNegZero@proven
+  51:35 ref `i`: number[0, 192] int nonNaN nonNegZero@proven
+  51:40 assign `src[i] = i % 7`: number[0, 6] int nonNaN nonNegZero@proven
+  51:40 member `src[i]`: unknown
+  51:40 ref `src`: Uint8Array@proven
+  51:44 ref `i`: number[0, 191] int nonNaN nonNegZero@proven
+  51:49 binary `i % 7`: number[0, 6] int nonNaN nonNegZero@proven
+  51:49 ref `i`: number[0, 191] int nonNaN nonNegZero@proven
+  52:3 call `console.log(blur(src, 8, 6))`: unknown
+  52:3 member `console.log`: unknown
+  52:3 ref `console`: unknown
+  52:15 call `blur(src, 8, 6)`: number nonNegZero@proven
+  52:15 ref `blur`: function@proven
+  52:20 ref `src`: Uint8Array@proven
+  53:3 call `console.log(strided(src), strided(new...`: unknown
+  53:3 member `console.log`: unknown
+  53:3 ref `console`: unknown
+  53:15 call `strided(src)`: number nonNegZero@proven
+  53:15 ref `strided`: function@proven
+  53:23 ref `src`: Uint8Array@proven
+  53:29 call `strided(new Uint8Array(2))`: number nonNegZero@proven
+  53:29 ref `strided`: function@proven
+  53:37 new `new Uint8Array(2)`: Uint8Array@proven escape=known
+  53:41 ref `Uint8Array`: unknown
+  53:57 call `strided(new Uint8Array(0))`: number nonNegZero@proven
+  53:57 ref `strided`: function@proven
+  53:65 new `new Uint8Array(0)`: Uint8Array@proven escape=known
+  53:69 ref `Uint8Array`: unknown
+  54:3 call `console.log(signs(-1, 0, -0).map((v) ...`: unknown
+  54:3 member `console.log`: unknown
+  54:3 ref `console`: unknown
+  54:15 call `signs(-1, 0, -0).map((v) => (Object.i...`: string@proven
+  54:15 member `signs(-1, 0, -0).map((v) => (Object.i...`: unknown
+  54:15 call `signs(-1, 0, -0).map((v) => (Object.i...`: unknown[]@proven escape=none stable-shape
+  54:15 member `signs(-1, 0, -0).map`: unknown
+  54:15 call `signs(-1, 0, -0)`: (number[-12, 12] int nonNaN)[]@proven
+  54:15 ref `signs`: function@proven
+  54:21 unary `-1`: -1@proven
+  54:28 unary `-0`: number[-0, -0] int nonNaN@proven
+  54:37 bind `v`: number[-12, 12] int nonNaN@proven
+  54:44 cond `Object.is(v, -0) ? "-0" : String(v)`: string@declared
+  54:44 call `Object.is(v, -0)`: boolean@proven
+  54:44 member `Object.is`: unknown
+  54:44 ref `Object`: unknown
+  54:54 ref `v`: number[-12, 12] int nonNaN@proven
+  54:57 unary `-0`: number[-0, -0] int nonNaN@proven
+  54:70 call `String(v)`: string@declared
+  54:70 ref `String`: unknown
+  54:77 ref `v`: number[-12, 12] int nonNaN@proven
+  55:3 call `console.log(edges(3, 2 ** 60, 0.5), e...`: unknown
+  55:3 member `console.log`: unknown
+  55:3 ref `console`: unknown
+  55:15 call `edges(3, 2 ** 60, 0.5)`: string@proven
+  55:15 ref `edges`: function@proven
+  55:24 binary `2 ** 60`: number[0, inf] int nonNegZero@proven
+  55:39 call `edges(7, -(2 ** 60), 1.5)`: string@proven
+  55:39 ref `edges`: function@proven
+  55:48 unary `-(2 ** 60)`: number[-inf, -0] int@proven
+  55:50 binary `2 ** 60`: number[0, inf] int nonNegZero@proven

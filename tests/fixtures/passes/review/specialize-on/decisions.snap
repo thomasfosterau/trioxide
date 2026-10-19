@@ -17,10 +17,10 @@ input_file: tests/fixtures/passes/review/specialize-on/input.ts
 34:15 fold applied
 34:45 fold skipped: the expression has effects, so it stays
 34:71 fold applied
+29:3 dce applied
 33:9 dce applied
 2:1 dce applied
 25:16 params applied
 26:7 simplify applied
 26:3 simplify applied
-29:3 simplify applied
 25:16 simplify applied

@@ -20,6 +20,8 @@ input_file: tests/fixtures/passes/fold/values/input.ts
 33:7 fold skipped: the comparison depends on what its callers pass (`passes.specialize` is off)
 33:7 fold skipped: the expression's single value depends on what its callers pass (`passes.specialize` is off)
 9:9 dce applied
+36:3 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
+36:3 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
 5:10 simplify applied
 11:11 simplify applied
 21:10 simplify applied
