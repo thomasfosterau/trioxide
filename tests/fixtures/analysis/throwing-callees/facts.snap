@@ -113,7 +113,7 @@ nodes:
   56:5 ref `viaBlockArrow`: function@proven
   58:5 assign `caught += 1`: 1@proven
   58:5 ref `caught`: number[0, 1] int nonNaN nonNegZero@proven
-  61:5 new `new Checked(7)`: Checked@proven escape=known
+  61:5 new `new Checked(7)`: Checked@proven escape=none
   61:9 ref `Checked`: function@proven
   63:5 assign `caught += 1`: number[1, 2] int nonNaN nonNegZero@proven
   63:5 ref `caught`: number[0, 2] int nonNaN nonNegZero@proven
@@ -123,7 +123,7 @@ nodes:
   65:15 ref `results`: unknown[]@proven
   65:24 ref `caught`: number[0, 2] int nonNaN nonNegZero@proven
   65:32 member `new Checked(1).value`: number[1, 2] int nonNaN nonNegZero@proven
-  65:32 new `new Checked(1)`: Checked@proven escape=known
+  65:32 new `new Checked(1)`: Checked@proven escape=none
   65:36 ref `Checked`: function@proven
   65:54 member `new Initialised().second`: number[1, inf] int nonNaN nonNegZero@proven
   65:54 new `new Initialised()`: Initialised@proven escape=none

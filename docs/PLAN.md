@@ -523,7 +523,15 @@ parameters every caller passes the same literal, whether or not inlining is on.
   `points_to` exactly that site at every key use, literal keys present at creation, and no
   use of the binding but key reads and writes in its own function (`p.x` → `p_x`). A literal
   that holds an anonymous function or class stays (it is named after its key), and so does
-  one with no facts (made by an earlier pass).
+  one with no facts (made by an earlier pass). `new C(…)` is replaced the same way (S10) when
+  `C` is a class of the module with no heritage, decorators or instance accessors, literal
+  (or no) field initialisers, and a constructor that only assigns parameters or literals to
+  `this.key`; the site must be a non-escaping instance of exactly `C`, the callee proven
+  pure (not in its temporal dead zone), and arguments the constructor ignores pure. The
+  analysis supports it: a constructor that creates no closure and has no direct `eval` no
+  longer makes its instance escape just by receiving it as `this` (passing, storing or
+  returning `this` still does). Methods aren't inlined first: inline-fn stays opt-in, and
+  a method call keeps the instance whole.
 - *Partial evaluation (11)*: a call in module top-level code of a module function, with
   constant arguments, is interpreted (200,000 steps; numbers, strings, booleans, arrays and
   plain objects it creates, earlier module `const`s, the exactly specified parts of `Math`,

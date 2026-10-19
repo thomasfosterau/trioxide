@@ -112,7 +112,7 @@ nodes:
   58:3 ref `console`: unknown
   58:15 ref `r`: undefined@proven
   59:9 bind `b`: {| v: number[2, 7] int nonNaN nonNegZero |} | Box@proven
-  59:13 new `new Box()`: {| v: number[2, 7] int nonNaN nonNegZero |} | Box@proven escape=known
+  59:13 new `new Box()`: {| v: number[2, 7] int nonNaN nonNegZero |} | Box@proven escape=none
   59:17 ref `Box`: function@proven
   60:3 assign `b.v = 7`: 7@proven
   60:3 member `b.v`: unknown

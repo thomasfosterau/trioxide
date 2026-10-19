@@ -293,6 +293,48 @@ pub fn is_parameter_property(param: &FormalParameter<'_>) -> bool {
     param.accessibility.is_some() || param.readonly || param.r#override
 }
 
+/// Whether a constructor's `this` can only reach other code through the operations the
+/// interpreter follows (passing it, storing it, returning it): its body creates no closure
+/// (an arrow would share `this`; a function or class is simply not looked into) and has no
+/// direct `eval`.
+pub fn keeps_this(constructor: &Function<'_>) -> bool {
+    let mut finder = ClosureFinder::default();
+    finder.visit_function(constructor, ScopeFlags::Function);
+    !finder.found
+}
+
+#[derive(Default)]
+struct ClosureFinder {
+    depth: usize,
+    found: bool,
+}
+
+impl<'a> Visit<'a> for ClosureFinder {
+    fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
+        if self.depth > 0 {
+            self.found = true;
+            return;
+        }
+        self.depth += 1;
+        walk::walk_function(self, function, flags);
+        self.depth -= 1;
+    }
+
+    fn visit_arrow_function_expression(&mut self, _: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
+        self.found = true;
+    }
+
+    fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {
+        self.found = true;
+    }
+
+    fn visit_identifier_reference(&mut self, ident: &oxc_ast::ast::IdentifierReference<'a>) {
+        if ident.name == "eval" {
+            self.found = true;
+        }
+    }
+}
+
 /// Whether the expression refers to `this` or `super` (in itself or in arrow functions, which
 /// share them).
 fn uses_this(expression: &Expression<'_>) -> bool {

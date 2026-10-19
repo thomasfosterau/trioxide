@@ -1,0 +1,60 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/scalar/instances
+input_file: tests/fixtures/passes/scalar/instances/input.ts
+---
+//- input.ts
+// Instances of classes whose constructor only assigns fields become locals.
+class Vec2 {
+	x;
+	y;
+	constructor(x, y) {
+		this.x = x;
+		this.y = y;
+	}
+	length() {
+		return Math.hypot(this.x, this.y);
+	}
+}
+class Particle {
+	mass = 1;
+	alive = true;
+	label = "p";
+	charge = -2;
+	speed;
+	constructor(speed) {
+		this.speed = speed;
+	}
+}
+class Empty {}
+let calls = 0;
+function next() {
+	calls++;
+	return calls;
+}
+export function main() {
+	let total = 0;
+	for (let i = 0; i < 10; i++) {
+		let v_x = i, v_y = i * 2;
+		v_x += 1;
+		v_y++;
+		total += v_x * v_y;
+		// The arguments run in their order, once.
+		const w_x = next(), w_y = next() * 10;
+		total += w_y - w_x;
+		// Missing arguments are undefined.
+		const u_x = i, u_y = void 0;
+		total += u_y === undefined ? 1 : 0;
+		// A pure argument the constructor ignores is dropped.
+		let p_speed = i, p_mass = 1, p_alive = true, p_label = "p";
+		p_mass += p_speed;
+		total += p_mass + -2 + (p_alive ? p_label.length : 0);
+		// Not replaced: a method is called.
+		const m = new Vec2(3, 4);
+		total += m.length();
+		// Not replaced: no keys, and the object itself is used.
+		const e = new Empty();
+		total += e instanceof Empty ? 1 : 0;
+	}
+	console.log(total, calls);
+}

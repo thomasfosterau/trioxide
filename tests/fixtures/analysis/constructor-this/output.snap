@@ -1,0 +1,89 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/constructor-this
+input_file: tests/fixtures/analysis/constructor-this/input.ts
+---
+//- input.ts
+// A constructor that only assigns `this.key` doesn't make its instance escape; one that
+// passes `this` on does, however it does it, and then the shape and field types other code
+// changes through that reference are not proven.
+const registry = [];
+function register(value) {
+	registry.push(value);
+}
+const holder = { ref: null };
+let last = null;
+class Plain {
+	x;
+	constructor(x) {
+		this.x = x;
+	}
+}
+class Registered {
+	x;
+	constructor() {
+		this.x = 1;
+		register(this);
+	}
+}
+class Stored {
+	x;
+	constructor() {
+		this.x = 1;
+		holder.ref = this;
+	}
+}
+class Aliased {
+	x;
+	constructor() {
+		this.x = 1;
+		const self = this;
+		last = self;
+	}
+}
+class Captured {
+	x;
+	f;
+	constructor() {
+		this.x = 1;
+		this.f = () => this;
+	}
+}
+class Returned {
+	x;
+	constructor() {
+		this.x = 1;
+		if (registry.length > 100) {
+			return;
+		}
+	}
+}
+function captured() {
+	const c = new Captured();
+	globalThis.leakFn = c.f;
+	return c;
+}
+export function main() {
+	const p = new Plain(2);
+	const r = new Registered();
+	const s = new Stored();
+	const a = new Aliased();
+	const c = captured();
+	const t = new Returned();
+	globalThis.sink = [
+		registry,
+		holder,
+		last
+	];
+	const g = globalThis;
+	g["sink"][0][0].x = "registered";
+	g["sink"][0][0].added = true;
+	g["sink"][1].ref.x = "stored";
+	g["sink"][1].ref.added = true;
+	g["sink"][2].x = "aliased";
+	g["sink"][2].added = true;
+	g["leakFn"]().x = "captured";
+	g["leakFn"]().added = true;
+	console.log(2, r.x, s.x, a.x, c.x, 1);
+	console.log(Object.keys(r), Object.keys(s), Object.keys(a), Object.keys(c));
+}

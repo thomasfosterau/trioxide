@@ -1,0 +1,15 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/scalar/instances
+input_file: tests/fixtures/passes/scalar/instances/input.ts
+---
+//- input.ts
+49:23 fold applied
+52:14 licm skipped: the binding is declared inside the loop
+25:7 hidden-class skipped: the class's instances may reach code the analysis doesn't see
+36:11 scalar applied
+41:11 scalar applied
+44:11 scalar applied
+47:11 scalar applied
+51:11 scalar skipped: a key is called as a method (which passes the object as `this`)
+47:11 simplify applied
