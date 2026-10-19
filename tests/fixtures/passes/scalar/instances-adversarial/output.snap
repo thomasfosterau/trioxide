@@ -1,0 +1,133 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/scalar/instances-adversarial
+input_file: tests/fixtures/passes/scalar/instances-adversarial/input.ts
+---
+//- input.ts
+// `new C(…)` sites scalar must leave alone, and the close ones it may replace.
+const log = [];
+function note(text) {
+	log.push(text);
+	return log.length;
+}
+class Pair {
+	a;
+	b;
+	constructor(a, b, _unused) {
+		this.a = a;
+		this.b = b;
+	}
+	sum() {
+		return this.a + this.b;
+	}
+}
+class Logged {
+	v;
+	constructor(v) {
+		this.v = v;
+		note("logged");
+	}
+}
+class Base {
+	v = 1;
+}
+class Derived extends Base {
+	w = 2;
+}
+class WithGetter {
+	v = 1;
+	get w() {
+		return this.v + 1;
+	}
+}
+class Twice {
+	a;
+	b;
+	constructor(x) {
+		this.a = x;
+		this.b = x;
+	}
+}
+class Overridden {
+	n = 1;
+	u;
+	constructor() {
+		this.n = 2;
+	}
+}
+let Swapped = class {
+	v = 1;
+};
+class Reassigned {
+	v = 1;
+}
+function swap() {
+	// eslint-disable-next-line no-class-assign
+	Reassigned = Swapped;
+}
+class Spot {
+	v;
+	constructor(v) {
+		this.v = v;
+	}
+}
+// Read before the class is declared: `new` throws, and must keep throwing.
+function early() {
+	try {
+		const q = new Late(1);
+		return 1;
+	} catch {
+		return -1;
+	}
+}
+const earlyResult = early();
+class Late {
+	v;
+	constructor(v) {
+		this.v = v;
+	}
+}
+class Seen {
+	v;
+	constructor(v) {
+		this.v = v;
+	}
+}
+export function main() {
+	const out = [earlyResult];
+	// Ignored arguments with effects keep running.
+	const p = new Pair(1, 2, note("extra"));
+	out.push(p.a + p.b);
+	// A pure ignored argument is dropped.
+	const q_a = 3, q_b = 4;
+	out.push(q_a * q_b);
+	// A method read (not called) isn't a field.
+	const r = new Pair(5, 6);
+	out.push(typeof r.sum);
+	const l = new Logged(7);
+	out.push(7);
+	const d = new Derived();
+	out.push(3);
+	const g = new WithGetter();
+	out.push(1);
+	const t = new Twice(8);
+	out.push(16);
+	const o_n = 2;
+	out.push(o_n, undefined);
+	if (log.length > 100) {
+		swap();
+	}
+	const s = new Reassigned();
+	out.push(s.v);
+	// Parenthesised callee, arguments in order.
+	const sp_v = note("first") + note("second");
+	out.push(sp_v);
+	// An anonymous function argument keeps its empty name.
+	const f = new Spot((() => 1));
+	out.push(f.v.name.length);
+	// Compared and passed: the object itself is used.
+	const c = new Seen(10);
+	out.push(c instanceof Seen, c.v);
+	out.push(Swapped.name);
+	console.log(JSON.stringify(out), log.join(","));
+}

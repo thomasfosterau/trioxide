@@ -206,7 +206,13 @@ back to TS where it knows nothing:
   reaching a prototype without naming it (`__proto__`, `getPrototypeOf`, `.constructor`,
   `X.prototype` of anything but a program class, `Reflect`, `Function`, `eval`) turns all of
   them off. Without integrity, method models, `Object.prototype` lookups, holes and iteration
-  are `Unknown`. A key computed at run time that happens to be `"__proto__"` is not detected.
+  are `Unknown`. Replacing a prototype (S10): a `__proto__` write to an object the analysis
+  follows poisons it, as `Object.setPrototypeOf` does, and an instance whose site is poisoned
+  is typed as just an object; when the program names `__proto__`, `setPrototypeOf`,
+  `Reflect`, `Function` or `eval` anywhere, so do instances that reach unknown code. A
+  `this.__proto__ = …` in a constructor or a `__proto__` field ends the class's definite
+  fields. A key computed at run time that happens to be `"__proto__"` is not detected
+  unless the program also names it.
 - *Temporal dead zones.* Reading a `let`/`const`/`class` binding before its declaration
   runs throws: in its own unit when the read comes first in the text (or in a `switch`), in
   another unit when the declaring unit may call out before the declaration, and across an
@@ -228,7 +234,11 @@ back to TS where it knows nothing:
   `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged. A
   comparison narrows its locals (`x + k < n` narrows an integer `x` too, for integer `k` and
   `n` within ±2^52, where the rounded sum compares as the exact one does), and one that leaves
-  a proven value no number narrows it to `never`, so the branch is unreachable there.
+  a proven value no number narrows it to `never`, so the branch is unreachable there. A
+  write or read of an array at an index whose proven range lies below the array's known
+  length (`new Array(500).fill(0)` indexed by a `[0, 499]` integer) neither makes a hole nor
+  changes the length, and a key with no value yet (`never`, a run on stale inputs) is no
+  access at all rather than "any key".
 
 Beyond types, the `Facts` API answers per call site (callees and whether that is all that
 can run there), per expression (effects including callees and implicit calls, `is_pure`,
@@ -528,7 +538,15 @@ parameters every caller passes the same literal, whether or not inlining is on.
   `points_to` exactly that site at every key use, literal keys present at creation, and no
   use of the binding but key reads and writes in its own function (`p.x` → `p_x`). A literal
   that holds an anonymous function or class stays (it is named after its key), and so does
-  one with no facts (made by an earlier pass).
+  one with no facts (made by an earlier pass). `new C(…)` is replaced the same way (S10) when
+  `C` is a class of the module with no heritage, decorators or instance accessors, literal
+  (or no) field initialisers, and a constructor that only assigns parameters or literals to
+  `this.key`; the site must be a non-escaping instance of exactly `C`, the callee proven
+  pure (not in its temporal dead zone), and arguments the constructor ignores pure. The
+  analysis supports it: a constructor that creates no closure and has no direct `eval` no
+  longer makes its instance escape just by receiving it as `this` (passing, storing or
+  returning `this` still does). Methods aren't inlined first: inline-fn stays opt-in, and
+  a method call keeps the instance whole.
 - *Partial evaluation (11)*: a call in module top-level code of a module function, with
   constant arguments, is interpreted (200,000 steps; numbers, strings, booleans, arrays and
   plain objects it creates, earlier module `const`s, the exactly specified parts of `Math`,

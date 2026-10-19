@@ -222,22 +222,18 @@ fn absSelf(xs: &mut [f64]) {
 }
 
 fn absInto(ys: &mut [f64], fa: &[f64]) {
-    let mut i: u32 = 0_i32 as u32;
-    while f64::from(i) < array::len(ys) {
-        array::set(
-            ys,
-            f64::from(i),
-            array::store_number(math::abs(array::get(fa, f64::from(i)))),
-        );
-        i = i.wrapping_add(1_i32 as u32);
+    let mut i: i32 = 0;
+    while i < ys.len() as i32 {
+        array::set_i32(ys, i, array::store_number(math::abs(array::get_i32(fa, i))));
+        i += 1;
     }
 }
 
 fn negInto(ys: &mut [f64], fa: &[f64]) {
-    let mut i: u32 = 0_i32 as u32;
-    while f64::from(i) < array::len(ys) {
-        array::set(ys, f64::from(i), array::store_number(-array::get(fa, f64::from(i))));
-        i = i.wrapping_add(1_i32 as u32);
+    let mut i: i32 = 0;
+    while i < ys.len() as i32 {
+        array::set_i32(ys, i, array::store_number(-array::get_i32(fa, i)));
+        i += 1;
     }
 }
 

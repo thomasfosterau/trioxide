@@ -244,6 +244,21 @@ impl<'a> Cx<'_, '_, 'a> {
         args: &[Val],
         spread: bool,
     ) -> Val {
+        self.call_unit_keeping(site, unit, this, args, spread, false)
+    }
+
+    /// A call to a unit of the program; with `keeps_this`, a unit the analysis sees all of
+    /// that only passes `this` on in ways the interpreter follows, so `this` doesn't escape
+    /// just by being given to it.
+    fn call_unit_keeping(
+        &mut self,
+        site: NodeId,
+        unit: NodeRef,
+        this: &Val,
+        args: &[Val],
+        spread: bool,
+        keeps_this: bool,
+    ) -> Val {
         self.note_call();
         let world = self.an.world;
         let callee = world.unit(unit);
@@ -264,7 +279,9 @@ impl<'a> Cx<'_, '_, 'a> {
             self.an.called_with_spread(unit);
         }
         self.an.join_this(unit, this);
-        self.escape_value(this, level);
+        if open || !keeps_this {
+            self.escape_value(this, level);
+        }
         self.record.edges.push(Edge {
             site: self.node(site),
             callee: unit,
@@ -513,8 +530,16 @@ impl<'a> Cx<'_, '_, 'a> {
             return Val::never();
         };
         let (constructor, init, heritage) = (info.constructor, info.init, info.has_heritage);
+        let keeps_this = !heritage && info.constructor_keeps_this;
         if let Some(constructor) = constructor {
-            let _ = self.call_unit(site, constructor, this, &args.values, args.spread);
+            let _ = self.call_unit_keeping(
+                site,
+                constructor,
+                this,
+                &args.values,
+                args.spread,
+                keeps_this,
+            );
             // `call_unit` treats a direct constructor call as a throw; this one is fine.
             if !heritage {
                 self.run_init(init, this);

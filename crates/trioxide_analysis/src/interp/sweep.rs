@@ -322,7 +322,10 @@ pub fn run(
     let threads = crate::threads::count(options);
     let shared_types = oracle.shared().is_some();
 
-    let mut state = State::default();
+    let mut state = State {
+        reprototypes: super::may_reprototype(world),
+        ..State::default()
+    };
     let mut changed: FxHashSet<Dep> = FxHashSet::default();
     let mut changes: FxHashMap<Dep, u32> = FxHashMap::default();
     let mut slot_changes = SlotChanges::default();

@@ -1,0 +1,170 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/proto-writes
+input_file: tests/fixtures/analysis/proto-writes/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  InConstructor.<fields> (5:21) open: pure
+  InConstructor.constructor (6:14) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
+  Later.<fields> (11:13) open: reads writes throws calls-unknown
+  ViaSet.<fields> (15:14) open: reads writes throws calls-unknown
+  ViaComputed.<fields> (19:19) open: reads writes throws calls-unknown
+  Kept.<fields> (23:12): writes
+  computedKey (27:1): pure
+  main (31:8) open: reads writes allocates throws calls-unknown
+    calls 32:13 -> InConstructor.<fields>
+    calls 32:13 -> InConstructor.constructor
+    calls 33:13 -> Later.<fields>
+    calls 35:13 -> ViaSet.<fields>
+    calls 37:13 -> ViaComputed.<fields>
+    calls 39:13 -> ViaComputed.<fields>
+    calls 40:14 -> computedKey
+    calls 42:16 -> Kept.<fields>
+classes:
+  InConstructor (5:1): fields [] shape unknown
+  Later (11:1): fields [v] shape unknown
+  ViaSet (15:1): fields [v] shape unknown
+  ViaComputed (19:1): fields [v] shape unknown
+  Kept (23:1): fields [v] stable
+nodes:
+  3:7 bind `proto`: object@proven
+  3:15 object `{ inherited: 9, kind: "proto" }`: object@proven escape=unknown
+  5:7 bind `InConstructor`: function@proven
+  6:15 bind `p`: unknown
+  7:5 assign `(this as any).__proto__ = p`: unknown
+  7:5 member `(this as any).__proto__`: unknown
+  7:6 cast `this as any`: InConstructor@declared
+  7:6 this `this`: InConstructor@declared
+  7:31 ref `p`: unknown
+  11:7 bind `Later`: function@proven
+  15:7 bind `ViaSet`: function@proven
+  19:7 bind `ViaComputed`: function@proven
+  23:7 bind `Kept`: function@proven
+  27:10 bind `computedKey`: function@proven
+  28:10 binary `"__pro" + "to__"`: string@proven
+  31:17 bind `main`: function@proven
+  32:9 bind `a`: object@proven
+  32:13 new `new InConstructor(proto)`: object@proven escape=unknown
+  32:17 ref `InConstructor`: function@proven
+  32:31 ref `proto`: object@proven
+  33:9 bind `b`: object@proven
+  33:13 new `new Later()`: object@proven escape=unknown
+  33:17 ref `Later`: function@proven
+  34:3 assign `(b as any).__proto__ = proto`: object@proven
+  34:3 member `(b as any).__proto__`: unknown
+  34:4 cast `b as any`: object@proven
+  34:4 ref `b`: object@proven
+  34:26 ref `proto`: object@proven
+  35:9 bind `c`: object@proven
+  35:13 new `new ViaSet()`: object@proven escape=unknown
+  35:17 ref `ViaSet`: function@proven
+  36:3 call `Object.setPrototypeOf(c, proto)`: unknown
+  36:3 member `Object.setPrototypeOf`: unknown
+  36:3 ref `Object`: unknown
+  36:25 ref `c`: object@proven
+  36:28 ref `proto`: object@proven
+  37:9 bind `d`: object@proven
+  37:13 new `new ViaComputed()`: object@proven escape=unknown
+  37:17 ref `ViaComputed`: function@proven
+  38:3 assign `(d as any)["__proto__"] = proto`: object@proven
+  38:3 member `(d as any)["__proto__"]`: unknown
+  38:4 cast `d as any`: object@proven
+  38:4 ref `d`: object@proven
+  38:29 ref `proto`: object@proven
+  39:9 bind `e`: object@proven
+  39:13 new `new ViaComputed()`: object@proven escape=unknown
+  39:17 ref `ViaComputed`: function@proven
+  40:3 assign `(e as any)[computedKey()] = proto`: object@proven
+  40:3 member `(e as any)[computedKey()]`: unknown
+  40:4 cast `e as any`: object@proven
+  40:4 ref `e`: object@proven
+  40:14 call `computedKey()`: string@proven
+  40:14 ref `computedKey`: function@proven
+  40:31 ref `proto`: object@proven
+  42:9 bind `kept`: Kept@proven
+  42:16 new `new Kept()`: Kept@proven escape=none
+  42:20 ref `Kept`: function@proven
+  43:9 bind `keptV`: 1@proven
+  43:17 member `kept.v`: 1@proven
+  43:17 ref `kept`: Kept@proven
+  44:9 bind `literal`: object@proven
+  44:19 object `{ v: 1 }`: object@proven escape=unknown
+  45:3 assign `(literal as any).__proto__ = proto`: object@proven
+  45:3 member `(literal as any).__proto__`: unknown
+  45:4 cast `literal as any`: object@proven
+  45:4 ref `literal`: object@proven
+  45:32 ref `proto`: object@proven
+  46:3 call `console.log(a instanceof InConstructo...`: unknown
+  46:3 member `console.log`: unknown
+  46:3 ref `console`: unknown
+  46:15 binary `a instanceof InConstructor`: boolean@proven
+  46:15 ref `a`: object@proven
+  46:28 ref `InConstructor`: function@proven
+  46:43 member `(a as any).inherited`: unknown
+  46:44 cast `a as any`: object@proven
+  46:44 ref `a`: object@proven
+  46:65 call `Object.keys(a)`: string[]@declared
+  46:65 member `Object.keys`: unknown
+  46:65 ref `Object`: unknown
+  46:77 ref `a`: object@proven
+  47:3 call `console.log(b instanceof Later, b.v, ...`: unknown
+  47:3 member `console.log`: unknown
+  47:3 ref `console`: unknown
+  47:15 binary `b instanceof Later`: boolean@proven
+  47:15 ref `b`: object@proven
+  47:28 ref `Later`: function@proven
+  47:35 member `b.v`: unknown
+  47:35 ref `b`: object@proven
+  47:40 member `(b as any).kind`: unknown
+  47:41 cast `b as any`: object@proven
+  47:41 ref `b`: object@proven
+  47:57 call `Object.keys(b)`: string[]@declared
+  47:57 member `Object.keys`: unknown
+  47:57 ref `Object`: unknown
+  47:69 ref `b`: object@proven
+  48:3 call `console.log(c instanceof ViaSet, c.v,...`: unknown
+  48:3 member `console.log`: unknown
+  48:3 ref `console`: unknown
+  48:15 binary `c instanceof ViaSet`: boolean@proven
+  48:15 ref `c`: object@proven
+  48:28 ref `ViaSet`: function@proven
+  48:36 member `c.v`: unknown
+  48:36 ref `c`: object@proven
+  48:41 member `(c as any).kind`: unknown
+  48:42 cast `c as any`: object@proven
+  48:42 ref `c`: object@proven
+  49:3 call `console.log(d instanceof ViaComputed,...`: unknown
+  49:3 member `console.log`: unknown
+  49:3 ref `console`: unknown
+  49:15 binary `d instanceof ViaComputed`: boolean@proven
+  49:15 ref `d`: object@proven
+  49:28 ref `ViaComputed`: function@proven
+  49:41 member `d.v`: unknown
+  49:41 ref `d`: object@proven
+  49:46 member `(d as any).kind`: unknown
+  49:47 cast `d as any`: object@proven
+  49:47 ref `d`: object@proven
+  50:3 call `console.log(e instanceof ViaComputed,...`: unknown
+  50:3 member `console.log`: unknown
+  50:3 ref `console`: unknown
+  50:15 binary `e instanceof ViaComputed`: boolean@proven
+  50:15 ref `e`: object@proven
+  50:28 ref `ViaComputed`: function@proven
+  50:41 member `e.v`: number@declared
+  50:41 ref `e`: object@proven
+  50:46 member `(e as any).kind`: unknown
+  50:47 cast `e as any`: object@proven
+  50:47 ref `e`: object@proven
+  51:3 call `console.log((literal as any).kind, Ob...`: unknown
+  51:3 member `console.log`: unknown
+  51:3 ref `console`: unknown
+  51:15 member `(literal as any).kind`: unknown
+  51:16 cast `literal as any`: object@proven
+  51:16 ref `literal`: object@proven
+  51:38 call `Object.keys(literal)`: string[]@declared
+  51:38 member `Object.keys`: unknown
+  51:38 ref `Object`: unknown
+  51:50 ref `literal`: object@proven
+  51:60 ref `keptV`: 1@proven

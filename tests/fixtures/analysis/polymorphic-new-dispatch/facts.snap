@@ -47,12 +47,12 @@ nodes:
   22:14 ref `C`: function | function@proven
   24:10 bind `makeAny`: function@proven
   24:18 bind `i`: number[1, 2] int nonNaN nonNegZero@proven
-  25:9 bind `C`: undefined | function | function | function@proven
-  25:13 member `ctors[i]`: undefined | function | function | function@proven
+  25:9 bind `C`: function | function | function@proven
+  25:13 member `ctors[i]`: function | function | function@proven
   25:13 ref `ctors`: (function | function | function)[]@proven
   25:19 ref `i`: number[1, 2] int nonNaN nonNegZero@proven
   26:10 new `new C()`: unknown
-  26:14 ref `C`: undefined | function | function | function@proven
+  26:14 ref `C`: function | function | function@proven
   28:17 bind `main`: function@proven
   29:9 bind `a`: A | B@declared
   29:13 call `make(0)`: A | B@declared

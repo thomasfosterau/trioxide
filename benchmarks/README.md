@@ -75,6 +75,8 @@ decision.
 | `licm-lengths` | cold | `bench()` | 1.02 ms | 686.5 µs | 1.52× (1.39–1.67) |
 | `partial-eval-table` | default | module evaluation | 399.0 µs | 128.6 µs | 3.06× (2.16–3.36) |
 | `partial-eval-table` | cold | module evaluation | 446.9 µs | 201.0 µs | 2.33× (1.85–2.56) |
+| `scalar-instances` | default | `bench()` | 7.7 µs | 9.1 µs | 0.83× (0.83–0.88) |
+| `scalar-instances` | cold | `bench()` | 867.3 µs | 239.1 µs | 3.63× (2.94–3.92) |
 | `scalar-points` | default | `bench()` | 7.0 µs | 8.5 µs | 0.84× (0.70–0.87) |
 | `scalar-points` | cold | `bench()` | 621.5 µs | 190.3 µs | 3.13× (3.08–4.41) |
 
@@ -82,6 +84,9 @@ decision.
   `hidden-class-objects` 4.6×, `for-of-loops` 1.2×; `licm-lengths` only cold.
 - S5a's passes: partial evaluation wins everywhere; inlining and scalar replacement win only
   in cold code and are slightly slower hot (which is why they are off by default).
+  `scalar-instances` (S10: `new Point(…)` temporaries) behaves like `scalar-points`: 0.83×
+  hot, 3.6× cold (11 alternating rounds against main's build of the same case, which leaves
+  the instances alone: 0.84× (0.76–0.86) and 3.62× (2.73–4.05)).
 - `closure-hoist-loop` didn't measure closure hoisting: #16's pipelines pass turned its
   4-element `rows[i].map(…)` into a `push` loop first, and that loop is slower than V8's
   builtin `map` (0.60× hot, 0.86× cold). S10 leaves a chain that is one `map` as the builtin
@@ -138,7 +143,13 @@ default passes and with every pass. What still limits them, from `trioxide expla
 2. **`array-pipeline`'s chains are partly lowered.** `revenue`, `revenueByCategory`,
    `bigSpenders` and `quantityHistogram` each get a loop; `bigSpenders`'s
    `totals.map(…).filter(…).sort(…)` stays because `totals` (`new Array(500).fill(0)`) is only
-   Declared, and `stats`' reductions aren't touched.
+   Declared, and `stats`' reductions aren't touched. (S10: `fill` was modelled already; what
+   made `totals` Declared was `totals[o.customer] += …` in an early sweep, where `o.customer`
+   had no value yet and counted as "any key", so the array became dynamic for good. With that
+   fixed, and writes and reads at an index whose proven range is inside the length kept
+   packed, the chain fuses; an 11-round A/B of the whole program measures no change, 0.966×
+   (0.93–1.08) under V8's defaults and 1.006× (0.87–1.17) cold, since the chain runs once over
+   500 elements per `run()`.)
 3. **Closure hoisting refuses capture-free callbacks outside loops in modules with a runtime
    import**, whether or not an import cycle exists: in `array-pipeline/report.ts` (which
    imports a constant from `orders.ts`, which imports nothing) most of them stay. Checking
