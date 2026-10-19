@@ -448,7 +448,9 @@ read `length` once themselves where the loop facts allow).
 
 **Speed passes** (S5b; each module's doc comment has the full preconditions):
 - *Pipelines (6)*: a chain of `map`/`filter` ending in `map`, `filter`, `forEach`, `reduce`,
-  `some`, `every`, `find`, `findIndex` or `includes` (one call too) that initialises a binding,
+  `some`, `every`, `find`, `findIndex` or `includes` (one call too, but not a lone `map`: with
+  nothing to fuse, V8's builtin, which allocates its result at full length, beats a loop
+  pushing into `[]`, 0.65× in `benchmarks/passes/`) that initialises a binding,
   is returned, or (`forEach`) is a statement becomes one indexed loop with the callbacks
   written in. The receiver must be a plain array with intact builtins, and each call's site
   complete with only its callback as callee; callbacks are arrows or function expressions

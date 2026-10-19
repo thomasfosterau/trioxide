@@ -82,10 +82,14 @@ decision.
   `hidden-class-objects` 4.6×, `for-of-loops` 1.2×; `licm-lengths` only cold.
 - S5a's passes: partial evaluation wins everywhere; inlining and scalar replacement win only
   in cold code and are slightly slower hot (which is why they are off by default).
-- `closure-hoist-loop` no longer measures closure hoisting: #16's pipelines pass now turns its
+- `closure-hoist-loop` didn't measure closure hoisting: #16's pipelines pass turned its
   4-element `rows[i].map(…)` into a `push` loop first, and that loop is slower than V8's
-  builtin `map` (0.60× hot, 0.86× cold). Reported to S5b: small `map`s may be better left as
-  the builtin, or lowered with a preallocated result.
+  builtin `map` (0.60× hot, 0.86× cold). S10 leaves a chain that is one `map` as the builtin
+  call (nothing to fuse): with the same five rounds, `closure-hoist-loop` went from 0.65×
+  (0.62–0.66) to 1.02× (0.95–1.11) under V8's defaults and from 0.87× (0.79–0.89) to 1.52×
+  (1.45–1.60) cold; every other case stayed within its range (`array-pipelines` 29.8× before
+  and after), and so did the whole programs (`array-pipeline` 1.15× → 1.17×, `telemetry`
+  1.13× → 1.13× under V8's defaults).
 
 ### Whole programs
 
