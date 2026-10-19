@@ -91,6 +91,10 @@ fn fields_and_constructor_assignments(
         let Some(name) = static_key(&property.key, property.computed) else {
             return (fields, Vec::new());
         };
+        if name == "__proto__" {
+            // Without `useDefineForClassFields` this sets the prototype.
+            return (fields, Vec::new());
+        }
         if property.value.as_ref().is_some_and(uses_this) {
             return (fields, Vec::new());
         }
@@ -155,6 +159,10 @@ fn constructor_prefix(
                         if matches!(member.object, Expression::ThisExpression(_)) =>
                     {
                         let name = member.property.name.to_string();
+                        if name == "__proto__" {
+                            // Sets the prototype; no own property.
+                            return;
+                        }
                         if !fields.contains(&name) {
                             fields.push(name.clone());
                         }

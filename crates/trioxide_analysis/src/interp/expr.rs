@@ -2245,11 +2245,23 @@ impl<'a> Cx<'_, '_, 'a> {
                     }
                     let Some(name) = key.name() else {
                         // No slot records the value, and reads under computed keys give any
-                        // value: whatever reads it is code the analysis doesn't follow.
+                        // value: whatever reads it is code the analysis doesn't follow. The
+                        // key may be `__proto__`, so the object may not be an instance of
+                        // its class any more (`summary::refine`).
                         self.mark(site, move |obj| obj.dynamic = true);
                         self.escape_value(value, Escape::Unknown);
                         continue;
                     };
+                    if name == "__proto__" {
+                        // Sets the prototype (or, defining a field, may: TypeScript assigns
+                        // fields without `useDefineForClassFields`): its accessors and
+                        // methods are the object's now. Throws for a cycle or a
+                        // non-extensible object.
+                        self.an.poison(&Pts::site(site));
+                        self.escape_value(value, Escape::Unknown);
+                        self.always(EffectKind::Throws);
+                        continue;
+                    }
                     let class = match obj.kind {
                         ObjKind::Instance(class) => Some((class, false)),
                         ObjKind::Class(class) => Some((class, true)),
