@@ -1,0 +1,39 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/partial-eval/remove
+input_file: tests/fixtures/passes/partial-eval/remove/input.ts
+---
+//- input.ts
+// A function whose only calls partial evaluation replaced goes; one still referenced stays.
+// A table built when the module loads.
+const SQUARES = [
+	0,
+	1,
+	4,
+	9,
+	16,
+	25
+];
+const F5 = 120;
+const F6 = 720;
+function cube(n) {
+	return n * n * n;
+}
+const C3 = 27;
+export function doubled(n) {
+	return n * 2;
+}
+const D4 = doubled(4);
+function half(n) {
+	return n / 2;
+}
+const H8 = 4;
+const halve = half;
+function tripled(n) {
+	return n * 3;
+}
+const T2 = 6;
+const T = tripled(SQUARES.length);
+export function main() {
+	console.log(SQUARES.join(), F5, F6, C3, cube(SQUARES.length), D4, H8, halve(3), T2, T);
+}

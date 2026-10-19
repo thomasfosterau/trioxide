@@ -42,16 +42,6 @@ function big() {
 function usesLater() {
 	return AFTER + 1;
 }
-function strings() {
-	return [
-		"tab	here",
-		"é",
-		"quote\"s"
-	];
-}
-function lone() {
-	return String.fromCharCode(55296) + "x";
-}
 function loneLiteral() {
 	return "\ud83d";
 }
@@ -71,25 +61,11 @@ function loopTdz() {
 	}
 	return s;
 }
-function charCode() {
-	return "A".charCodeAt(NaN);
-}
 function holes() {
 	return new Array(3);
 }
 function transcendental() {
 	return Math.sin(1);
-}
-function exact() {
-	return [
-		1.4142135623730951,
-		.10000000149011612,
-		2 ** 52 + 1,
-		-(2 ** 31) | 0,
-		1,
-		-1,
-		-Infinity
-	];
 }
 const C1 = bumped();
 const C2 = random();

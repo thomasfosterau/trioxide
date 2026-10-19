@@ -530,7 +530,8 @@ parameters every caller passes the same literal, whether or not inlining is on.
   `Number` and `String`) and replaced with a literal of at most 128 values when the call has
   no unknown calls (`expr_effects`, so builtins are the real ones) and the result is a tree
   of fresh objects with no holes. Anything it doesn't model, a throw or running out of fuel
-  leaves the call.
+  leaves the call. A function no reference to which is left but in its own body then goes, as
+  with inlining (top level, not exported, not an island, `callers_complete` usable-true).
 - *Closure hoisting (12)*: a closure that captures nothing (only module-level and global
   names; no contextual `this`, `arguments`, `super` or `new.target`; no private names, which
   only parse inside their class) with `escapes = None`, that is either a `const` only ever
