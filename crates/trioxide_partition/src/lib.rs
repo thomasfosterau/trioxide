@@ -171,11 +171,11 @@ impl Partitioner {
             return Partition::default();
         }
         let overrides = self.module_overrides(modules);
-        let choice = if self.options.mode == PartitionMode::JsOnly {
-            Choice::default()
-        } else {
-            self.choose(facts, modules, &overrides)
-        };
+        // `js-only` still scores the candidates, for `explain`, but creates no island of its own.
+        let mut choice = self.choose(facts, modules, &overrides);
+        if self.options.mode == PartitionMode::JsOnly {
+            choice.automatic.clear();
+        }
         let generated = trioxide_rust::islands(
             modules,
             facts,
@@ -349,6 +349,18 @@ impl Partitioner {
                                  exported function from its module or a module importing it \
                                  can; the host, callbacks and re-exports call the JS version)"
                                     .into(),
+                            )
+                        } else if chosen.contains(&candidate.function)
+                            && self.options.mode == PartitionMode::JsOnly
+                        {
+                            verdict(
+                                candidate,
+                                format!(
+                                    "stays JS in js-only mode; the cost model would choose WASM: \
+                                     benefit − cost = {} > threshold {}",
+                                    number(estimate.net()),
+                                    number(estimate.threshold)
+                                ),
                             )
                         } else if chosen.contains(&candidate.function) {
                             verdict(
