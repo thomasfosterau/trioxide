@@ -134,7 +134,13 @@ default passes and with every pass. What still limits them, from `trioxide expla
 2. **`array-pipeline`'s chains are partly lowered.** `revenue`, `revenueByCategory`,
    `bigSpenders` and `quantityHistogram` each get a loop; `bigSpenders`'s
    `totals.map(…).filter(…).sort(…)` stays because `totals` (`new Array(500).fill(0)`) is only
-   Declared, and `stats`' reductions aren't touched.
+   Declared, and `stats`' reductions aren't touched. (S10: `fill` was modelled already; what
+   made `totals` Declared was `totals[o.customer] += …` in an early sweep, where `o.customer`
+   had no value yet and counted as "any key", so the array became dynamic for good. With that
+   fixed, and writes and reads at an index whose proven range is inside the length kept
+   packed, the chain fuses; an 11-round A/B of the whole program measures no change, 0.966×
+   (0.93–1.08) under V8's defaults and 1.006× (0.87–1.17) cold, since the chain runs once over
+   500 elements per `run()`.)
 3. **Closure hoisting refuses capture-free callbacks outside loops in modules with a runtime
    import**, whether or not an import cycle exists: in `array-pipeline/report.ts` (which
    imports a constant from `orders.ts`, which imports nothing) most of them stay. Checking

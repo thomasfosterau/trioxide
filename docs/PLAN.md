@@ -225,7 +225,11 @@ back to TS where it knows nothing:
 - *Effects* are computed twice, once counting only `Proven` facts and once counting
   `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
-  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged.
+  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged. A
+  write or read of an array at an index whose proven range lies below the array's known
+  length (`new Array(500).fill(0)` indexed by a `[0, 499]` integer) neither makes a hole nor
+  changes the length, and a key with no value yet (`never`, a run on stale inputs) is no
+  access at all rather than "any key".
 
 Beyond types, the `Facts` API answers per call site (callees and whether that is all that
 can run there), per expression (effects including callees and implicit calls, `is_pure`,

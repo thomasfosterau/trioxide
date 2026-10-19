@@ -30,6 +30,8 @@ pub enum Key {
     Index(NumberType, Trust),
     /// Unknown.
     Unknown,
+    /// None: the key has no value (yet, in a run on stale inputs), so the access can't happen.
+    Never,
 }
 
 impl Key {
@@ -37,6 +39,9 @@ impl Key {
     pub fn of_value(value: &Val) -> Self {
         if value.trust == Trust::Unknown {
             return Self::Unknown;
+        }
+        if value.ty == Type::Never && value.trust == Trust::Proven {
+            return Self::Never;
         }
         match &value.ty {
             Type::Number(number) => {
@@ -64,7 +69,23 @@ impl Key {
         match self {
             Self::Index(..) => true,
             Self::Name(name) => is_array_index(name),
-            Self::Unknown => false,
+            Self::Unknown | Self::Never => false,
+        }
+    }
+
+    /// The smallest and largest index the key may be, when it is proven an array index.
+    fn index_range(&self) -> Option<(f64, f64)> {
+        match self {
+            Self::Index(number, Trust::Proven)
+                if number.int && number.non_nan && number.range.min >= 0.0 =>
+            {
+                Some((number.range.min, number.range.max))
+            }
+            Self::Name(name) if is_array_index(name) => {
+                let index = name.parse::<f64>().ok()?;
+                Some((index, index))
+            }
+            _ => None,
         }
     }
 }
@@ -1593,7 +1614,7 @@ impl<'a> Cx<'_, '_, 'a> {
     /// Reads property `key` of `object`.
     pub fn read_prop(&mut self, object: &Val, key: &Key, node: oxc_syntax::node::NodeId) -> Val {
         self.note_shared_read();
-        if is_never(object) {
+        if is_never(object) || matches!(key, Key::Never) {
             return Val::never();
         }
         // Primitive receivers.
@@ -1775,11 +1796,10 @@ impl<'a> Cx<'_, '_, 'a> {
                         if obj.dynamic {
                             return Val::unknown();
                         }
-                        let in_range =
-                            match (key.name().and_then(|n| n.parse::<f64>().ok()), obj.length) {
-                                (Some(index), Some(length)) => index < length && !obj.holey,
-                                _ => false,
-                            };
+                        let in_range = match (key.index_range(), obj.length) {
+                            (Some((_, max)), Some(length)) => max < length && !obj.holey,
+                            _ => false,
+                        };
                         if in_range {
                             obj.elem.clone()
                         } else {
@@ -2091,6 +2111,10 @@ impl<'a> Cx<'_, '_, 'a> {
         node: oxc_syntax::node::NodeId,
         defining: bool,
     ) {
+        // A key with no value: the store can't happen (a run on stale inputs).
+        if matches!(key, Key::Never) {
+            return;
+        }
         self.note_write(true);
         self.require_object(object);
         if matches!(key, Key::Unknown) || key.name() == Some("length") {
@@ -2149,9 +2173,11 @@ impl<'a> Cx<'_, '_, 'a> {
                             self.an.output.in_bounds.contains_key(&self.node(node));
                         self.store_elem(site, value);
                         if !index_in_bounds {
-                            let constant = key.name().and_then(|n| n.parse::<f64>().ok());
+                            // An index the key's range keeps below the length writes an element
+                            // that exists: no hole, no new length.
+                            let range = key.index_range();
                             self.mark(site, move |obj| {
-                                let within = matches!((constant, obj.length), (Some(i), Some(len)) if i < len);
+                                let within = matches!((range, obj.length), (Some((_, max)), Some(len)) if max < len);
                                 if !within {
                                     obj.length = None;
                                     obj.holey = true;
@@ -2236,6 +2262,9 @@ impl<'a> Cx<'_, '_, 'a> {
     }
 
     fn delete(&mut self, object: &Val, key: &Key) {
+        if matches!(key, Key::Never) {
+            return;
+        }
         self.note_write(true);
         if let Some(sites) = object.pts.sites().filter(|sites| !sites.is_empty()) {
             // In strict code, deleting a non-configurable own property throws; so does
