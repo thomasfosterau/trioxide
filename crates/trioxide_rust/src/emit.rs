@@ -427,6 +427,22 @@ impl Printer<'_> {
                     format!("array::set{helper}({array}, {index}, {value});\n")
                 }
             }
+            Stmt::ArrayAdd {
+                array,
+                index,
+                delta,
+            } => {
+                let array = self.expr(array, cx).0;
+                let delta = self.expr(delta, cx).0;
+                if index.in_bounds {
+                    let index = self.usize_index(index, cx);
+                    cx.unsafe_used = true;
+                    format!("unsafe {{ array::add_unchecked({array}, {index}, {delta}) }};\n")
+                } else {
+                    let (helper, index) = self.checked_index(index, cx);
+                    format!("array::add{helper}({array}, {index}, {delta});\n")
+                }
+            }
             Stmt::FieldSet { base, field, value } => {
                 let base_text = self.operand(base, prec::POSTFIX, cx);
                 let field_name = crate::names::rust_ident(field);
@@ -867,6 +883,18 @@ impl Printer<'_> {
                     let (helper, index) = self.checked_index(index, cx);
                     (format!("array::get{helper}({array}, {index})"), POSTFIX)
                 }
+            }
+            Expr::GetInt32 { array, index } => {
+                let array = self.expr(array, cx).0;
+                let (helper, index) = if index.in_bounds {
+                    ("_usize", self.usize_index(index, cx))
+                } else {
+                    self.checked_index(index, cx)
+                };
+                (
+                    format!("array::get_int32{helper}({array}, {index})"),
+                    POSTFIX,
+                )
             }
             Expr::NewArray { elem, len, exact } => {
                 let elem = elem_type(*elem);

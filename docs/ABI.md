@@ -320,8 +320,9 @@ use trioxide_rt::prelude::*;
 - **No panics.** Generated code must not contain a reachable panic: they pull `std`'s panic
   formatting into the module (about 18 KB) and would make a JS-valid program trap. Use the
   `trioxide_rt` helpers, which are panic-free: `array::get*`/`set*` for indices not proven in
-  bounds, `get_unchecked`/`set_unchecked` (in `unsafe` with a `// SAFETY:` comment naming the
-  proof) or `slice::get_unchecked` for proven ones, `wrapping_*` and `ops::*_i32` for integer
+  bounds (`get_int32*` for `ToInt32` of a read, `add*` for `xs[i] += int32` in the element
+  type's own arithmetic), `get_unchecked`/`set_unchecked`/`add_unchecked` (in `unsafe` with a
+  `// SAFETY:` comment naming the proof) or `slice::get_unchecked` for proven ones, `wrapping_*` and `ops::*_i32` for integer
   operators, and never `/` or `%` on Rust integers (use `ops::div_trunc_i32`, `ops::rem_i32`).
   `xs[i]` indexing is acceptable only where LLVM can see the bound (e.g. `for &x in xs`).
 - **Allocation.** `new XArray(n)` with an arbitrary `n` is `abi::new_array::<E>(n)` (ToIndex
