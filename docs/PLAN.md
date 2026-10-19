@@ -621,8 +621,11 @@ measurements, the fit and the confusion table) and meant to be refitted as the b
 improves. S9 refitted on main after the analysis proved loop counters int32: the fit picks the
 faster side on 16 of 17 kernels (the previous weights 15), and on the whole programs it moves
 `examples/image-filters`' `boxBlur` back to JS and `numeric-driver`'s `fir` into WASM, both
-measured right, so the defaults are now the fitted values. The remaining misses are code the
-backend still generates in `f64` (`benchmarks/README.md`):
+measured right, so the defaults are now the fitted values. S10 refitted again after its
+backend fixes (int32 index arithmetic and counters, integer typed-array updates, folded
+`Math.imul` constants) with an 18th kernel, `numeric-driver`'s `fir`, without which the fit
+moved `fir` out of WASM: 16 of 18 against 15 for S9's weights, the same whole-program
+islands, and the two misses are small WASM wins kept in JS (`histogram`, `matmul`). The terms:
 - *benefit*: the operations the island would run per run of the program, by kind, each
   times the time WASM saves per operation (negative where the island is slower): float
   arithmetic; int32 operations (operands the backend holds as int32: every local in them has

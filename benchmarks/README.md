@@ -204,6 +204,16 @@ S8 deferred the refit to this session; the details and tables are in `partition/
   functions. The values are kept as fitted, to three significant figures: `integer` and
   `iteration` are collinear, and rounding further flips `tile-digest` and `mixed`.
 - What the model still can't see is in the generated code, below; refit after S6 fixes it.
+- **S10 refit**, after S10's backend and range fixes (below). On current main the S9 weights
+  agree on 15 of 18 kernels (missing `histogram` and `noise`, which became WASM wins, and
+  `rounding`), losing 4.74 ms per run. A first fit on the 17 kernels agreed on 16/17 but moved
+  `numeric-driver`'s `fir` back to JS, where it measures 1.11× slower (7.5× cold), so `fir` is
+  now a calibration kernel (`partition/kernels/fir`). Fitted on all 18 and checked on a second
+  run: 16/18, losing 0.14 ms per run (`histogram` 1.14× and `matmul` 1.09×, both small wins
+  the model leaves in JS); refitting on the second run gives the same picks. **Applied**
+  (`CostModel::default`, the schema, `options.d.ts`): the whole programs keep their islands
+  (`mixed`'s kernel, `numeric-driver`'s `fir`; `image-filters` all JS) and `rounding` is now
+  picked. `partition/README.md` has the tables and the weights.
 
 ### For S6 and S7: what each known miss costs
 
@@ -232,10 +242,9 @@ proposed fix as written (an `i32` index needs a range proof).
   integer-ranges change).
 - The `fmod` paths cost nothing measurable: `floor % 2.0` only runs on exact `.5` values,
   and `to_uint32`'s `%` only out of the `u32` range. Not worth a change for speed.
-- `rounding`: with its counter now int32 the old weights picked it (2.1× faster in WASM); the
-  refitted ones don't, by 0.18 ms of predicted saving (one `math` weight for every `Math`
-  call). Separating `round`/`floor`/`sign`/`trunc` from the transcendental functions would
-  change the model's form, which S9 didn't (S8).
+- `rounding`: with its counter now int32 the old weights picked it (2.1× faster in WASM); S9's
+  refitted ones didn't, by 0.18 ms of predicted saving (one `math` weight for every `Math`
+  call). S10's refit picks it again.
 - Loop counters typed `f64`: fixed on main for counters bounded by parameters and `.length`
   (`for (let i = 0; i < n; i++)`), and in S10 for a counter stepped by more than one against a
   length (`for (let i = 0; i + 3 < a.length; i += 4)`, image-filters' `grayscale`).
