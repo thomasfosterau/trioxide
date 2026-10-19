@@ -1,0 +1,40 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/computed-key-callback-builtins
+input_file: tests/fixtures/analysis/computed-key-callback-builtins/input.ts
+---
+//- input.ts
+// Functions held by objects and read back where the analysis loses track of the slot:
+// builtins that return an object's values, `for…in`, spread copies and computed reads.
+function v1(x) {
+	return x * 2;
+}
+function v2(x) {
+	return x + 1;
+}
+function v4(x) {
+	return x * 3;
+}
+function v5(x) {
+	return x * 5;
+}
+function v6(x) {
+	return x * 7;
+}
+const byValues = { f: v1 };
+const byLoop = { f: v2 };
+const byIndex = [v4];
+const byName = { f: v5 };
+const byEntries = { f: v6 };
+export function main() {
+	console.log(Object.values(byValues)[0](1));
+	for (const key in byLoop) {
+		console.log(byLoop[key](2));
+	}
+	console.log(2);
+	const i = Number("0");
+	console.log(byIndex[i](4));
+	const k = ["f"][0];
+	console.log(byName[k](5));
+	console.log(Object.entries(byEntries)[0][1](6));
+}
