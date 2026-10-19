@@ -1,0 +1,60 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/array-fill-index
+input_file: tests/fixtures/analysis/array-fill-index/input.ts
+---
+//- input.ts
+// `new Array(n).fill(v)` written and read at indices whose proven range is inside its length:
+// the array stays packed, and its elements stay numbers. The keys come from records another
+// module builds, so in early sweeps they have no value yet, which must not count as "any key".
+import { makeRows } from "./records.js";
+function totals(rows) {
+	const sums = new Array(8).fill(0);
+	for (let i = 0, length = rows.length; i < length; i++) {
+		if (!(i in rows)) continue;
+		const row = rows[i];
+		sums[row.key] += row.amount;
+	}
+	return sums;
+}
+function counts(rows) {
+	const seen = new Array(8).fill(0);
+	for (let i = 0, length = rows.length; i < length; i++) {
+		const row = rows[i];
+		seen[row.key]++;
+	}
+	return seen;
+}
+function spill(rows) {
+	// Indices up to 8, one past the end: a hole may be read, and a write grows the array.
+	const xs = new Array(8).fill(1);
+	let s = 0;
+	for (let i = 0, length = rows.length; i < length; i++) {
+		const row = rows[i];
+		s += xs[row.key + 1] ?? 100;
+	}
+	xs[rows.length % 9] = 2;
+	return s + xs.length;
+}
+const ROWS = makeRows(200);
+export function main() {
+	const rows = ROWS;
+	const sums = totals(rows);
+	console.log(sums.map((v) => v.toFixed(1)).join(), counts(rows).join(), spill(rows));
+	const first = sums[rows[0].key];
+	console.log(first.toFixed(1));
+}
+
+//- records.ts
+export function makeRows(count) {
+	const rows = [];
+	let state = 7;
+	for (let i = 0; i < count; i++) {
+		state = Math.imul(state, 1664525) + 1013904223 >>> 0;
+		rows.push({
+			key: Math.floor(state / 4294967296 * 8),
+			amount: state % 100 / 10
+		});
+	}
+	return rows;
+}

@@ -49,9 +49,9 @@ nodes:
   9:22 binary `ny < height`: boolean@proven
   9:22 ref `ny`: number[0, 6] int nonNaN nonNegZero@proven
   9:27 ref `height`: 6@proven
-  9:35 assign `sum += src[(ny * width + 1) * 4]`: number nonNegZero@declared
-  9:35 ref `sum`: number nonNegZero@declared
-  9:42 member `src[(ny * width + 1) * 4]`: undefined | number@declared
+  9:35 assign `sum += src[(ny * width + 1) * 4]`: number nonNegZero@proven
+  9:35 ref `sum`: number nonNegZero@proven
+  9:42 member `src[(ny * width + 1) * 4]`: undefined | (number[0, 255] int nonNaN nonNegZero)@proven
   9:42 ref `src`: Uint8Array@proven
   9:46 binary `(ny * width + 1) * 4`: number[4, 164] int nonNaN nonNegZero@proven
   9:47 binary `ny * width + 1`: number[1, 41] int nonNaN nonNegZero@proven

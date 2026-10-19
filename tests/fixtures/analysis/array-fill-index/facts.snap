@@ -1,0 +1,174 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/array-fill-index
+input_file: tests/fixtures/analysis/array-fill-index/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): reads writes allocates throws
+    calls 29:14 -> makeRows (m1)
+  totals (6:1): reads writes allocates throws
+    calls 8:3 -> <anonymous>
+  <anonymous> (8:16): reads writes
+  counts (14:1): reads writes allocates (declared: reads writes allocates throws)
+  spill (20:1): reads allocates (declared: reads allocates throws)
+  main (31:8) open: reads writes allocates throws calls-unknown
+    calls 33:16 -> totals
+    calls 34:15 -> <anonymous>
+    calls 34:53 -> counts
+    calls 34:74 -> spill
+  <anonymous> (34:24): throws
+nodes:
+  4:10 bind `makeRows`: unknown
+  4:25 bind `Row`: unknown
+  6:10 bind `totals`: function@proven
+  6:17 bind `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  6:23 ref `Row`: unknown
+  7:9 bind `sums`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  7:16 call `new Array<number>(8).fill(0)`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  7:16 member `new Array<number>(8).fill`: unknown
+  7:16 new `new Array<number>(8)`: (number[0, inf] nonNaN nonNegZero)[]@proven escape=known stable-shape
+  7:20 ref `Array`: unknown
+  8:3 call `rows.forEach((row) => { sums[row.key]...`: undefined@proven
+  8:3 member `rows.forEach`: unknown
+  8:3 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  8:17 bind `row`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  9:5 assign `sums[row.key] += row.amount`: number[0, inf] nonNaN nonNegZero@proven
+  9:5 member `sums[row.key]`: unknown
+  9:5 ref `sums`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  9:10 member `row.key`: number[0, 7] int nonNaN nonNegZero@proven
+  9:10 ref `row`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  9:22 member `row.amount`: number[0, 9.9] nonNaN nonNegZero@proven
+  9:22 ref `row`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  11:10 ref `sums`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  14:10 bind `counts`: function@proven
+  14:17 bind `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  14:23 ref `Row`: unknown
+  15:9 bind `seen`: (number[0, inf] int nonNaN nonNegZero)[]@proven
+  15:16 call `new Array<number>(8).fill(0)`: (number[0, inf] int nonNaN nonNegZero)[]@proven
+  15:16 member `new Array<number>(8).fill`: unknown
+  15:16 new `new Array<number>(8)`: (number[0, inf] int nonNaN nonNegZero)[]@proven escape=known stable-shape
+  15:20 ref `Array`: unknown
+  16:14 bind `row`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  16:21 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  16:27 unary `seen[row.key]++`: number[0, inf] int nonNaN nonNegZero@proven
+  16:27 member `seen[row.key]`: unknown
+  16:27 ref `seen`: (number[0, inf] int nonNaN nonNegZero)[]@proven
+  16:32 member `row.key`: number[0, 7] int nonNaN nonNegZero@proven
+  16:32 ref `row`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  17:10 ref `seen`: (number[0, inf] int nonNaN nonNegZero)[]@proven
+  20:10 bind `spill`: function@proven
+  20:16 bind `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  20:22 ref `Row`: unknown
+  22:9 bind `xs`: unknown[]@proven
+  22:14 call `new Array<number>(8).fill(1)`: unknown[]@proven
+  22:14 member `new Array<number>(8).fill`: unknown
+  22:14 new `new Array<number>(8)`: unknown[]@proven escape=none stable-shape
+  22:18 ref `Array`: unknown
+  23:7 bind `s`: 0@proven
+  24:14 bind `row`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  24:21 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  24:27 assign `s += xs[row.key + 1] ?? 100`: number[1, inf] int nonNaN nonNegZero@proven
+  24:27 ref `s`: number[0, inf] int nonNaN nonNegZero@proven
+  24:32 binary `xs[row.key + 1] ?? 100`: number[1, 100] int nonNaN nonNegZero@proven
+  24:32 member `xs[row.key + 1]`: undefined | (number[1, 2] int nonNaN nonNegZero)@proven
+  24:32 ref `xs`: unknown[]@proven
+  24:35 binary `row.key + 1`: number[1, 8] int nonNaN nonNegZero@proven
+  24:35 member `row.key`: number[0, 7] int nonNaN nonNegZero@proven
+  24:35 ref `row`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  25:3 assign `xs[rows.length % 9] = 2`: 2@proven
+  25:3 member `xs[rows.length % 9]`: unknown
+  25:3 ref `xs`: unknown[]@proven
+  25:6 binary `rows.length % 9`: number[0, 8] int nonNaN nonNegZero@proven
+  25:6 member `rows.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  25:6 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  26:10 binary `s + xs.length`: number[0, inf] int nonNaN nonNegZero@proven
+  26:10 ref `s`: number[0, inf] int nonNaN nonNegZero@proven
+  26:14 member `xs.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  26:14 ref `xs`: unknown[]@proven
+  29:7 bind `ROWS`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  29:14 call `makeRows(200)`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  29:14 ref `makeRows`: function@proven
+  31:17 bind `main`: function@proven
+  32:9 bind `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  32:16 ref `ROWS`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  33:9 bind `sums`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  33:16 call `totals(rows)`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  33:16 ref `totals`: function@proven
+  33:23 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  34:3 call `console.log(sums.map((v) => v.toFixed...`: unknown
+  34:3 member `console.log`: unknown
+  34:3 ref `console`: unknown
+  34:15 call `sums.map((v) => v.toFixed(1)).join()`: string@proven
+  34:15 member `sums.map((v) => v.toFixed(1)).join`: unknown
+  34:15 call `sums.map((v) => v.toFixed(1))`: string[]@proven escape=none stable-shape
+  34:15 member `sums.map`: unknown
+  34:15 ref `sums`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  34:25 bind `v`: number[0, inf] nonNaN nonNegZero@proven
+  34:31 call `v.toFixed(1)`: string@proven
+  34:31 member `v.toFixed`: unknown
+  34:31 ref `v`: number[0, inf] nonNaN nonNegZero@proven
+  34:53 call `counts(rows).join()`: string@proven
+  34:53 member `counts(rows).join`: unknown
+  34:53 call `counts(rows)`: (number[0, inf] int nonNaN nonNegZero)[]@proven
+  34:53 ref `counts`: function@proven
+  34:60 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  34:74 call `spill(rows)`: number[0, inf] int nonNaN nonNegZero@proven
+  34:74 ref `spill`: function@proven
+  34:80 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  35:9 bind `first`: number[0, inf] nonNaN nonNegZero@proven
+  35:17 non-null `sums[rows[0]!.key]!`: number[0, inf] nonNaN nonNegZero@proven
+  35:17 member `sums[rows[0]!.key]`: number[0, inf] nonNaN nonNegZero@proven
+  35:17 ref `sums`: (number[0, inf] nonNaN nonNegZero)[]@proven
+  35:22 member `rows[0]!.key`: number[0, 7] int nonNaN nonNegZero@proven
+  35:22 non-null `rows[0]!`: undefined | {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  35:22 member `rows[0]`: undefined | {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven
+  35:22 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  36:3 call `console.log(first.toFixed(1))`: unknown
+  36:3 member `console.log`: unknown
+  36:3 ref `console`: unknown
+  36:15 call `first.toFixed(1)`: string@proven
+  36:15 member `first.toFixed`: unknown
+  36:15 ref `first`: number[0, inf] nonNaN nonNegZero@proven
+
+//- records.ts
+functions:
+  <module> (1:1): pure
+  makeRows (6:8): reads writes allocates throws
+nodes:
+  1:18 bind `Row`: unknown
+  6:17 bind `makeRows`: function@proven
+  6:26 bind `count`: 200@proven
+  6:42 ref `Row`: unknown
+  7:9 bind `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  7:15 ref `Row`: unknown
+  7:23 array `[]`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven escape=known stable-shape
+  8:7 bind `state`: 7@proven
+  9:12 bind `i`: 0@proven
+  9:19 binary `i < count`: boolean@proven
+  9:19 ref `i`: number[0, inf] int nonNaN nonNegZero@proven
+  9:23 ref `count`: 200@proven
+  9:30 unary `i++`: number[0, 199] int nonNaN nonNegZero@proven
+  9:30 ref `i`: number[0, 200] int nonNaN nonNegZero@proven
+  10:5 assign `state = (Math.imul(state, 1664525) + ...`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  10:5 ref `state`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  10:13 binary `(Math.imul(state, 1664525) + 10139042...`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  10:14 binary `Math.imul(state, 1664525) + 1013904223`: number[-1133579425, 3161387870] int nonNaN nonNegZero@proven
+  10:14 call `Math.imul(state, 1664525)`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
+  10:14 member `Math.imul`: unknown
+  10:14 ref `Math`: unknown
+  10:24 ref `state`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  11:5 call `rows.push({ key: Math.floor((state / ...`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  11:5 member `rows.push`: unknown
+  11:5 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven
+  11:15 object `{ key: Math.floor((state / 4294967296...`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}@proven escape=known stable-shape
+  11:22 call `Math.floor((state / 4294967296) * 8)`: number[0, 7] int nonNaN nonNegZero@proven
+  11:22 member `Math.floor`: unknown
+  11:22 ref `Math`: unknown
+  11:33 binary `(state / 4294967296) * 8`: number[0, 7.999999998137355] nonNaN nonNegZero@proven
+  11:34 binary `state / 4294967296`: number[0, 0.9999999997671694] nonNaN nonNegZero@proven
+  11:34 ref `state`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  11:68 binary `(state % 100) / 10`: number[0, 9.9] nonNaN nonNegZero@proven
+  11:69 binary `state % 100`: number[0, 99] int nonNaN nonNegZero@proven
+  11:69 ref `state`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  13:10 ref `rows`: {| key: number[0, 7] int nonNaN nonNegZero, amount: number[0, 9.9] nonNaN nonNegZero |}[]@proven

@@ -228,7 +228,11 @@ back to TS where it knows nothing:
   `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged. A
   comparison narrows its locals (`x + k < n` narrows an integer `x` too, for integer `k` and
   `n` within ±2^52, where the rounded sum compares as the exact one does), and one that leaves
-  a proven value no number narrows it to `never`, so the branch is unreachable there.
+  a proven value no number narrows it to `never`, so the branch is unreachable there. A
+  write or read of an array at an index whose proven range lies below the array's known
+  length (`new Array(500).fill(0)` indexed by a `[0, 499]` integer) neither makes a hole nor
+  changes the length, and a key with no value yet (`never`, a run on stale inputs) is no
+  access at all rather than "any key".
 
 Beyond types, the `Facts` API answers per call site (callees and whether that is all that
 can run there), per expression (effects including callees and implicit calls, `is_pure`,
