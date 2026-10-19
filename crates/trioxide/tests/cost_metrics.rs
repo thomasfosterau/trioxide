@@ -3,9 +3,8 @@
 
 use trioxide::{CostModel, Options, Project, log::FunctionDecision};
 
-/// The image-filters calibration kernel: `boxBlur`'s dimensions arrive as parameters, so the
-/// analysis proves the read index `(ny * width + nx) * 4 + c` an int32 but not `ny * width`,
-/// and the backend computes that index in `f64` and checks every read.
+/// The image-filters calibration kernel: `boxBlur`'s dimensions arrive as parameters, and
+/// the analysis proves every index it computes an int32 (`(ny * width + nx) * 4 + c` too).
 const KERNEL: &str = include_str!("../../../benchmarks/partition/kernels/image-filters/kernel.ts");
 const INPUT: &str = include_str!("../../../benchmarks/partition/kernels/image-filters/input.ts");
 
@@ -66,12 +65,30 @@ fn benefit(decision: &FunctionDecision) -> f64 {
 /// made the model expect WASM to be faster where it is 3–4× slower).
 #[test]
 fn index_arithmetic_counts_as_int32_only_when_every_operation_is() {
-    // 9 neighbours × 3 channels × 320×240 pixels, read with a float index.
-    let checked = box_blur(|m| m.checked_index = 1.0);
-    assert_eq!(benefit(&checked), 2_073_600.0, "{checked:?}");
-    // Four writes and the alpha read per pixel index with `(y * width + x) * 4 + c`: int32.
+    // `(i % 3 + 1) * width` with `width` only bounded below: the product's range is not
+    // an int32's, though the sum `i + 1` is.
+    let kernel = "export function strided(a: Uint8Array, width: number): number {
+  let s = 0;
+  for (let i = 0; i < 1000; i++) s += a[(i % 3 + 1) * width] + a[i + 1];
+  return s;
+}
+";
+    let input = "import { strided } from \"./kernel.js\";
+const a = new Uint8Array(64);
+let width = 1;
+for (let i = 0; i < a[0]; i++) width *= 2;
+export const run = (): number => strided(a, width);
+";
+    let checked = decision(kernel, input, "strided", |m| m.checked_index = 1.0);
+    assert_eq!(benefit(&checked), 1000.0, "{checked:?}");
+    let int32 = decision(kernel, input, "strided", |m| m.index = 1.0);
+    assert_eq!(benefit(&int32), 1000.0, "{int32:?}");
+    // In `boxBlur`, all of them: 9 neighbours × 3 channels, then four writes and the alpha
+    // read, per pixel of 320×240.
     let int32 = box_blur(|m| m.index = 1.0);
-    assert_eq!(benefit(&int32), 5.0 * 76_800.0, "{int32:?}");
+    assert_eq!(benefit(&int32), (27.0 + 5.0) * 76_800.0, "{int32:?}");
+    let checked = box_blur(|m| m.checked_index = 1.0);
+    assert_eq!(benefit(&checked), 0.0, "{checked:?}");
 }
 
 /// `%` on int32s is `f64` in the island (`RemI32` has an `f64` result), so an index built on

@@ -215,12 +215,19 @@ proposed fix as written (an `i32` index needs a range proof).
   call). Separating `round`/`floor`/`sign`/`trunc` from the transcendental functions would
   change the model's form, which S9 didn't (S8).
 - Loop counters typed `f64`: fixed on main for counters bounded by parameters and `.length`
-  (`for (let i = 0; i < n; i++)`); a counter stepped by more than one against a length
-  (`for (let i = 0; i + 3 < a.length; i += 4)`, image-filters' `grayscale`) is still `f64`.
+  (`for (let i = 0; i < n; i++)`), and in S10 for a counter stepped by more than one against a
+  length (`for (let i = 0; i + 3 < a.length; i += 4)`, image-filters' `grayscale`).
 - The same `boxBlur` source lowers its inner index in `i32` in `examples/image-filters` (the
   analysis proves `ny * width` int32 there) and in `f64` in the calibration kernel, whose
   driver passes the same constants. Why the products' ranges differ between the two programs
-  is a question for S2.
+  is a question for S2. **Answered in S10:** node facts join every run and loop iteration of
+  their unit, and in one iteration of the kernel's (the order of runs differs between the two
+  programs) `ny` was exactly -1, so `ny >= 0` narrowed it to the inverted interval [0, -1]
+  instead of `never`; arithmetic on that gave `ny * width` [-320, 0], and the product with 4
+  then lost `nonNegZero`, which the backend needs for `i32`. S10 narrows a contradiction to
+  `never`, keeps `nonNegZero` on products of integers that can't be -0, and narrows `i` from
+  `i + 3 < a.length` (the step-4 counter of `grayscale`). Partition suite, five rounds:
+  `image-filters`' island 22.46 → 6.26 ms (JS 4.99 ms), `per-element` 1.54 ms → 761.5 µs.
 - Even with `i32` indices, `examples/image-filters`' `boxBlur` island is slower than JS
   (40.9 against 32.9 ms for the whole `run()`, the median of eleven rounds; removing the
   `black_box` on its divisor changes nothing), so what makes it slow isn't only the index

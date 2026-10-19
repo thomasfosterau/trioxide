@@ -5,7 +5,6 @@ input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 ---
 //- input.ts
 19:7 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
-20:10 inline skipped: the binding's single value depends on what its callers pass (`passes.specialize` is off)
 36:10 inline skipped: the read may throw (e.g. in its temporal dead zone)
 39:10 inline applied
 115:53 inline skipped: the read may throw (e.g. in its temporal dead zone)
@@ -21,8 +20,10 @@ input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 98:12 fold applied
 115:53 fold skipped: the expression has effects, so it stays
 116:51 fold skipped: the expression has effects, so it stays
+20:3 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
 3:7 dce applied
 38:1 dce applied
+20:3 dce skipped: unreachable by the facts, which may rest on what callers pass (`passes.specialize` is off)
 79:12 partial-eval skipped: the interpreter doesn't model bindings other than earlier module constants
 80:12 partial-eval skipped: the interpreter doesn't model this builtin (only exactly specified ones are)
 81:12 partial-eval skipped: the interpreter doesn't model globals

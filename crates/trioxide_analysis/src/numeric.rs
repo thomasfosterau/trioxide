@@ -153,12 +153,20 @@ pub fn mul(a: NumberType, b: NumberType) -> NumberType {
     // Strictly negative: a `+0` operand would make a negative product's zero `-0`.
     let a_neg = a.range.max < 0.0;
     let b_neg = b.range.max < 0.0;
+    // A product of integers is zero only when an operand is (it can't underflow): of two
+    // that are never `-0`, then `-0` only when the other one is negative.
+    let ints_unsigned_zero = a.int
+        && b.int
+        && a.non_neg_zero
+        && b.non_neg_zero
+        && !(may_be_zero(a) && b.range.min < 0.0)
+        && !(may_be_zero(b) && a.range.min < 0.0);
     NumberType {
         range,
         int: a.int && b.int,
         non_nan: a.non_nan && b.non_nan && !zero_times_inf,
         // The sign of a zero product is the XOR of the signs; underflow keeps the sign too.
-        non_neg_zero: (a_nonneg && b_nonneg) || (a_neg && b_neg),
+        non_neg_zero: (a_nonneg && b_nonneg) || (a_neg && b_neg) || ints_unsigned_zero,
     }
 }
 
