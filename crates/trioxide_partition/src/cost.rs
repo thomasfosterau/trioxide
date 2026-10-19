@@ -124,6 +124,7 @@ impl CostModel {
     ) -> Score {
         let members: FxHashSet<FunctionId> = cluster.iter().copied().collect();
         let mut works = FxHashMap::default();
+        let mut recursive = false;
         let (mut calls, mut bytes, mut aggregates) = (0.0, 0.0, 0.0);
         let mut ops = Ops::default();
         let mut entries = Vec::new();
@@ -132,7 +133,10 @@ impl CostModel {
                 .call_graph()
                 .callers(function)
                 .filter(|edge| !members.contains(&edge.caller) && reaches(edge))
-                .map(|edge| metrics.sites.get(&edge.site).copied().unwrap_or(1.0))
+                .map(|edge| {
+                    metrics.sites.get(&edge.site).copied().unwrap_or(1.0)
+                        * metrics.runs(edge.caller)
+                })
                 .sum();
             if freq == 0.0 {
                 continue;
@@ -140,7 +144,14 @@ impl CostModel {
             entries.push(function);
             calls = saturate(calls + freq);
             ops.add_scaled(
-                &self.work(function, facts, metrics, &mut works, &mut Vec::new()),
+                &self.work(
+                    function,
+                    facts,
+                    metrics,
+                    &mut works,
+                    &mut Vec::new(),
+                    &mut recursive,
+                ),
                 freq,
             );
             bytes = saturate(bytes + freq * metrics.bytes(function, facts, self));
@@ -167,13 +178,14 @@ impl CostModel {
                 calls,
                 work,
                 bytes,
+                recursive,
             },
             entries,
         }
     }
 
     /// The operations one call of `function` runs, its callees' included. A recursive call
-    /// counts as a loop around the function's own work.
+    /// counts as a loop around the function's own work (and sets `recursive`).
     fn work(
         &self,
         function: FunctionId,
@@ -181,6 +193,7 @@ impl CostModel {
         metrics: &Metrics,
         memo: &mut FxHashMap<FunctionId, Ops>,
         stack: &mut Vec<FunctionId>,
+        recursive: &mut bool,
     ) -> Ops {
         if let Some(&ops) = memo.get(&function) {
             return ops;
@@ -200,11 +213,12 @@ impl CostModel {
             let share = freq / callees.len().max(1) as f64;
             for &callee in &callees {
                 if stack.contains(&callee) {
+                    *recursive = true;
                     if let Some(callee) = metrics.functions.get(&callee) {
                         ops.add_scaled(&callee.ops, share * self.trips);
                     }
                 } else {
-                    let callee = self.work(callee, facts, metrics, memo, stack);
+                    let callee = self.work(callee, facts, metrics, memo, stack, recursive);
                     ops.add_scaled(&callee, share);
                 }
             }

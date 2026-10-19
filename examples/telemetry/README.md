@@ -25,7 +25,8 @@ pnpm bench           # the benchmarks' whole-program suite for this example
 From `pnpm explain` and the output in `dist/`:
 
 - **Partial evaluation (pass 11)**: `const NIBBLES = crcNibbleTable()` becomes the literal
-  16-entry table, so loading the module runs no table code.
+  16-entry table, so loading the module runs no table code, and `crcNibbleTable` itself goes
+  (nothing calls it any more).
 - **Scalar replacement (pass 8)**: `summarise`'s accumulator `{ count, sum, min, max,
   humidity }` becomes five locals (`acc_count`, `acc_sum`, …).
 - **Inlining (pass 5)**: `toCelsius` and `clamp` are inlined into `decode`'s loop
@@ -46,8 +47,6 @@ What they don't do, and why (`explain` logs each skip):
 - `const BATCH = packets(4000, 2026)` isn't evaluated at build time: `packets` calls a closure
   (`lcg`), which the partial evaluator doesn't model, and its 32 000 bytes would be far over
   the 128-value literal limit anyway.
-- `crcNibbleTable` stays in the output after partial evaluation removed its only call (the
-  foundation DCE runs before the speed passes).
 
 ## Before and after
 

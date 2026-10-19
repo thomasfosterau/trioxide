@@ -59,3 +59,63 @@ fn explains_one_function() {
     let text = explain(&dir, &["src/view.ts:render"]);
     insta::assert_snapshot!("explain_mixed_render", text);
 }
+
+#[test]
+fn js_only_still_explains_verdicts_and_passes() {
+    let dir = example("mixed");
+    let text = explain(&dir, &["--mode", "js-only"]);
+    assert!(
+        text.contains(
+            "tileDigest (10:8): JS\n    why: stays JS in js-only mode; the cost model would \
+             choose WASM"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("uses the global `document` (a host API)"),
+        "{text}"
+    );
+    assert!(text.contains("passes:"), "{text}");
+}
+
+#[test]
+fn entries_resolve_against_the_root() {
+    let dir = example("mixed");
+    let parent = dir.parent().unwrap();
+    let text = explain(
+        parent,
+        &[
+            "--root",
+            "mixed",
+            "--entry",
+            "src/main.ts",
+            "mixed/src/kernel.ts",
+        ],
+    );
+    assert!(
+        text.contains("tileDigest (10:8): WASM in island `kernel`"),
+        "{text}"
+    );
+}
+
+#[test]
+fn flags_recursion() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("fib.ts"),
+        "export function fib(n: number): number {\n  return n < 2 ? n : fib(n - 1) + fib(n - 2);\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("main.ts"),
+        "import { fib } from \"./fib.js\";\n\
+         export function run(): number {\n  let s = 0;\n  for (let i = 0; i < 1000; i++) s += fib(i % 20);\n  return s;\n}\n\
+         export function main(): void {\n  console.log(run());\n}\n",
+    )
+    .unwrap();
+    let text = explain(dir.path(), &["--entry", "main.ts", "fib.ts:fib"]);
+    assert!(
+        text.contains("recursive: each recursive call counts as a loop"),
+        "{text}"
+    );
+}

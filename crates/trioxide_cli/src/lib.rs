@@ -366,7 +366,8 @@ fn explain(
             pages
         }
     } else {
-        entries.iter().map(|entry| cwd.join(entry)).collect()
+        // Relative to the project root, as `build` takes them.
+        entries.to_vec()
     };
     project.plan(&entries)?;
     let report = project.explain(&query);

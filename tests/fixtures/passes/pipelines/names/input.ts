@@ -11,14 +11,14 @@ function shadows(): number {
 function receiverName(): number[] {
   const values = [1, 2];
   // A parameter named like the receiver.
-  return values.map((values) => values * 3);
+  return values.map((values) => values * 3).map((v) => v);
 }
 
 function indexName(): number[] {
   const i = 100;
   const values = [1, 2];
   // The callback reads an outer `i`: the loop's index can't be called that.
-  return values.map((v) => v + i);
+  return values.map((v) => v + i).map((w) => w);
 }
 
 function sameNames(): number {
@@ -46,7 +46,7 @@ function captured(): number[] {
   values.forEach((v) => {
     makers.push(() => v * 10);
   });
-  return makers.map((make) => make());
+  return makers.map((make) => make()).map((v) => v);
 }
 
 function accumulatorCaptured(): number {

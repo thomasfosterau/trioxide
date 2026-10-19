@@ -15,5 +15,6 @@ input_file: tests/fixtures/passes/for-of/basics/input.ts
 56:3 for-of applied
 67:16 for-of applied
 69:18 for-of applied
-51:10 pipelines applied
+51:10 pipelines skipped: a lone `map` stays (nothing to fuse; V8's builtin is faster)
 50:49 closure-hoist skipped: the closure captures `value`
+51:21 closure-hoist applied

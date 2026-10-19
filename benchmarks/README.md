@@ -87,10 +87,14 @@ decision.
   `scalar-instances` (S10: `new Point(…)` temporaries) behaves like `scalar-points`: 0.83×
   hot, 3.6× cold (11 alternating rounds against main's build of the same case, which leaves
   the instances alone: 0.84× (0.76–0.86) and 3.62× (2.73–4.05)).
-- `closure-hoist-loop` no longer measures closure hoisting: #16's pipelines pass now turns its
+- `closure-hoist-loop` didn't measure closure hoisting: #16's pipelines pass turned its
   4-element `rows[i].map(…)` into a `push` loop first, and that loop is slower than V8's
-  builtin `map` (0.60× hot, 0.86× cold). Reported to S5b: small `map`s may be better left as
-  the builtin, or lowered with a preallocated result.
+  builtin `map` (0.60× hot, 0.86× cold). S10 leaves a chain that is one `map` as the builtin
+  call (nothing to fuse): with the same five rounds, `closure-hoist-loop` went from 0.65×
+  (0.62–0.66) to 1.02× (0.95–1.11) under V8's defaults and from 0.87× (0.79–0.89) to 1.52×
+  (1.45–1.60) cold; every other case stayed within its range (`array-pipelines` 29.8× before
+  and after), and so did the whole programs (`array-pipeline` 1.15× → 1.17×, `telemetry`
+  1.13× → 1.13× under V8's defaults).
 
 ### Whole programs
 
@@ -213,6 +217,13 @@ proposed fix as written (an `i32` index needs a range proof).
 - The first three each turn a kernel the island loses (1.1–14×) into one it wins
   (1.13–1.3×). Fixing them changes which operation kinds are slow, so the weights need a
   refit afterwards.
+- **S10 fixed the second and third in the lowering** (`ToInt32` of constants folded and of
+  element reads taken from the element, `a[i]++`/`+=` on typed arrays in the element type's
+  arithmetic). The partition suite, five rounds, WASM before → after (JS in brackets):
+  `histogram` 3.45 ms → 191.5 µs (231.9 µs), `noise` 9.63 → 5.92 ms (8.00 ms), `int-hash`
+  4.65 → 3.79 ms (10.19 ms), `per-element` 1.54 ms → 752.1 µs (185.7 µs); `histogram` and
+  `noise` now run faster in WASM than in JS. The first miss is the analysis's (S10's
+  integer-ranges change).
 - The `fmod` paths cost nothing measurable: `floor % 2.0` only runs on exact `.5` values,
   and `to_uint32`'s `%` only out of the `u32` range. Not worth a change for speed.
 - `rounding`: with its counter now int32 the old weights picked it (2.1× faster in WASM); the
@@ -220,12 +231,19 @@ proposed fix as written (an `i32` index needs a range proof).
   call). Separating `round`/`floor`/`sign`/`trunc` from the transcendental functions would
   change the model's form, which S9 didn't (S8).
 - Loop counters typed `f64`: fixed on main for counters bounded by parameters and `.length`
-  (`for (let i = 0; i < n; i++)`); a counter stepped by more than one against a length
-  (`for (let i = 0; i + 3 < a.length; i += 4)`, image-filters' `grayscale`) is still `f64`.
+  (`for (let i = 0; i < n; i++)`), and in S10 for a counter stepped by more than one against a
+  length (`for (let i = 0; i + 3 < a.length; i += 4)`, image-filters' `grayscale`).
 - The same `boxBlur` source lowers its inner index in `i32` in `examples/image-filters` (the
   analysis proves `ny * width` int32 there) and in `f64` in the calibration kernel, whose
   driver passes the same constants. Why the products' ranges differ between the two programs
-  is a question for S2.
+  is a question for S2. **Answered in S10:** node facts join every run and loop iteration of
+  their unit, and in one iteration of the kernel's (the order of runs differs between the two
+  programs) `ny` was exactly -1, so `ny >= 0` narrowed it to the inverted interval [0, -1]
+  instead of `never`; arithmetic on that gave `ny * width` [-320, 0], and the product with 4
+  then lost `nonNegZero`, which the backend needs for `i32`. S10 narrows a contradiction to
+  `never`, keeps `nonNegZero` on products of integers that can't be -0, and narrows `i` from
+  `i + 3 < a.length` (the step-4 counter of `grayscale`). Partition suite, five rounds:
+  `image-filters`' island 22.46 → 6.26 ms (JS 4.99 ms), `per-element` 1.54 ms → 761.5 µs.
 - Even with `i32` indices, `examples/image-filters`' `boxBlur` island is slower than JS
   (40.9 against 32.9 ms for the whole `run()`, the median of eleven rounds; removing the
   `black_box` on its divisor changes nothing), so what makes it slow isn't only the index

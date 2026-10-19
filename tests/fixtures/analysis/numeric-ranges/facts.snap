@@ -88,18 +88,18 @@ nodes:
   21:25 ref `rounded`: number[-1, -0] int nonNaN@proven
   21:34 unary `-0`: number[-0, -0] int nonNaN@proven
   21:39 ref `rounded`: number[-1, -0] int nonNaN@proven
-  22:9 bind `clamped`: number[0, 255] int nonNaN@proven
-  22:19 call `Math.min(255, Math.max(0, byte * 2))`: number[0, 255] int nonNaN@proven
+  22:9 bind `clamped`: number[0, 255] int nonNaN nonNegZero@proven
+  22:19 call `Math.min(255, Math.max(0, byte * 2))`: number[0, 255] int nonNaN nonNegZero@proven
   22:19 member `Math.min`: unknown
   22:19 ref `Math`: unknown
-  22:33 call `Math.max(0, byte * 2)`: number[0, 4294967294] int nonNaN@proven
+  22:33 call `Math.max(0, byte * 2)`: number[0, 4294967294] int nonNaN nonNegZero@proven
   22:33 member `Math.max`: unknown
   22:33 ref `Math`: unknown
-  22:45 binary `byte * 2`: number[-4294967296, 4294967294] int nonNaN@proven
+  22:45 binary `byte * 2`: number[-4294967296, 4294967294] int nonNaN nonNegZero@proven
   22:45 ref `byte`: number[-2147483648, 2147483647] int nonNaN nonNegZero@proven
   23:3 call `sink(clamped /*@proven number int non...`: undefined@proven
   23:3 ref `sink`: function@proven
-  23:8 ref `clamped`: number[0, 255] int nonNaN@proven
+  23:8 ref `clamped`: number[0, 255] int nonNaN nonNegZero@proven
   24:9 bind `big`: number[1, inf] int nonNegZero@proven
   24:15 binary `2 ** 53 + 1`: number[1, inf] int nonNegZero@proven
   24:15 binary `2 ** 53`: number[0, inf] int nonNegZero@proven

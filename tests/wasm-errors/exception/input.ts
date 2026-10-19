@@ -7,4 +7,9 @@ function checked(n: number): number {
 
 export function main(): void {
   console.log(checked(4));
+  try {
+    checked(-1);
+  } catch (error) {
+    console.log((error as Error).name);
+  }
 }

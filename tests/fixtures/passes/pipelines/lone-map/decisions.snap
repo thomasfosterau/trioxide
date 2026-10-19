@@ -1,0 +1,14 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/pipelines/lone-map
+input_file: tests/fixtures/passes/pipelines/lone-map/input.ts
+---
+//- input.ts
+25:3 for-of applied
+7:10 pipelines skipped: a lone `map` stays (nothing to fuse; V8's builtin is faster)
+11:15 pipelines skipped: a lone `map` stays (nothing to fuse; V8's builtin is faster)
+16:10 pipelines applied
+20:10 pipelines applied
+7:18 closure-hoist applied
+11:23 closure-hoist applied
+30:55 closure-hoist applied
