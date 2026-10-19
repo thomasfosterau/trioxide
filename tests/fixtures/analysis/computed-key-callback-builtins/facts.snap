@@ -1,0 +1,124 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/computed-key-callback-builtins
+input_file: tests/fixtures/analysis/computed-key-callback-builtins/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  v1 (3:1) open: reads writes throws calls-unknown (declared: pure)
+  v2 (6:1) open: reads writes throws calls-unknown (declared: pure)
+  v3 (9:1): pure
+  v4 (12:1): pure
+  v5 (15:1) open: reads writes throws calls-unknown (declared: pure)
+  v6 (18:1) open: reads writes throws calls-unknown (declared: pure)
+  main (27:8) open: reads writes allocates throws calls-unknown
+    calls 33:15 -> v3
+    calls 35:15 -> v4
+nodes:
+  3:10 bind `v1`: function@proven
+  3:13 bind `x`: number@declared
+  4:10 binary `x * 2`: number@proven
+  4:10 ref `x`: number@declared
+  6:10 bind `v2`: function@proven
+  6:13 bind `x`: number@declared
+  7:10 binary `x + 1`: number nonNegZero@declared
+  7:10 ref `x`: number@declared
+  9:10 bind `v3`: function@proven
+  9:13 bind `x`: 3@proven
+  10:10 binary `x - 1`: 2@proven
+  10:10 ref `x`: 3@proven
+  12:10 bind `v4`: function@proven
+  12:13 bind `x`: 4@proven
+  13:10 binary `x * 3`: 12@proven
+  13:10 ref `x`: 4@proven
+  15:10 bind `v5`: function@proven
+  15:13 bind `x`: number@declared
+  16:10 binary `x * 5`: number@proven
+  16:10 ref `x`: number@declared
+  18:10 bind `v6`: function@proven
+  18:13 bind `x`: number@declared
+  19:10 binary `x * 7`: number@proven
+  19:10 ref `x`: number@declared
+  21:7 bind `byValues`: object@proven
+  21:18 object `{ f: v1 }`: object@proven escape=unknown
+  21:23 ref `v1`: function@proven
+  22:7 bind `byLoop`: object@proven
+  22:16 object `{ f: v2 }`: object@proven escape=unknown
+  22:21 ref `v2`: function@proven
+  23:7 bind `bySpread`: {| f: function |}@proven
+  23:18 object `{ f: v3 }`: {| f: function |}@proven escape=known stable-shape
+  23:23 ref `v3`: function@proven
+  24:7 bind `byIndex`: function[]@proven
+  24:17 array `[v4]`: function[]@proven escape=known stable-shape
+  24:18 ref `v4`: function@proven
+  25:7 bind `byName`: object@proven
+  25:16 object `{ f: v5 }`: object@proven escape=unknown
+  25:21 ref `v5`: function@proven
+  26:7 bind `byEntries`: object@proven
+  26:19 object `{ f: v6 }`: object@proven escape=unknown
+  26:24 ref `v6`: function@proven
+  27:17 bind `main`: function@proven
+  28:3 call `console.log(Object.values(byValues)[0...`: unknown
+  28:3 member `console.log`: unknown
+  28:3 ref `console`: unknown
+  28:15 call `Object.values(byValues)[0]!(1)`: number@declared
+  28:15 non-null `Object.values(byValues)[0]!`: function@declared
+  28:15 member `Object.values(byValues)[0]`: function@declared
+  28:15 call `Object.values(byValues)`: unknown[]@proven escape=none stable-shape
+  28:15 member `Object.values`: unknown
+  28:15 ref `Object`: unknown
+  28:29 ref `byValues`: object@proven
+  29:14 bind `key`: string@proven
+  29:21 ref `byLoop`: object@proven
+  30:5 call `console.log((byLoop as any)[key](2))`: unknown
+  30:5 member `console.log`: unknown
+  30:5 ref `console`: unknown
+  30:17 call `(byLoop as any)[key](2)`: unknown
+  30:17 member `(byLoop as any)[key]`: unknown
+  30:18 cast `byLoop as any`: object@proven
+  30:18 ref `byLoop`: object@proven
+  30:33 ref `key`: string@proven
+  32:9 bind `copy`: { f: undefined | function }@proven
+  32:16 object `{ ...bySpread }`: { f: undefined | function }@proven escape=known stable-shape
+  32:21 ref `bySpread`: {| f: function |}@proven
+  33:3 call `console.log(copy.f(3))`: unknown
+  33:3 member `console.log`: unknown
+  33:3 ref `console`: unknown
+  33:15 call `copy.f(3)`: 2@proven
+  33:15 member `copy.f`: undefined | function@proven
+  33:15 ref `copy`: { f: undefined | function }@proven
+  34:9 bind `i`: number@declared
+  34:13 call `Number("0")`: number@declared
+  34:13 ref `Number`: unknown
+  35:3 call `console.log(byIndex[i]!(4))`: unknown
+  35:3 member `console.log`: unknown
+  35:3 ref `console`: unknown
+  35:15 call `byIndex[i]!(4)`: 12@proven
+  35:15 non-null `byIndex[i]!`: undefined | function@proven
+  35:15 member `byIndex[i]`: undefined | function@proven
+  35:15 ref `byIndex`: function[]@proven
+  35:23 ref `i`: number@declared
+  36:9 bind `k`: string@proven
+  36:13 non-null `["f"][0]!`: string@proven
+  36:13 member `["f"][0]`: string@proven
+  36:13 array `["f"]`: string[]@proven escape=none stable-shape
+  37:3 call `console.log((byName as any)[k](5))`: unknown
+  37:3 member `console.log`: unknown
+  37:3 ref `console`: unknown
+  37:15 call `(byName as any)[k](5)`: unknown
+  37:15 member `(byName as any)[k]`: unknown
+  37:16 cast `byName as any`: object@proven
+  37:16 ref `byName`: object@proven
+  37:31 ref `k`: string@proven
+  38:3 call `console.log(Object.entries(byEntries)...`: unknown
+  38:3 member `console.log`: unknown
+  38:3 ref `console`: unknown
+  38:15 call `Object.entries(byEntries)[0]![1](6)`: number@declared
+  38:15 member `Object.entries(byEntries)[0]![1]`: unknown
+  38:15 non-null `Object.entries(byEntries)[0]!`: [string, function]@declared
+  38:15 member `Object.entries(byEntries)[0]`: [string, function]@declared
+  38:15 call `Object.entries(byEntries)`: unknown[]@proven escape=none stable-shape
+  38:15 member `Object.entries`: unknown
+  38:15 ref `Object`: unknown
+  38:30 ref `byEntries`: object@proven

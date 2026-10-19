@@ -217,6 +217,16 @@ pub struct Obj {
 }
 
 impl Obj {
+    /// The values its properties and elements hold that are objects.
+    pub fn held(&self) -> Vec<Val> {
+        self.props
+            .values()
+            .chain([&self.elem])
+            .filter(|value| value.pts.sites().is_some_and(|sites| !sites.is_empty()))
+            .cloned()
+            .collect()
+    }
+
     /// Sets the flags to "anything may happen" for good; whether that changed them.
     fn give_up(&mut self) -> bool {
         let changed = !self.given_up

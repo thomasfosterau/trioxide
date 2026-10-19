@@ -19,4 +19,8 @@ input_file: tests/fixtures/passes/partial-eval/basics/input.ts
 33:13 partial-eval applied
 34:15 partial-eval applied
 35:17 partial-eval applied
+4:1 partial-eval applied
+12:1 partial-eval applied
+24:1 partial-eval applied
+28:1 partial-eval applied
 39:27 closure-hoist applied

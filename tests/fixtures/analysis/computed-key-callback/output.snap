@@ -1,0 +1,46 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/computed-key-callback
+input_file: tests/fixtures/analysis/computed-key-callback/input.ts
+---
+//- input.ts
+// Functions stored under computed keys and called back through them: each one is called,
+// with the arguments its caller passes, even though no call names it.
+const registry = {};
+function register(name, f) {
+	registry[name] = f;
+}
+function late1(x) {
+	return x * 2;
+}
+function late2(x) {
+	return x + 1;
+}
+function late3(x) {
+	return x - 1;
+}
+function late4(x) {
+	return x * 3;
+}
+function late5(x) {
+	if (typeof x === "number" && x > 0) return "positive";
+	return x === 0 ? "zero" : "other";
+}
+const table = {};
+const slots = [];
+export function main() {
+	register("a", late1);
+	console.log(registry["a"](21));
+	const key = "b" + String(slots.length);
+	table[key] = late2;
+	console.log(table.b0(4));
+	slots[slots.length] = late3;
+	console.log(slots[0](10));
+	const holder = {};
+	holder[key] = late4;
+	globalThis.holder = holder;
+	console.log(globalThis.holder.b0(5));
+	const named = {};
+	named[key] = late5;
+	console.log(named[key](3), named[key](0));
+}

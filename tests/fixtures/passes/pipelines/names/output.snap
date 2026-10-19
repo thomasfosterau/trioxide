@@ -33,7 +33,8 @@ function receiverName() {
 	const result = [];
 	for (let i = 0, length = values.length; i < length; i++) {
 		const values2 = values[i];
-		result.push(values2 * 3);
+		const v = values2 * 3;
+		result.push(v);
 	}
 	return result;
 }
@@ -43,7 +44,8 @@ function indexName() {
 	const result = [];
 	for (let j = 0, length = values.length; j < length; j++) {
 		const v = values[j];
-		result.push(v + 100);
+		const w = v + 100;
+		result.push(w);
 	}
 	return result;
 }
@@ -82,7 +84,8 @@ function captured() {
 	const result = [];
 	for (let i = 0, length = makers.length; i < length; i++) {
 		const make = makers[i];
-		result.push(make());
+		const v = make();
+		result.push(v);
 	}
 	return result;
 }

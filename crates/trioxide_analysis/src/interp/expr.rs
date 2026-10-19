@@ -1690,6 +1690,15 @@ impl<'a> Cx<'_, '_, 'a> {
         }
     }
 
+    /// A read that gives any value for what an object holds (`held`, from [`super::Obj::held`]):
+    /// the code using the result is code the analysis no longer follows, so what the object
+    /// holds escapes to it (a function there may be called, with any arguments).
+    fn lose(&mut self, held: &[Val]) {
+        for value in held {
+            self.escape_value(value, Escape::Unknown);
+        }
+    }
+
     /// What reading an array index with no element gives: `undefined`, unless an index
     /// could have been defined on `Array.prototype` or `Object.prototype`.
     fn hole(&self) -> Val {
@@ -1752,9 +1761,15 @@ impl<'a> Cx<'_, '_, 'a> {
                 }
                 _ => Val::unknown(),
             };
+            let reads = obj.unit != self.unit.id || obj.escape != Escape::None;
+            let lost =
+                (obj.kind == ObjKind::Array && read.pts.sites().is_none()).then(|| obj.held());
             value = value.join(&read);
-            if obj.unit != self.unit.id || obj.escape != Escape::None {
+            if reads {
                 self.always(EffectKind::Reads);
+            }
+            if let Some(held) = lost {
+                self.lose(&held);
             }
         }
         if !in_bounds {
@@ -1794,6 +1809,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     },
                     key if key.is_index() => {
                         if obj.dynamic {
+                            self.lose(&obj.held());
                             return Val::unknown();
                         }
                         let in_range = match (key.index_range(), obj.length) {
@@ -1807,6 +1823,10 @@ impl<'a> Cx<'_, '_, 'a> {
                         }
                     }
                     // Array.prototype methods and unknown keys.
+                    Key::Unknown => {
+                        self.lose(&obj.held());
+                        Val::unknown()
+                    }
                     _ => Val::unknown(),
                 };
             }
@@ -1853,6 +1873,7 @@ impl<'a> Cx<'_, '_, 'a> {
         }
         let Some(name) = key.name() else {
             self.always(EffectKind::CallsUnknown);
+            self.lose(&obj.held());
             return Val::unknown();
         };
         // Accessors defined by the class run code.
@@ -1882,6 +1903,7 @@ impl<'a> Cx<'_, '_, 'a> {
         }
         if obj.dynamic {
             self.always(EffectKind::CallsUnknown);
+            self.lose(&obj.held());
             return Val::unknown();
         }
         if let Some(value) = obj.props.get(name) {
@@ -2186,7 +2208,8 @@ impl<'a> Cx<'_, '_, 'a> {
                         }
                     } else if matches!(key, Key::Unknown) {
                         // May be `length` or any index: the length is no longer known, and
-                        // the value may be an element.
+                        // the value may be an element. Reads of a dynamic array give any
+                        // value, so what they may read escapes.
                         self.store_elem(site, value);
                         self.mark(site, |obj| {
                             obj.dynamic = true;
@@ -2194,10 +2217,10 @@ impl<'a> Cx<'_, '_, 'a> {
                             obj.holey = true;
                         });
                         self.coerce(value, true);
-                        self.escape_value(value, Escape::Known);
+                        self.escape_value(value, Escape::Unknown);
                     } else {
                         self.mark(site, move |obj| obj.dynamic = true);
-                        self.escape_value(value, Escape::Known);
+                        self.escape_value(value, Escape::Unknown);
                     }
                 }
                 ObjKind::TypedArray(_) => {
@@ -2221,8 +2244,10 @@ impl<'a> Cx<'_, '_, 'a> {
                         self.after_call(false);
                     }
                     let Some(name) = key.name() else {
+                        // No slot records the value, and reads under computed keys give any
+                        // value: whatever reads it is code the analysis doesn't follow.
                         self.mark(site, move |obj| obj.dynamic = true);
-                        self.escape_value(value, Escape::Known);
+                        self.escape_value(value, Escape::Unknown);
                         continue;
                     };
                     let class = match obj.kind {

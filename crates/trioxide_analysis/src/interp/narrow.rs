@@ -187,7 +187,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             return value.clone();
                         }
                         Val {
-                            ty: Type::Number(narrowed),
+                            ty: number_or_never(narrowed, trust),
                             trust,
                             ..value.clone()
                         }
@@ -212,11 +212,18 @@ impl<'a> Cx<'_, '_, 'a> {
                             return value.clone();
                         }
                         Val {
-                            ty: Type::Number(narrowed),
+                            ty: number_or_never(narrowed, trust),
                             trust,
                             ..value.clone()
                         }
                     });
+                }
+                // `i + 3 < n` narrows `i` to `< n - 3` (and `n > i + 3` too).
+                if right.trust != Trust::Unknown {
+                    self.narrow_offset(env, binary, &binary.left, &right, less, strict);
+                }
+                if left.trust != Trust::Unknown {
+                    self.narrow_offset(env, binary, &binary.right, &left, !less, strict);
                 }
                 // `i < a.length` / `a.length > i` and `i < n` with `n = a.length`.
                 if truthy && strict {
@@ -273,6 +280,77 @@ impl<'a> Cx<'_, '_, 'a> {
         (!written).then_some(symbol)
     }
 
+    /// Narrows `x` from `x + k < bound` (`less`, else `>`; `strict`, else `<=`/`>=`) with a
+    /// constant `k`, as `x < bound - k`. Exact for an integer `x` of any size when `k` and
+    /// `bound` are integers within ±2^52: rounding is monotone, the integers next to `bound`
+    /// are exact, so the rounded sum compares with `bound` as the exact one does, and so
+    /// is `bound - k`.
+    fn narrow_offset(
+        &self,
+        env: &mut Env,
+        binary: &BinaryExpression<'_>,
+        side: &Expression<'_>,
+        bound: &Val,
+        less: bool,
+        strict: bool,
+    ) {
+        const EXACT: f64 = 4_503_599_627_370_496.0;
+        let exact = |n: NumberType| n.int && n.range.min >= -EXACT && n.range.max <= EXACT;
+        let Expression::BinaryExpression(sum) = side.without_parentheses() else {
+            return;
+        };
+        let constant = |expression: &Expression<'_>| {
+            let value = self.recorded(expression);
+            let number = value.ty.as_number()?;
+            (value.trust == Trust::Proven && exact(number))
+                .then(|| number.as_constant())
+                .flatten()
+        };
+        let (symbol, offset) = match sum.operator {
+            BinaryOperator::Addition => match (
+                self.tracked_in(binary.span, &sum.left),
+                self.tracked_in(binary.span, &sum.right),
+            ) {
+                (Some(symbol), _) if let Some(k) = constant(&sum.right) => (symbol, k),
+                (_, Some(symbol)) if let Some(k) = constant(&sum.left) => (symbol, k),
+                _ => return,
+            },
+            BinaryOperator::Subtraction => match (
+                self.tracked_in(binary.span, &sum.left),
+                constant(&sum.right),
+            ) {
+                (Some(symbol), Some(k)) => (symbol, -k),
+                _ => return,
+            },
+            _ => return,
+        };
+        let Some(bound_number) = bound.ty.as_number().filter(|&n| exact(n)) else {
+            return;
+        };
+        let shifted = numeric::sub(bound_number, NumberType::constant(offset));
+        let bound_trust = if bound.trust == Trust::Proven {
+            Trust::Proven
+        } else {
+            Trust::Declared
+        };
+        update(env, symbol, |value| match value.ty.as_number() {
+            Some(number) if number.int => {
+                let narrowed = if less {
+                    numeric::assume_less(number, shifted, strict)
+                } else {
+                    numeric::assume_greater(number, shifted, strict)
+                };
+                let trust = value.trust.min(bound_trust);
+                Val {
+                    ty: number_or_never(narrowed, trust),
+                    trust,
+                    ..value.clone()
+                }
+            }
+            _ => value.clone(),
+        });
+    }
+
     /// The tracked local `expression` names.
     pub fn tracked_identifier(&self, expression: &Expression<'_>) -> Option<SymbolId> {
         let Expression::Identifier(ident) = expression.without_parentheses() else {
@@ -283,6 +361,16 @@ impl<'a> Cx<'_, '_, 'a> {
             .get_reference(ident.reference_id.get()?)
             .symbol_id()?;
         self.is_tracked_here(symbol).then_some(symbol)
+    }
+}
+
+/// A narrowed number, or `never` when no number is left in its range (a proven
+/// contradiction: the branch can't run, and nothing computed from the value there counts).
+fn number_or_never(number: NumberType, trust: Trust) -> Type {
+    if trust == Trust::Proven && number.range.min > number.range.max {
+        Type::Never
+    } else {
+        Type::Number(number)
     }
 }
 

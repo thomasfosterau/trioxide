@@ -600,8 +600,20 @@ impl<'a> Cx<'_, '_, 'a> {
         let constructor = self.expr(&new.callee);
         let args = self.arguments(&new.arguments);
         let mut result = Val::never();
-        let mut unknown = constructor.pts.sites().is_none();
-        for &target in constructor.pts.sites().unwrap_or_default() {
+        let targets = constructor.pts.sites().unwrap_or_default();
+        // One site holds one kind of object: a site that may construct instances of
+        // different classes (or a class and a function) would describe all of them as the
+        // first one's, so it is not followed, and every constructor escapes.
+        let polymorphic = targets.iter().any(|&target| {
+            let kind = |target| match self.an.heap(target).map(|obj| obj.kind) {
+                Some(ObjKind::Class(class)) => Some(ObjKind::Instance(class)),
+                Some(ObjKind::Function(_)) => Some(ObjKind::Object),
+                _ => None,
+            };
+            kind(target) != kind(targets[0])
+        });
+        let mut unknown = constructor.pts.sites().is_none() || polymorphic;
+        for &target in if polymorphic { &[] } else { targets } {
             match self.an.heap(target).map(|obj| obj.kind) {
                 Some(ObjKind::Class(class)) => {
                     let instance = self.alloc(site, ObjKind::Instance(class));

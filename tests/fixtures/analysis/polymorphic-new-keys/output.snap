@@ -1,0 +1,24 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/analysis/polymorphic-new-keys
+input_file: tests/fixtures/analysis/polymorphic-new-keys/input.ts
+---
+//- input.ts
+// A `Q` made at a `new` site that also makes `P`s gets a late key, and reaches unknown code
+// (`console.log` prints its keys): `Q`'s shape is not stable, and the key stays late.
+class P {
+	a = 1;
+}
+class Q {
+	a = 2;
+}
+function make(flag) {
+	const C = flag ? P : Q;
+	return new C();
+}
+export function main() {
+	const p = make(true);
+	const q = make(false);
+	if (Number("1") === 1) q.b = 3;
+	console.log(p.a, q);
+}

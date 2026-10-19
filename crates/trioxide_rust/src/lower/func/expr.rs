@@ -686,16 +686,19 @@ impl<'a> FnCx<'_, '_, 'a> {
         ))
     }
 
-    /// `ToInt32` of a number.
+    /// `ToInt32` of a number: folded for a constant, and straight from the element for an
+    /// array read.
     fn int32_of(value: V) -> Expr {
-        match value.ty {
-            Ty::I32 => value.expr,
-            Ty::U32 => convert(Conv::Exact, Ty::U32, Ty::I32, value.expr),
-            Ty::Index => {
-                let f = convert(Conv::Exact, Ty::Index, Ty::F64, value.expr);
+        match (value.ty, value.expr) {
+            (Ty::I32, expr) => expr,
+            (Ty::U32, expr) => convert(Conv::Exact, Ty::U32, Ty::I32, expr),
+            (Ty::Index, expr) => {
+                let f = convert(Conv::Exact, Ty::Index, Ty::F64, expr);
                 convert(Conv::ToInt32, Ty::F64, Ty::I32, f)
             }
-            _ => convert(Conv::ToInt32, Ty::F64, Ty::I32, value.expr),
+            (_, Expr::Lit(Lit::F64(x))) => Expr::Lit(Lit::I32(to_int32(x))),
+            (_, Expr::Get { array, index }) => Expr::GetInt32 { array, index },
+            (_, expr) => convert(Conv::ToInt32, Ty::F64, Ty::I32, expr),
         }
     }
 
@@ -1119,17 +1122,17 @@ impl<'a> FnCx<'_, '_, 'a> {
                 let [a, b] = <[V; 2]>::try_from(values)
                     .ok()
                     .or_else(|| arity_error(self).map(|_: V| unreachable!()))?;
-                if a.ty == Ty::I32 && b.ty == Ty::I32 {
-                    return Some(V::new(
-                        Expr::Math(MathFn::ImulI32, vec![a.expr, b.expr]),
-                        Ty::I32,
-                        Kind::NUM,
-                    ));
-                }
-                let a = self.coerce(a, Ty::F64, false, c.span)?;
-                let b = self.coerce(b, Ty::F64, false, c.span)?;
+                // `ToInt32` of each operand, then the product modulo 2^32.
+                let mut int32 = |v: V| match v.ty {
+                    Ty::I32 | Ty::U32 | Ty::Index => Some(v),
+                    _ => {
+                        let f = self.coerce(v, Ty::F64, false, c.span)?;
+                        Some(V::new(f, Ty::F64, Kind::NUM))
+                    }
+                };
+                let (a, b) = (int32(a)?, int32(b)?);
                 Some(V::new(
-                    Expr::Math(MathFn::Imul, vec![a, b]),
+                    Expr::Math(MathFn::ImulI32, vec![Self::int32_of(a), Self::int32_of(b)]),
                     Ty::I32,
                     Kind::NUM,
                 ))
@@ -1857,6 +1860,21 @@ fn builtin_constant(namespace: &str, name: &str) -> Option<f64> {
     })
 }
 
+/// `ToInt32` of a constant (ECMA-262 §7.1.6), as `trioxide_rt::conv::to_int32` computes it at
+/// run time.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    reason = "the value is an integer in 0..2^32 by then, wrapped to i32 on purpose"
+)]
+fn to_int32(x: f64) -> i32 {
+    if !x.is_finite() {
+        return 0;
+    }
+    x.trunc().rem_euclid(4_294_967_296.0) as u32 as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1877,6 +1895,28 @@ mod tests {
                 EXACT_MATH.iter().any(|(n, _, _)| n == name),
                 "{name} is exact in trioxide_rt but not lowered"
             );
+        }
+    }
+
+    #[test]
+    fn constant_to_int32_matches_the_runtime() {
+        for x in [
+            0.0,
+            -0.0,
+            1.5,
+            -1.5,
+            2_147_483_648.0,
+            2_654_435_761.0,
+            -2_147_483_649.0,
+            4_294_967_296.5,
+            1e300,
+            -1e300,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            9_007_199_254_740_993.0,
+        ] {
+            assert_eq!(to_int32(x), trioxide_rt::conv::to_int32(x), "{x}");
         }
     }
 }

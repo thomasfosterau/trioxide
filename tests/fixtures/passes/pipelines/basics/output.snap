@@ -139,7 +139,8 @@ function indexed() {
 	for (let index = 0, length = letters.length; index < length; index++) {
 		const letter = letters[index];
 		const all = letters;
-		result.push(`${letter}${index}/${all.length}`);
+		const s = `${letter}${index}/${all.length}`;
+		result.push(s);
 	}
 	return result;
 }

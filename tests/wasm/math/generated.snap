@@ -55,7 +55,11 @@ fn all(x: f64, y: f64) -> &'static mut [f64] {
     array::set_i32(out, 6, array::store_number(math::sign(x)));
     array::set_i32(out, 7, array::store_number(math::fround(x)));
     array::set_i32(out, 8, f64::from(math::clz32(x) as i32));
-    array::set_i32(out, 9, f64::from(math::imul(x, y)));
+    array::set_i32(
+        out,
+        9,
+        f64::from(math::imul_i32(conv::to_int32(x), conv::to_int32(y))),
+    );
     array::set_i32(out, 10, array::store_number(math::max(math::max(x, y), 0.0)));
     array::set_i32(out, 11, array::store_number(math::min(x, y)));
     array::set_i32(out, 12, array::store_number(math::hypot2(x, y)));

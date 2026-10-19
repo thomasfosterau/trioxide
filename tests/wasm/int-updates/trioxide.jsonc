@@ -1,0 +1,4 @@
+{
+  // The analysis only has TypeScript's word (Declared) for arrays `main` makes with `.of`.
+  "trustTypes": true
+}
