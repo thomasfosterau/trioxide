@@ -298,6 +298,9 @@ pub struct State {
     /// `let`, `const` and `class` bindings that may be read before their declaration runs:
     /// their unit made a call (which may read them) before reaching it.
     pub may_be_uninit: FxHashSet<SymbolRef>,
+    /// Whether the program can replace the prototype of an object the analysis doesn't
+    /// follow ([`may_reprototype`]): instances unknown code holds may then be of no class.
+    pub reprototypes: bool,
 }
 
 /// A call edge recorded while interpreting.
@@ -838,6 +841,42 @@ pub const TYPED_ARRAY: &str = "TypedArray";
 
 /// Whether `expression` is an identifier bound by the program (so `X.prototype` is a program
 /// function's or class's).
+/// Whether the program names a way to replace an object's prototype: `__proto__`,
+/// `setPrototypeOf`, or a global that reaches anything (`Reflect`, `Function`, `eval`). Writes
+/// to followed objects poison them; this covers the objects the analysis doesn't follow.
+pub(crate) fn may_reprototype(world: &World<'_>) -> bool {
+    use oxc_ast::AstKind;
+    const NAMES: [&str; 2] = ["__proto__", "setPrototypeOf"];
+    world.modules.iter().any(|module| {
+        let scoping = module.semantic.scoping();
+        let nodes = module.semantic.nodes();
+        let global = scoping
+            .root_unresolved_references_ids()
+            .flatten()
+            .any(|reference| {
+                let reference = scoping.get_reference(reference);
+                reference.is_value()
+                    && matches!(
+                        nodes.kind(reference.node_id()),
+                        AstKind::IdentifierReference(ident)
+                            if matches!(ident.name.as_str(), "Reflect" | "Function" | "eval")
+                    )
+            });
+        global
+            || nodes.iter().any(|node| match node.kind() {
+                AstKind::StaticMemberExpression(member) => {
+                    NAMES.contains(&member.property.name.as_str())
+                }
+                AstKind::ComputedMemberExpression(member) => matches!(
+                    &member.expression,
+                    oxc_ast::ast::Expression::StringLiteral(key)
+                        if NAMES.contains(&key.value.as_str())
+                ),
+                _ => false,
+            })
+    })
+}
+
 fn names_program_symbol(module: &Module<'_>, expression: &oxc_ast::ast::Expression<'_>) -> bool {
     let oxc_ast::ast::Expression::Identifier(ident) = expression.without_parentheses() else {
         return false;

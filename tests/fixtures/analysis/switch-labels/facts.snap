@@ -50,7 +50,7 @@ nodes:
   22:53 unary `column++`: number[0, 1] int nonNaN nonNegZero@proven
   22:53 ref `column`: number[0, 2] int nonNaN nonNegZero@proven
   23:11 binary `grid[row][column] === target`: boolean@proven
-  23:11 member `grid[row][column]`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  23:11 member `grid[row][column]`: number[1, 4] int nonNaN nonNegZero@proven
   23:11 member `grid[row]`: (number[1, 4] int nonNaN nonNegZero)[]@proven in-bounds@proven
   23:11 ref `grid`: (number[1, 4] int nonNaN nonNegZero)[][]@proven
   23:16 ref `row`: number[0, 1] int nonNaN nonNegZero@proven
@@ -63,7 +63,7 @@ nodes:
   24:17 ref `row`: number[0, 1] int nonNaN nonNegZero@proven
   24:28 ref `column`: number[0, 1] int nonNaN nonNegZero@proven
   27:11 binary `grid[row][column] < 0`: boolean@proven
-  27:11 member `grid[row][column]`: undefined | (number[1, 4] int nonNaN nonNegZero)@proven
+  27:11 member `grid[row][column]`: number[1, 4] int nonNaN nonNegZero@proven
   27:11 member `grid[row]`: (number[1, 4] int nonNaN nonNegZero)[]@proven in-bounds@proven
   27:11 ref `grid`: (number[1, 4] int nonNaN nonNegZero)[][]@proven
   27:16 ref `row`: number[0, 1] int nonNaN nonNegZero@proven

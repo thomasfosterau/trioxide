@@ -1,0 +1,230 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/constructor-this
+input_file: tests/fixtures/analysis/constructor-this/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  register (5:1): reads writes allocates throws calls-unknown
+  Plain.<fields> (11:13): pure
+  Plain.constructor (13:14): writes
+  Registered.<fields> (18:18) open: pure
+  Registered.constructor (20:14) open: reads writes allocates throws calls-unknown
+    calls 22:5 -> register
+  Stored.<fields> (26:14) open: pure
+  Stored.constructor (28:14) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
+  Aliased.<fields> (34:15) open: pure
+  Aliased.constructor (36:14) open: reads writes throws calls-unknown (declared: reads writes calls-unknown)
+  Captured.<fields> (43:16) open: reads writes throws calls-unknown
+  Captured.constructor (46:14) open: reads writes allocates throws calls-unknown (declared: reads writes allocates calls-unknown)
+  <anonymous> (48:14) open: pure
+  Returned.<fields> (52:16): pure
+  Returned.constructor (54:14): reads writes throws calls-unknown (declared: reads writes calls-unknown)
+  captured (62:1): reads writes allocates throws calls-unknown
+    calls 63:13 -> Captured.<fields>
+    calls 63:13 -> Captured.constructor
+  main (68:8) open: reads writes allocates throws calls-unknown
+    calls 69:13 -> Plain.<fields>
+    calls 69:13 -> Plain.constructor
+    calls 70:13 -> Registered.<fields>
+    calls 70:13 -> Registered.constructor
+    calls 71:13 -> Stored.<fields>
+    calls 71:13 -> Stored.constructor
+    calls 72:13 -> Aliased.<fields>
+    calls 72:13 -> Aliased.constructor
+    calls 73:13 -> captured
+    calls 74:13 -> Returned.<fields>
+    calls 74:13 -> Returned.constructor
+classes:
+  Plain (11:1): fields [x] stable
+  Registered (18:1): fields [x] shape unknown
+  Stored (26:1): fields [x] shape unknown
+  Aliased (34:1): fields [x] shape unknown
+  Captured (43:1): fields [x, f] shape unknown
+  Returned (52:1): fields [x] stable
+nodes:
+  4:7 bind `registry`: unknown[]@proven
+  4:29 array `[]`: unknown[]@proven escape=unknown
+  5:10 bind `register`: function@proven
+  5:19 bind `value`: Registered@declared
+  6:3 call `registry.push(value)`: unknown
+  6:3 member `registry.push`: unknown
+  6:3 ref `registry`: unknown[]@proven
+  6:17 ref `value`: Registered@declared
+  8:7 bind `holder`: object@proven
+  8:34 object `{ ref: null }`: object@proven escape=unknown
+  9:5 bind `last`: null@proven
+  11:7 bind `Plain`: function@proven
+  13:15 bind `x`: 2@proven
+  14:5 assign `this.x = x`: 2@proven
+  14:5 member `this.x`: unknown
+  14:5 this `this`: Plain@proven
+  14:14 ref `x`: 2@proven
+  18:7 bind `Registered`: function@proven
+  21:5 assign `this.x = 1`: 1@proven
+  21:5 member `this.x`: unknown
+  21:5 this `this`: Registered@declared
+  22:5 call `register(this)`: undefined@proven
+  22:5 ref `register`: function@proven
+  22:14 this `this`: Registered@declared
+  26:7 bind `Stored`: function@proven
+  29:5 assign `this.x = 1`: 1@proven
+  29:5 member `this.x`: unknown
+  29:5 this `this`: Stored@declared
+  30:5 assign `holder.ref = this`: Stored@declared
+  30:5 member `holder.ref`: unknown
+  30:5 ref `holder`: object@proven
+  30:18 this `this`: Stored@declared
+  34:7 bind `Aliased`: function@proven
+  37:5 assign `this.x = 1`: 1@proven
+  37:5 member `this.x`: unknown
+  37:5 this `this`: Aliased@declared
+  38:11 bind `self`: Aliased@declared
+  38:18 this `this`: Aliased@declared
+  39:5 assign `last = self`: Aliased@declared
+  39:5 ref `last`: Aliased@declared
+  39:12 ref `self`: Aliased@declared
+  43:7 bind `Captured`: function@proven
+  47:5 assign `this.x = 1`: 1@proven
+  47:5 member `this.x`: unknown
+  47:5 this `this`: Captured@declared
+  48:5 assign `this.f = () => this`: function@proven
+  48:5 member `this.f`: unknown
+  48:5 this `this`: Captured@declared
+  48:20 this `this`: Captured@declared
+  52:7 bind `Returned`: function@proven
+  55:5 assign `this.x = 1`: 1@proven
+  55:5 member `this.x`: unknown
+  55:5 this `this`: Returned@proven
+  56:9 binary `registry.length > 100`: boolean@proven
+  56:9 member `registry.length`: number@declared
+  56:9 ref `registry`: unknown[]@proven
+  62:10 bind `captured`: function@proven
+  62:22 ref `Captured`: unknown
+  63:9 bind `c`: Captured@proven
+  63:13 new `new Captured()`: Captured@proven escape=unknown
+  63:17 ref `Captured`: function@proven
+  64:3 assign `(globalThis as any).leakFn = c.f`: function@declared
+  64:3 member `(globalThis as any).leakFn`: unknown
+  64:4 cast `globalThis as any`: unknown
+  64:4 ref `globalThis`: unknown
+  64:32 member `c.f`: function@declared
+  64:32 ref `c`: Captured@proven
+  65:10 ref `c`: Captured@proven
+  68:17 bind `main`: function@proven
+  69:9 bind `p`: Plain@proven
+  69:13 new `new Plain(2)`: Plain@proven escape=none
+  69:17 ref `Plain`: function@proven
+  70:9 bind `r`: Registered@proven
+  70:13 new `new Registered()`: Registered@proven escape=unknown
+  70:17 ref `Registered`: function@proven
+  71:9 bind `s`: Stored@proven
+  71:13 new `new Stored()`: Stored@proven escape=unknown
+  71:17 ref `Stored`: function@proven
+  72:9 bind `a`: Aliased@proven
+  72:13 new `new Aliased()`: Aliased@proven escape=unknown
+  72:17 ref `Aliased`: function@proven
+  73:9 bind `c`: Captured@proven
+  73:13 call `captured()`: Captured@proven
+  73:13 ref `captured`: function@proven
+  74:9 bind `t`: Returned@proven
+  74:13 new `new Returned()`: Returned@proven escape=none
+  74:17 ref `Returned`: function@proven
+  75:3 assign `(globalThis as any).sink = [registry,...`: unknown[]@proven
+  75:3 member `(globalThis as any).sink`: unknown
+  75:4 cast `globalThis as any`: unknown
+  75:4 ref `globalThis`: unknown
+  75:30 array `[registry, holder, last]`: unknown[]@proven escape=unknown
+  75:31 ref `registry`: unknown[]@proven
+  75:41 ref `holder`: object@proven
+  75:49 ref `last`: null | Aliased@declared
+  76:9 bind `g`: unknown
+  76:13 cast `globalThis as any`: unknown
+  76:13 ref `globalThis`: unknown
+  77:3 assign `g["si" + "nk"][0][0].x = "registered"`: string@proven
+  77:3 member `g["si" + "nk"][0][0].x`: unknown
+  77:3 member `g["si" + "nk"][0][0]`: unknown
+  77:3 member `g["si" + "nk"][0]`: unknown
+  77:3 member `g["si" + "nk"]`: unknown
+  77:3 ref `g`: unknown
+  77:5 binary `"si" + "nk"`: string@proven
+  78:3 assign `g["si" + "nk"][0][0].added = true`: boolean@proven
+  78:3 member `g["si" + "nk"][0][0].added`: unknown
+  78:3 member `g["si" + "nk"][0][0]`: unknown
+  78:3 member `g["si" + "nk"][0]`: unknown
+  78:3 member `g["si" + "nk"]`: unknown
+  78:3 ref `g`: unknown
+  78:5 binary `"si" + "nk"`: string@proven
+  79:3 assign `g["si" + "nk"][1].ref.x = "stored"`: string@proven
+  79:3 member `g["si" + "nk"][1].ref.x`: unknown
+  79:3 member `g["si" + "nk"][1].ref`: unknown
+  79:3 member `g["si" + "nk"][1]`: unknown
+  79:3 member `g["si" + "nk"]`: unknown
+  79:3 ref `g`: unknown
+  79:5 binary `"si" + "nk"`: string@proven
+  80:3 assign `g["si" + "nk"][1].ref.added = true`: boolean@proven
+  80:3 member `g["si" + "nk"][1].ref.added`: unknown
+  80:3 member `g["si" + "nk"][1].ref`: unknown
+  80:3 member `g["si" + "nk"][1]`: unknown
+  80:3 member `g["si" + "nk"]`: unknown
+  80:3 ref `g`: unknown
+  80:5 binary `"si" + "nk"`: string@proven
+  81:3 assign `g["si" + "nk"][2].x = "aliased"`: string@proven
+  81:3 member `g["si" + "nk"][2].x`: unknown
+  81:3 member `g["si" + "nk"][2]`: unknown
+  81:3 member `g["si" + "nk"]`: unknown
+  81:3 ref `g`: unknown
+  81:5 binary `"si" + "nk"`: string@proven
+  82:3 assign `g["si" + "nk"][2].added = true`: boolean@proven
+  82:3 member `g["si" + "nk"][2].added`: unknown
+  82:3 member `g["si" + "nk"][2]`: unknown
+  82:3 member `g["si" + "nk"]`: unknown
+  82:3 ref `g`: unknown
+  82:5 binary `"si" + "nk"`: string@proven
+  83:3 assign `g["leak" + "Fn"]().x = "captured"`: string@proven
+  83:3 member `g["leak" + "Fn"]().x`: unknown
+  83:3 call `g["leak" + "Fn"]()`: unknown
+  83:3 member `g["leak" + "Fn"]`: unknown
+  83:3 ref `g`: unknown
+  83:5 binary `"leak" + "Fn"`: string@proven
+  84:3 assign `g["leak" + "Fn"]().added = true`: boolean@proven
+  84:3 member `g["leak" + "Fn"]().added`: unknown
+  84:3 call `g["leak" + "Fn"]()`: unknown
+  84:3 member `g["leak" + "Fn"]`: unknown
+  84:3 ref `g`: unknown
+  84:5 binary `"leak" + "Fn"`: string@proven
+  85:3 call `console.log(p.x, r.x, s.x, a.x, c.x, ...`: unknown
+  85:3 member `console.log`: unknown
+  85:3 ref `console`: unknown
+  85:15 member `p.x`: 2@proven
+  85:15 ref `p`: Plain@proven
+  85:20 member `r.x`: unknown
+  85:20 ref `r`: Registered@proven
+  85:25 member `s.x`: unknown
+  85:25 ref `s`: Stored@proven
+  85:30 member `a.x`: unknown
+  85:30 ref `a`: Aliased@proven
+  85:35 member `c.x`: unknown
+  85:35 ref `c`: Captured@proven
+  85:40 member `t.x`: 1@proven
+  85:40 ref `t`: Returned@proven
+  86:3 call `console.log(Object.keys(r), Object.ke...`: unknown
+  86:3 member `console.log`: unknown
+  86:3 ref `console`: unknown
+  86:15 call `Object.keys(r)`: string[]@declared
+  86:15 member `Object.keys`: unknown
+  86:15 ref `Object`: unknown
+  86:27 ref `r`: Registered@proven
+  86:31 call `Object.keys(s)`: string[]@declared
+  86:31 member `Object.keys`: unknown
+  86:31 ref `Object`: unknown
+  86:43 ref `s`: Stored@proven
+  86:47 call `Object.keys(a)`: string[]@declared
+  86:47 member `Object.keys`: unknown
+  86:47 ref `Object`: unknown
+  86:59 ref `a`: Aliased@proven
+  86:63 call `Object.keys(c)`: string[]@declared
+  86:63 member `Object.keys`: unknown
+  86:63 ref `Object`: unknown
+  86:75 ref `c`: Captured@proven
