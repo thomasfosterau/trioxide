@@ -564,7 +564,10 @@ parameters every caller passes the same literal, whether or not inlining is on.
   `const` at the top of the module when the module has no imports or re-exports (an import
   cycle could otherwise run the function before the `const` exists), else just before the
   outermost loop around it in its function: V8 optimises a builtin's arrow callback better
-  than a function declaration (2.5× in `benchmarks/passes/`).
+  than a function declaration (2.5× in `benchmarks/passes/`). Using the analysis's actual
+  import cycles instead of "has imports" was implemented and measured in S10 (it lets
+  `array-pipeline/report.ts`'s callbacks move) and not landed: 1.04× (0.92–1.12) under V8's
+  defaults and 1.00× cold over eleven rounds, no measurable win.
 
 **Specialisation** is opt-in (`passes: { "specialize": true }`). In a closed world a
 parameter's facts are whatever every caller passes, which can make a function's body constant
@@ -920,7 +923,13 @@ on), `hotUpdate` (Vite 6+'s
 replacement for `handleHotUpdate`: `Project::update`, then invalidate the dependants whose
 output actually changed, so ordinary edits keep Vite's normal HMR propagation). In dev, WASM
 is off unless `dev.wasm: true`; dev glue gets its `.wasm` inlined as a `data:` URL, which
-Vite's `new URL(…, import.meta.url)` handling leaves alone.
+Vite's `new URL(…, import.meta.url)` handling leaves alone. Without `dev.wasm` the dev server
+never analyses the program: each `transform` runs the passes with no facts, so every
+fact-dependent rewrite is skipped and dev output is less optimised than a build's (it
+behaves the same). Measured on `examples/dom-app` (S10): 0.8–1.3 ms for the first transform
+and 0.1–0.3 ms per edit, against 44–49 ms and 41–42 ms per edit when analysing on transform,
+because every edit re-analyses the whole program. That stays the trade-off until
+per-update incremental analysis exists.
 
 **Glue ↔ emitter contract:** glue refers to its `.wasm` as
 `new URL(WASM_URL_PLACEHOLDER, import.meta.url)` (`"__TRIOXIDE_WASM_URL__"`,

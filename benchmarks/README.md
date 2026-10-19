@@ -98,64 +98,81 @@ decision.
 
 ### Whole programs
 
+S10, on main at `caa9fec` (S10's #21–#31 merged, S9's cost-model weights), five rounds:
+
 | program | engine | stripped | trioxide | all passes | auto + WASM | islands |
 |---|---:|---:|---:|---:|---:|---:|
-| `array-pipeline` | default | 7.68 ms | 1.18× (0.81–1.30) | 1.21× (1.13–1.44) | 1.21× (1.15–1.41) | — |
-| `array-pipeline` | cold | 11.64 ms | 1.01× (0.99–1.18) | 1.03× (0.98–1.20) | 1.00× (0.88–1.14) | — |
-| `numeric-driver` | default | 2.16 ms | 1.01× (0.98–1.08) | 0.97× (0.97–1.06) | 1.16× (1.14–1.47) | dsp |
-| `numeric-driver` | cold | 33.12 ms | 1.03× (0.95–1.33) | 1.01× (0.98–1.30) | 6.89× (6.03–8.97) | dsp |
-| `object-heavy` | default | 1.56 ms | 1.00× (0.95–1.14) | 0.91× (0.78–1.15) | 1.03× (0.99–1.10) | — |
-| `object-heavy` | cold | 26.07 ms | 1.08× (1.00–1.17) | 1.12× (0.99–1.34) | 1.06× (1.00–1.08) | — |
-| `examples/image-filters` | default | 32.09 ms | 1.02× (0.94–1.89) | 1.02× (0.69–1.48) | 1.00× (0.99–1.11) | — |
-| `examples/image-filters` | cold | 203.73 ms | 1.02× (0.91–1.03) | 1.18× (1.03–1.28) | 1.09× (0.92–1.28) | — |
-| `examples/mixed` | default | 1.22 ms | 1.01× (0.88–1.04) | 1.02× (0.87–1.03) | 1.52× (1.23–1.64) | kernel |
-| `examples/mixed` | cold | 47.80 ms | 1.01× (0.90–1.06) | 1.02× (0.91–1.05) | 6.66× (6.50–6.85) | kernel |
-| `examples/telemetry` | default | 946.3 µs | 1.07× (1.05–1.13) | 1.08× (0.98–1.29) | 1.07× (1.02–1.11) | — |
-| `examples/telemetry` | cold | 9.41 ms | 1.54× (1.45–1.78) | 1.59× (1.47–1.87) | 1.54× (1.53–1.64) | — |
+| `array-pipeline` | default | 7.01 ms | 1.25× (1.19–1.36) | 1.19× (0.95–1.31) | 1.20× (0.94–1.42) | — |
+| `array-pipeline` | cold | 11.64 ms | 1.03× (0.88–1.12) | 0.95× (0.80–1.12) | 1.03× (0.90–1.15) | — |
+| `numeric-driver` | default | 2.17 ms | 0.98× (0.92–1.04) | 1.01× (0.94–1.05) | 1.13× (0.95–1.15) | dsp |
+| `numeric-driver` | cold | 39.97 ms | 0.99× (0.89–1.14) | 0.96× (0.93–1.12) | 7.41× (5.98–8.29) | dsp |
+| `object-heavy` | default | 1.70 ms | 1.01× (0.96–1.03) | 0.95× (0.87–1.05) | 0.96× (0.82–1.02) | — |
+| `object-heavy` | cold | 31.42 ms | 1.05× (1.01–1.12) | 1.07× (0.95–1.22) | 1.03× (0.98–1.06) | — |
+| `examples/image-filters` | default | 36.32 ms | 0.98× (0.78–1.32) | 0.95× (0.93–1.21) | 1.02× (0.75–1.28) | — |
+| `examples/image-filters` | cold | 262.16 ms | 0.98× (0.92–1.02) | 0.97× (0.88–1.04) | 0.99× (0.96–1.05) | — |
+| `examples/mixed` | default | 1.41 ms | 1.01× (0.98–1.09) | 0.95× (0.92–1.03) | 1.47× (1.41–1.57) | kernel |
+| `examples/mixed` | cold | 61.52 ms | 1.00× (0.86–1.05) | 0.99× (0.91–1.08) | 5.94× (4.95–6.33) | kernel |
+| `examples/telemetry` | default | 1.10 ms | 1.10× (1.04–1.14) | 1.13× (1.06–1.20) | 1.17× (1.15–1.23) | — |
+| `examples/telemetry` | cold | 12.19 ms | 1.55× (1.33–1.88) | 1.53× (1.27–1.55) | 1.59× (1.49–1.78) | — |
 
 (`examples/telemetry`'s own config already turns on `inline-fn` and `scalar`, so its
 `trioxide` and `all passes` columns are the same build; its README compares against the
 default passes.) The variants agree on every result in every round.
 
-- **WASM pays off where the cost model picks it**: `mixed`'s int32 kernel (1.5× under V8's
-  defaults, 6.7× cold) and `numeric-driver`'s FIR filter (`fir`, 1.16× and 6.9×). With the
-  weights before the refit, `numeric-driver` stayed all JS and `image-filters` moved `boxBlur`
-  into WASM, which is slower (0.79× over eleven rounds; its README has the numbers).
-- **The JS passes now move `array-pipeline`**: 1.18× with the default passes and 1.21× with
-  every pass under V8's defaults (every round above 1× with every pass on), from #16's
-  pipeline lowering. Cold, it is a tie. `telemetry` gains 1.5× cold. `object-heavy` is within
-  the noise either way.
+- **WASM pays off where the cost model picks it**: `mixed`'s int32 kernel (1.47× under V8's
+  defaults, 5.9× cold) and `numeric-driver`'s FIR filter (`fir`, 1.13× and 7.4×). S10's
+  refit keeps both islands and keeps `image-filters` all JS.
+- **The JS passes move `array-pipeline`**: 1.25× with the default passes and 1.19× with every
+  pass under V8's defaults; cold, a tie. `telemetry` gains 1.1× hot and 1.5× cold.
+  `object-heavy` is within the noise either way.
+- This machine ran slower overall than in S9's run (the stripped builds take 10–30% longer,
+  `mixed` cold 47.8 → 61.5 ms), so compare the ratios, not the times. S9's table is in git
+  history.
 
 ### M4: "Benchmarks show speedups on array-pipeline and object-heavy fixtures"
 
-**Half of it holds on main**, now that #16 has landed. The single-pass cases show it
-clearly (`array-pipelines` 34× and `hidden-class-objects` 4.6× under V8's defaults). Of the
-realistic programs, `array-pipeline` is 1.18–1.21× faster under V8's defaults (cold, a tie),
-but `object-heavy` stays within the noise of the stripped build in both engines, with the
-default passes and with every pass. What still limits them, from `trioxide explain`:
+**Still half met after S10.** `array-pipeline` holds: 1.25× faster than the stripped build
+with the default passes under V8's defaults, 1.19× with every pass (cold, a tie), and the
+single-pass cases show the passes working (`array-pipelines` 30×, `hidden-class-objects`
+4.6×). **`object-heavy` is not met**: 1.01× with the default passes and 0.95× with every pass
+under V8's defaults, 1.05× and 1.07× cold, all within the noise. S10 worked through the four
+limits S9 listed:
 
-1. **`object-heavy`'s objects are class instances.** Its `Vec2` temporaries come from
-   `new Vec2(…)`, which scalar replacement doesn't take (object literals only); hidden-class
-   stabilisation doesn't fire on them. Method calls on member receivers (`p.velocity.add(…)`)
-   aren't inlined (the receiver must be a never-reassigned name or `this`). `for…of` lowers
-   its four loops, and with every pass on `inline-fn` and `scalar` change two calls and one
-   literal; V8 already optimises the rest.
-2. **`array-pipeline`'s chains are partly lowered.** `revenue`, `revenueByCategory`,
-   `bigSpenders` and `quantityHistogram` each get a loop; `bigSpenders`'s
-   `totals.map(…).filter(…).sort(…)` stays because `totals` (`new Array(500).fill(0)`) is only
-   Declared, and `stats`' reductions aren't touched. (S10: `fill` was modelled already; what
-   made `totals` Declared was `totals[o.customer] += …` in an early sweep, where `o.customer`
-   had no value yet and counted as "any key", so the array became dynamic for good. With that
-   fixed, and writes and reads at an index whose proven range is inside the length kept
-   packed, the chain fuses; an 11-round A/B of the whole program measures no change, 0.966×
-   (0.93–1.08) under V8's defaults and 1.006× (0.87–1.17) cold, since the chain runs once over
-   500 elements per `run()`.)
-3. **Closure hoisting refuses capture-free callbacks outside loops in modules with a runtime
-   import**, whether or not an import cycle exists: in `array-pipeline/report.ts` (which
-   imports a constant from `orders.ts`, which imports nothing) most of them stay. Checking
-   the analysis's actual import cycles would let them move (S5a).
-4. **V8 already does much of the rest in hot code**, as the cold/default split of S5a's cases
-   shows.
+1. **`object-heavy`'s objects are class instances.** S10 extended both passes to them, and
+   neither reaches this program:
+   - `scalar` now takes `new C(…)` (#32), for a class declared in the same module whose
+     constructor only assigns its fields, at a site the analysis proves non-escaping.
+     `object-heavy`'s `Vec2` is imported from `vec.ts`. Most of its temporaries are also
+     stored into `Particle` fields (`p.velocity = new Vec2(…)`) or have methods called on
+     them.
+   - `inline-fn` now inlines methods on member receivers (`p.velocity.add(…)`, #31). The
+     `Vec2` methods are in another module, though, and inlining stays within a module.
+
+   The new pass case `scalar-instances` shows what the extension does where it applies:
+   0.83× under V8's defaults and 3.6× cold, the same trade-off as `scalar-points`, so
+   `scalar` stays opt-in. In a single module (the scratch case in #31), inlining methods on
+   member receivers measured 0.74× (0.70–0.77) under V8's defaults and 1.45× (1.37–1.51)
+   cold, so `inline-fn` stays opt-in too.
+
+   Making `object-heavy` faster would take cross-module inlining (the passes see one
+   module's AST at a time, PLAN §4) and scalar replacement through fields. Both are new
+   passes, out of S10's scope.
+2. **`array-pipeline`'s `bigSpenders` chain.** `totals` (`new Array(500).fill(0)`) was only
+   Declared. #28 fixes the cause: a key with no value yet counted as any key, and writes
+   inside the known length made holes. With it, `totals` is `number[]@proven` and
+   `bigSpenders` fuses both of its chains. That is precision, not speed: an 11-round A/B of
+   the program measured 0.97× (0.93–1.08) under V8's defaults and 1.01× (0.87–1.17) cold.
+   The chain runs once over 500 elements per `run()`, next to loops over 20 000 records.
+3. **Closure hoisting and import cycles.** Hoisting by the analysis's actual import cycles,
+   instead of "the module has imports", was implemented: an `in_import_cycle` fact, with
+   fixtures for a cycle and for imports without one. It lets `report.ts`'s callbacks move.
+   It was measured and **dropped**: 1.04× (0.92–1.12) under V8's defaults and 1.00× cold
+   over 11 rounds of `array-pipeline`, no measurable win. The `closure-hoist-loop`
+   regression S9 reported was the pipelines pass's, not closure hoisting's. S10 leaves a
+   lone `map` as the builtin (#26): `closure-hoist-loop` went from 0.65× to 1.02× under V8's
+   defaults and from 0.87× to 1.52× cold.
+4. **V8 already does much of the rest in hot code.** The cold/default split of the
+   scalar and inline-fn cases shows it again.
 
 ### Compiler throughput
 
