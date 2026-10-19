@@ -26,7 +26,7 @@ function rewrites(): number[] {
   return a.map((x, i) => {
     if (i + 1 < a.length) a[i + 1] = a[i + 1] * 100;
     return x;
-  });
+  }).map((v) => v);
 }
 
 function deletes(): string {

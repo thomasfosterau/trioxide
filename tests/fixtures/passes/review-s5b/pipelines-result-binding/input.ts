@@ -31,7 +31,7 @@ function partialVar(): string {
     var r = xs.map((x) => {
       if (x === 30) throw new Error("stop");
       return x;
-    });
+    }).map((v) => v);
   } catch {
     // ignored
   }

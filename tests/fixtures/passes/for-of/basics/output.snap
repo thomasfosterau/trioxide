@@ -4,6 +4,7 @@ description: tests/fixtures/passes/for-of/basics
 input_file: tests/fixtures/passes/for-of/basics/input.ts
 ---
 //- input.ts
+const map_callback = (make) => make();
 // Positive cases: `for…of` over arrays the analysis made becomes an indexed loop, and spreads
 // of arrays without holes become `slice`/`concat`.
 function sum() {
@@ -86,12 +87,7 @@ function closures() {
 		const value = items[i];
 		makers.push(() => value);
 	}
-	const result = [];
-	for (let i = 0, length = makers.length; i < length; i++) {
-		const make = makers[i];
-		result.push(make());
-	}
-	return result;
+	return makers.map(map_callback);
 }
 function fromCall() {
 	let total = 0;

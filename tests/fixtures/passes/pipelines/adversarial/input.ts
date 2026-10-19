@@ -47,7 +47,7 @@ function zeros(): boolean[] {
 function tdz(): string {
   try {
     // The callback reads the binding the chain initialises, in its temporal dead zone.
-    const t: number[] = [1].map(() => t.length);
+    const t: number[] = [1].map(() => t.length).map((v) => v);
     return String(t);
   } catch (error) {
     return error instanceof ReferenceError ? "ReferenceError" : "other";
