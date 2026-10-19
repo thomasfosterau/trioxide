@@ -23,26 +23,26 @@ src/main.ts
 
 src/ease.ts
   ease (5:8): JS
-    why: the cost model keeps it in JS: benefit − cost = -2927120 ≤ threshold 0
-    cost model: benefit -7120 − cost 2920000 = -2927120 ≤ threshold 0
+    why: the cost model keeps it in JS: benefit − cost = -2958800 ≤ threshold 0
+    cost model: benefit -78800 − cost 2880000 = -2958800 ≤ threshold 0
       benefit: 1200000 operations over 200000 call(s)
-      cost: crossings 2620000 + marshalling 0 (0 bytes) + instantiation 300000
+      cost: crossings 2580000 + marshalling 0 (0 bytes) + instantiation 300000
     passes:
       fold skipped at 6:13, 6:22: the call's result depends on what its callers pass (`passes.specialize` is off)
 
 src/kernel.ts
   tileDigest (10:8): WASM in island `kernel`
     why: chosen by the cost model; exported by the island
-    cost model: benefit 777480 − cost 300079 = 477401 > threshold 0
+    cost model: benefit 1213109 − cost 300077 = 913031 > threshold 0
       benefit: 25170444 operations over 6 call(s)
-      cost: crossings 79 + marshalling 0 (0 bytes) + instantiation 300000
+      cost: crossings 77 + marshalling 0 (0 bytes) + instantiation 300000
     passes:
       applied: inline ×2
   cellNoise (22:8): WASM in island `kernel`
     why: compiled into the island as a callee (its JS version is kept too)
-    cost model: benefit 777480 − cost 300079 = 477401 > threshold 0
+    cost model: benefit 1213109 − cost 300077 = 913031 > threshold 0
       benefit: 25170444 operations over 6 call(s)
-      cost: crossings 79 + marshalling 0 (0 bytes) + instantiation 300000
+      cost: crossings 77 + marshalling 0 (0 bytes) + instantiation 300000
 
 src/view.ts
   render (4:8): JS
