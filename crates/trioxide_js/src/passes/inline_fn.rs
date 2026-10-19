@@ -575,6 +575,9 @@ impl<'a> Visit<'a> for Scan<'_> {
 /// One call site's plan.
 struct Site {
     callee: NodeId,
+    /// The method's receiver isn't a name or `this`: it is evaluated once, first, into a local
+    /// that stands for `this`.
+    receiver_temp: bool,
 }
 
 /// A statement list being visited: its scope, where the visit is in it, and the declarations
@@ -795,7 +798,7 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
                 return;
             }
         };
-        if plan.needs_locals() && !list_in_same_function(ctx) {
+        if (plan.needs_locals() || site.receiver_temp) && !list_in_same_function(ctx) {
             self.decisions.skipped(
                 span,
                 "an argument needs a temporary, and there is no statement list in the same \
@@ -807,9 +810,9 @@ impl<'a> Traverse<'a, ()> for Visitor<'a, '_> {
             .frames
             .last()
             .is_some_and(|frame| frame.depth == 1 && frame.leading == Some(span));
-        let receiver = receiver_of(call, self.allocator);
-        let mut arguments = self.apply(call, site.callee, plan, frame_scope, ctx);
         let mut sequence = Vec::new();
+        let receiver = self.receiver(call, site.receiver_temp, frame_scope, &mut sequence, ctx);
+        let mut arguments = self.apply(call, site.callee, plan, frame_scope, ctx);
         let mut copies = FxHashMap::default();
         let mut renames = FxHashMap::default();
         for symbol in &arguments.order {
@@ -1037,6 +1040,7 @@ impl<'a> Visitor<'a, '_> {
         if call.optional {
             return Err(None);
         }
+        let mut receiver_temp = false;
         let node = match &call.callee {
             Expression::Identifier(ident) => {
                 let symbol = ident
@@ -1066,12 +1070,10 @@ impl<'a> Visitor<'a, '_> {
                         callee.name
                     )));
                 }
-                if !self.receiver_copyable(&member.object, scoping, call.node_id()) {
-                    return Err(Some(format!(
-                        "the receiver of `{}` isn't a name that stays the same or `this`",
-                        callee.name
-                    )));
+                if matches!(member.object, Expression::Super(_)) {
+                    return Err(None);
                 }
+                receiver_temp = !self.receiver_copyable(&member.object, scoping, call.node_id());
                 unit.node
             }
             _ => return Err(None),
@@ -1146,7 +1148,10 @@ impl<'a> Visitor<'a, '_> {
                 callee.name, callee.size
             )));
         }
-        Ok(Site { callee: node })
+        Ok(Site {
+            callee: node,
+            receiver_temp,
+        })
     }
 
     /// How each parameter gets its value at this call, without changing anything.
@@ -1364,6 +1369,37 @@ impl<'a> Visitor<'a, '_> {
         }
     }
 
+    /// What `this` becomes in an inlined method: a copy of the receiver, or (`temp`) a fresh
+    /// local the receiver is evaluated into first, pushed onto `locals` before the arguments'.
+    fn receiver(
+        &mut self,
+        call: &CallExpression<'a>,
+        temp: bool,
+        scope: ScopeId,
+        locals: &mut Vec<(String, Expression<'a>, bool, bool)>,
+        ctx: &mut TraverseCtx<'a, ()>,
+    ) -> Option<Expression<'a>> {
+        let receiver = receiver_of(call, self.allocator)?;
+        if !temp {
+            return Some(receiver);
+        }
+        let base = match &call.callee {
+            Expression::StaticMemberExpression(member) => match member.object.without_parentheses()
+            {
+                Expression::StaticMemberExpression(object) => object.property.name.to_string(),
+                _ => "receiver".to_string(),
+            },
+            _ => "receiver".to_string(),
+        };
+        let name = self.namer.fresh(&base, scope, ctx.scoping());
+        locals.push((name.clone(), receiver, false, false));
+        Some(Expression::new_identifier(
+            call.span,
+            Ident::from_str_in(&name, ctx),
+            ctx,
+        ))
+    }
+
     /// Whether a method call's receiver may stand for `this` in each use: `this`, or a name that
     /// is never reassigned and whose read can't throw.
     fn receiver_copyable(
@@ -1510,12 +1546,12 @@ impl<'a> Visitor<'a, '_> {
                 return 1;
             }
         };
-        let receiver = receiver_of(call, self.allocator);
+        let mut locals_in_order = Vec::new();
+        let receiver = self.receiver(call, site.receiver_temp, scope, &mut locals_in_order, ctx);
         let mut arguments = self.apply(call, site.callee, plan, scope, ctx);
         let mut out: Vec<Statement<'a>> = Vec::new();
         let mut copies = FxHashMap::default();
         let mut renames = FxHashMap::default();
-        let mut locals_in_order = Vec::new();
         for symbol in &arguments.order {
             match arguments.values.remove(symbol) {
                 Some(Value::Copy(expression)) => {
