@@ -208,6 +208,13 @@ proposed fix as written (an `i32` index needs a range proof).
 - The first three each turn a kernel the island loses (1.1–14×) into one it wins
   (1.13–1.3×). Fixing them changes which operation kinds are slow, so the weights need a
   refit afterwards.
+- **S10 fixed the second and third in the lowering** (`ToInt32` of constants folded and of
+  element reads taken from the element, `a[i]++`/`+=` on typed arrays in the element type's
+  arithmetic). The partition suite, five rounds, WASM before → after (JS in brackets):
+  `histogram` 3.45 ms → 191.5 µs (231.9 µs), `noise` 9.63 → 5.92 ms (8.00 ms), `int-hash`
+  4.65 → 3.79 ms (10.19 ms), `per-element` 1.54 ms → 752.1 µs (185.7 µs); `histogram` and
+  `noise` now run faster in WASM than in JS. The first miss is the analysis's (S10's
+  integer-ranges change).
 - The `fmod` paths cost nothing measurable: `floor % 2.0` only runs on exact `.5` values,
   and `to_uint32`'s `%` only out of the `u32` range. Not worth a change for speed.
 - `rounding`: with its counter now int32 the old weights picked it (2.1× faster in WASM); the

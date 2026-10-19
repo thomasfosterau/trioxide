@@ -750,7 +750,11 @@ failed, a failing callee's result) are dropped, so diagnostics name the cause.
   returned value's) range fact proves int32/uint32 without `-0`; values computed in `f64` are
   then converted exactly. An operation runs on `i32`/`u32` only when both operands do and the
   node's range fact proves the result in range; `+`/`-` on int32s feeding ToInt32 wrap, as JS
-  does. Everything else is `f64`.
+  does. Everything else is `f64`. `ToInt32` (bitwise operators, `Math.imul`) of a constant is
+  folded, and of an element read takes the element's int32 directly (0 out of bounds);
+  `a[i]++`, `a[i]--` and `a[i] += k` (an int32 `k` without effects, or `-=` a constant) on a
+  typed array run in the element type's own wrapping arithmetic, which gives what JavaScript's
+  `f64` sum and store give.
 - *Arrays.* Locals holding arrays are either created in the call (`&'static mut [E]`) or
   read-only (`&[E]`); writes through a variable that may hold a parameter, copies between array
   variables, returning a parameter and passing one array twice to a callee that writes to it

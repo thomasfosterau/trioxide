@@ -181,9 +181,8 @@ fn histogram(pixels: &[U8Clamped], bins: &mut [u32]) {
     let mut i = 0.0;
     while i < array::len(pixels) {
         if conv::to_int32(i) & 3 != 3 {
-            let index: i32 = ops::shr_i32(conv::to_int32(array::get(pixels, i)), 4);
-            let value = array::get_i32(bins, index) + 1.0;
-            array::set_i32(bins, index, value);
+            let index: i32 = ops::shr_i32(array::get_int32(pixels, i), 4);
+            array::add_i32(bins, index, 1);
         }
         i += 1.0;
     }

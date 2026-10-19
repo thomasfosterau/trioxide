@@ -492,7 +492,7 @@ fn clz32(x: f64) -> i32 {
 }
 
 fn imul(a: f64, b: f64) -> i32 {
-    math::imul(a, b)
+    math::imul_i32(conv::to_int32(a), conv::to_int32(b))
 }
 
 fn toInt32(x: f64) -> i32 {

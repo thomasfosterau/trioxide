@@ -1,0 +1,586 @@
+---
+source: crates/trioxide_rust/tests/generated.rs
+description: tests/wasm/int-updates
+input_file: tests/wasm/int-updates/input.ts
+---
+//- kernel/island.json
+{
+  "id": "kernel",
+  "abiVersion": 1,
+  "exports": [
+    {
+      "name": "bumpI8",
+      "wasmName": "bumpI8",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i8"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpU8",
+      "wasmName": "bumpU8",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpC8",
+      "wasmName": "bumpC8",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8Clamped"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpI16",
+      "wasmName": "bumpI16",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i16"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpU16",
+      "wasmName": "bumpU16",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u16"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpI32",
+      "wasmName": "bumpI32",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpU32",
+      "wasmName": "bumpU32",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpF32",
+      "wasmName": "bumpF32",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "bumpF64",
+      "wasmName": "bumpF64",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "addAll",
+      "wasmName": "addAll",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "k",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "histogram",
+      "wasmName": "histogram",
+      "params": [
+        {
+          "name": "bytes",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u8"
+          },
+          "mutated": false
+        },
+        {
+          "name": "bins",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u32"
+          },
+          "mutated": true
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "overwrite",
+      "wasmName": "overwrite",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "i32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "i32"
+      }
+    },
+    {
+      "name": "addAfterWrite",
+      "wasmName": "addAfterWrite",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i32"
+          },
+          "mutated": true
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "i32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": null
+    },
+    {
+      "name": "readInts",
+      "wasmName": "readInts",
+      "params": [
+        {
+          "name": "xs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "ys",
+          "ty": {
+            "kind": "typedArray",
+            "element": "u32"
+          },
+          "mutated": false
+        },
+        {
+          "name": "zs",
+          "ty": {
+            "kind": "typedArray",
+            "element": "i8"
+          },
+          "mutated": false
+        },
+        {
+          "name": "i",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "f64"
+      }
+    },
+    {
+      "name": "hash",
+      "wasmName": "hash",
+      "params": [
+        {
+          "name": "seed",
+          "ty": {
+            "kind": "f64"
+          },
+          "mutated": false
+        },
+        {
+          "name": "rounds",
+          "ty": {
+            "kind": "i32"
+          },
+          "mutated": false
+        }
+      ],
+      "ret": {
+        "kind": "u32"
+      }
+    }
+  ],
+  "structs": [],
+  "fallback": "<repo>/tests/wasm/int-updates/kernel.ts"
+}
+
+//- kernel/src/lib.rs
+//! WASM island `kernel`, generated by trioxide from `kernel.ts`. Do not edit.
+
+#![no_std]
+#![allow(non_snake_case, clippy::all)]
+
+use trioxide_rt::prelude::*;
+
+fn bumpI8(xs: &mut [i8], i: f64) {
+    array::add(xs, i, 1);
+}
+
+fn bumpU8(xs: &mut [u8], i: f64) {
+    array::add(xs, i, 1);
+}
+
+fn bumpC8(xs: &mut [U8Clamped], i: f64) {
+    array::add(xs, i, 1);
+}
+
+fn bumpI16(xs: &mut [i16], i: f64) {
+    array::add(xs, i, -1);
+}
+
+fn bumpU16(xs: &mut [u16], i: f64) {
+    array::add(xs, i, -1);
+}
+
+fn bumpI32(xs: &mut [i32], i: f64) {
+    array::add(xs, i, 7);
+}
+
+fn bumpU32(xs: &mut [u32], i: f64) {
+    array::add(xs, i, -3);
+}
+
+fn bumpF32(xs: &mut [f32], i: f64) {
+    array::add(xs, i, 1);
+}
+
+fn bumpF64(xs: &mut [f64], i: f64) {
+    array::add(xs, i, -1);
+}
+
+fn addAll(xs: &mut [u32], k: f64) {
+    let d: i32 = conv::to_int32(k);
+    let mut i = 0.0;
+    while i < array::len(xs) {
+        array::add(xs, i, d);
+        array::set(xs, i, array::get(xs, i) - f64::from(ops::shr_i32(d, 1)));
+        i += 1.0;
+    }
+}
+
+fn histogram(bytes: &[u8], bins: &mut [u32]) {
+    let mut i: i32 = 0;
+    while i < bytes.len() as i32 {
+        // SAFETY: the analysis proves the index is in bounds.
+        let index: i32 = ops::shr_i32(
+            (unsafe { array::get_unchecked(bytes, i as usize) }) as i32,
+            4,
+        );
+        array::add_i32(bins, index, 1);
+        i += 1;
+    }
+}
+
+fn overwrite(xs: &mut [i32], i: i32) -> i32 {
+    array::set_i32(xs, i, 100.0);
+    1
+}
+
+fn addAfterWrite(xs: &mut [i32], i: i32) {
+    let value = array::get_i32(xs, i) + f64::from(overwrite(xs, i));
+    array::set_i32(xs, i, value);
+}
+
+fn readInts(xs: &[f64], ys: &[u32], zs: &[i8], i: f64) -> f64 {
+    f64::from(array::get_int32(xs, i) ^ array::get_int32(ys, i))
+        + f64::from(ops::shr_i32(array::get_int32(zs, i), 1))
+        + f64::from(array::get_int32(xs, i + 100.0))
+        + f64::from(array::get_int32_i32(ys, -1) & 255)
+}
+
+fn hash(seed: f64, rounds: i32) -> u32 {
+    let mut h = f64::from(conv::to_int32(seed));
+    let mut r: i32 = 0;
+    while r < rounds {
+        h = f64::from(conv::to_int32(h) ^ ops::shl_i32(conv::to_int32(h), 13));
+        h = f64::from(math::imul_i32(conv::to_int32(h), 2654435761_u32 as i32));
+        h = f64::from(math::imul_i32(conv::to_int32(h) ^ 5, -2))
+            + f64::from(math::imul_i32(1410065408, conv::to_int32(h)));
+        h = f64::from(
+            conv::to_int32(h) & 4294967295_u32 as i32 ^ (conv::to_int32(h) | 0)
+                ^ ops::ushr_i32(conv::to_int32(h), 32) as i32,
+        );
+        r += 1;
+    }
+    conv::to_uint32(h)
+}
+
+#[unsafe(export_name = "bumpI8")]
+pub unsafe extern "C" fn __abi_bumpI8(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i8>(xs_ptr, xs_len) };
+    bumpI8(xs, i);
+}
+
+#[unsafe(export_name = "bumpU8")]
+pub unsafe extern "C" fn __abi_bumpU8(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<u8>(xs_ptr, xs_len) };
+    bumpU8(xs, i);
+}
+
+#[unsafe(export_name = "bumpC8")]
+pub unsafe extern "C" fn __abi_bumpC8(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<U8Clamped>(xs_ptr, xs_len) };
+    bumpC8(xs, i);
+}
+
+#[unsafe(export_name = "bumpI16")]
+pub unsafe extern "C" fn __abi_bumpI16(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i16>(xs_ptr, xs_len) };
+    bumpI16(xs, i);
+}
+
+#[unsafe(export_name = "bumpU16")]
+pub unsafe extern "C" fn __abi_bumpU16(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<u16>(xs_ptr, xs_len) };
+    bumpU16(xs, i);
+}
+
+#[unsafe(export_name = "bumpI32")]
+pub unsafe extern "C" fn __abi_bumpI32(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i32>(xs_ptr, xs_len) };
+    bumpI32(xs, i);
+}
+
+#[unsafe(export_name = "bumpU32")]
+pub unsafe extern "C" fn __abi_bumpU32(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<u32>(xs_ptr, xs_len) };
+    bumpU32(xs, i);
+}
+
+#[unsafe(export_name = "bumpF32")]
+pub unsafe extern "C" fn __abi_bumpF32(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<f32>(xs_ptr, xs_len) };
+    bumpF32(xs, i);
+}
+
+#[unsafe(export_name = "bumpF64")]
+pub unsafe extern "C" fn __abi_bumpF64(xs_ptr: u32, xs_len: u32, i: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<f64>(xs_ptr, xs_len) };
+    bumpF64(xs, i);
+}
+
+#[unsafe(export_name = "addAll")]
+pub unsafe extern "C" fn __abi_addAll(xs_ptr: u32, xs_len: u32, k: f64) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<u32>(xs_ptr, xs_len) };
+    addAll(xs, k);
+}
+
+#[unsafe(export_name = "histogram")]
+pub unsafe extern "C" fn __abi_histogram(
+    bytes_ptr: u32,
+    bytes_len: u32,
+    bins_ptr: u32,
+    bins_len: u32,
+) {
+    // SAFETY: the glue passes fresh copies and checks they don't overlap.
+    let bytes = unsafe { abi::slice::<u8>(bytes_ptr, bytes_len) };
+    let bins = unsafe { abi::slice_mut::<u32>(bins_ptr, bins_len) };
+    histogram(bytes, bins);
+}
+
+#[unsafe(export_name = "overwrite")]
+pub unsafe extern "C" fn __abi_overwrite(xs_ptr: u32, xs_len: u32, i: i32) -> i32 {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i32>(xs_ptr, xs_len) };
+    overwrite(xs, i)
+}
+
+#[unsafe(export_name = "addAfterWrite")]
+pub unsafe extern "C" fn __abi_addAfterWrite(xs_ptr: u32, xs_len: u32, i: i32) {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice_mut::<i32>(xs_ptr, xs_len) };
+    addAfterWrite(xs, i);
+}
+
+#[unsafe(export_name = "readInts")]
+pub unsafe extern "C" fn __abi_readInts(
+    xs_ptr: u32,
+    xs_len: u32,
+    ys_ptr: u32,
+    ys_len: u32,
+    zs_ptr: u32,
+    zs_len: u32,
+    i: f64,
+) -> f64 {
+    // SAFETY: the glue passes fresh copies.
+    let xs = unsafe { abi::slice::<f64>(xs_ptr, xs_len) };
+    let ys = unsafe { abi::slice::<u32>(ys_ptr, ys_len) };
+    let zs = unsafe { abi::slice::<i8>(zs_ptr, zs_len) };
+    readInts(xs, ys, zs, i)
+}
+
+#[unsafe(export_name = "hash")]
+pub extern "C" fn __abi_hash(seed: f64, rounds: i32) -> u32 {
+    hash(seed, rounds)
+}
