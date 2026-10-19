@@ -1,0 +1,151 @@
+---
+source: crates/trioxide_analysis/tests/facts.rs
+description: tests/fixtures/analysis/computed-key-callback
+input_file: tests/fixtures/analysis/computed-key-callback/input.ts
+---
+//- input.ts
+functions:
+  <module> (1:1): allocates
+  register (4:1): writes
+  late1 (7:1) open: reads writes throws calls-unknown (declared: pure)
+  late2 (10:1) open: reads writes throws calls-unknown (declared: pure)
+  late3 (13:1) open: reads writes throws calls-unknown (declared: pure)
+  late4 (16:1) open: reads writes throws calls-unknown (declared: pure)
+  late5 (19:1) open: pure
+  main (25:8) open: reads writes allocates throws calls-unknown
+    calls 26:3 -> register
+nodes:
+  3:7 bind `registry`: object@proven
+  3:17 ref `Record`: unknown
+  3:33 bind `x`: unknown
+  3:57 object `{}`: object@proven escape=known
+  4:10 bind `register`: function@proven
+  4:19 bind `name`: string@proven
+  4:33 bind `f`: function@proven
+  4:37 bind `x`: unknown
+  5:3 assign `registry[name] = f`: function@proven
+  5:3 member `registry[name]`: unknown
+  5:3 ref `registry`: object@proven
+  5:12 ref `name`: string@proven
+  5:20 ref `f`: function@proven
+  7:10 bind `late1`: function@proven
+  7:16 bind `x`: number@declared
+  8:10 binary `x * 2`: number@proven
+  8:10 ref `x`: number@declared
+  10:10 bind `late2`: function@proven
+  10:16 bind `x`: number@declared
+  11:10 binary `x + 1`: number nonNegZero@declared
+  11:10 ref `x`: number@declared
+  13:10 bind `late3`: function@proven
+  13:16 bind `x`: number@declared
+  14:10 binary `x - 1`: number nonNegZero@proven
+  14:10 ref `x`: number@declared
+  16:10 bind `late4`: function@proven
+  16:16 bind `x`: number@declared
+  17:10 binary `x * 3`: number@proven
+  17:10 ref `x`: number@declared
+  19:10 bind `late5`: function@proven
+  19:16 bind `x`: number@declared
+  20:7 binary `typeof x === "number" && x > 0`: boolean@proven
+  20:7 binary `typeof x === "number"`: boolean@proven
+  20:7 unary `typeof x`: string@proven
+  20:14 ref `x`: number@declared
+  20:32 binary `x > 0`: boolean@proven
+  20:32 ref `x`: number@proven
+  21:10 cond `x === 0 ? "zero" : "other"`: string@proven
+  21:10 binary `x === 0`: boolean@proven
+  21:10 ref `x`: number@declared
+  23:7 bind `table`: object@proven
+  23:14 ref `Record`: unknown
+  23:30 bind `x`: unknown
+  23:54 object `{}`: object@proven escape=known
+  24:7 bind `slots`: unknown[]@proven
+  24:16 bind `x`: unknown
+  24:42 array `[]`: unknown[]@proven escape=known stable-shape
+  25:17 bind `main`: function@proven
+  26:3 call `register("a", late1)`: undefined@proven
+  26:3 ref `register`: function@proven
+  26:17 ref `late1`: function@proven
+  27:3 call `console.log(registry["a"]!(21))`: unknown
+  27:3 member `console.log`: unknown
+  27:3 ref `console`: unknown
+  27:15 call `registry["a"]!(21)`: number@declared
+  27:15 non-null `registry["a"]!`: function@declared
+  27:15 member `registry["a"]`: function@declared
+  27:15 ref `registry`: object@proven
+  28:9 bind `key`: string@declared
+  28:15 binary `"b" + String(slots.length)`: string@declared
+  28:21 call `String(slots.length)`: string@declared
+  28:21 ref `String`: unknown
+  28:28 member `slots.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  28:28 ref `slots`: unknown[]@proven
+  29:3 assign `table[key] = late2`: function@proven
+  29:3 member `table[key]`: unknown
+  29:3 ref `table`: object@proven
+  29:9 ref `key`: string@declared
+  29:16 ref `late2`: function@proven
+  30:3 call `console.log(table.b0!(4))`: unknown
+  30:3 member `console.log`: unknown
+  30:3 ref `console`: unknown
+  30:15 call `table.b0!(4)`: number@declared
+  30:15 non-null `table.b0!`: function@declared
+  30:15 member `table.b0`: function@declared
+  30:15 ref `table`: object@proven
+  31:3 assign `slots[slots.length] = late3`: function@proven
+  31:3 member `slots[slots.length]`: unknown
+  31:3 ref `slots`: unknown[]@proven
+  31:9 member `slots.length`: number[0, 4294967295] int nonNaN nonNegZero@proven
+  31:9 ref `slots`: unknown[]@proven
+  31:25 ref `late3`: function@proven
+  32:3 call `console.log(slots[0]!(10))`: unknown
+  32:3 member `console.log`: unknown
+  32:3 ref `console`: unknown
+  32:15 call `slots[0]!(10)`: number@declared
+  32:15 non-null `slots[0]!`: function@declared
+  32:15 member `slots[0]`: function@declared
+  32:15 ref `slots`: unknown[]@proven
+  33:9 bind `holder`: object@proven
+  33:17 ref `Record`: unknown
+  33:43 object `{}`: object@proven escape=unknown
+  34:3 assign `holder[key] = late4`: function@proven
+  34:3 member `holder[key]`: unknown
+  34:3 ref `holder`: object@proven
+  34:10 ref `key`: string@declared
+  34:17 ref `late4`: function@proven
+  35:3 assign `(globalThis as any).holder = holder`: object@proven
+  35:3 member `(globalThis as any).holder`: unknown
+  35:4 cast `globalThis as any`: unknown
+  35:4 ref `globalThis`: unknown
+  35:32 ref `holder`: object@proven
+  36:3 call `console.log(((globalThis as any).hold...`: unknown
+  36:3 member `console.log`: unknown
+  36:3 ref `console`: unknown
+  36:15 call `((globalThis as any).holder.b0 as (x:...`: number@declared
+  36:16 cast `(globalThis as any).holder.b0 as (x: ...`: function@declared
+  36:16 member `(globalThis as any).holder.b0`: unknown
+  36:16 member `(globalThis as any).holder`: unknown
+  36:17 cast `globalThis as any`: unknown
+  36:17 ref `globalThis`: unknown
+  36:50 bind `x`: unknown
+  37:9 bind `named`: object@proven
+  37:16 ref `Record`: unknown
+  37:32 bind `x`: unknown
+  37:56 object `{}`: object@proven escape=none
+  38:3 assign `named[key] = late5`: function@proven
+  38:3 member `named[key]`: unknown
+  38:3 ref `named`: object@proven
+  38:9 ref `key`: string@declared
+  38:16 ref `late5`: function@proven
+  39:3 call `console.log(named[key]!(3), named[key...`: unknown
+  39:3 member `console.log`: unknown
+  39:3 ref `console`: unknown
+  39:15 call `named[key]!(3)`: string@declared
+  39:15 non-null `named[key]!`: function@declared
+  39:15 member `named[key]`: function@declared
+  39:15 ref `named`: object@proven
+  39:21 ref `key`: string@declared
+  39:31 call `named[key]!(0)`: string@declared
+  39:31 non-null `named[key]!`: function@declared
+  39:31 member `named[key]`: function@declared
+  39:31 ref `named`: object@proven
+  39:37 ref `key`: string@declared
