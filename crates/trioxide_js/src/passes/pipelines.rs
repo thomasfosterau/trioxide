@@ -433,6 +433,15 @@ impl<'a> Visitor<'_> {
                 return None;
             }
         };
+        // Nothing to fuse: V8's own `map` allocates its result at full length up front, which
+        // a loop pushing into `[]` doesn't (measured slower on small arrays, `benchmarks/`).
+        if calls.len() == 1 && terminal == Method::Map {
+            self.decisions.skipped(
+                span,
+                "a lone `map` stays (nothing to fuse; V8's builtin is faster)",
+            );
+            return None;
+        }
         self.decisions.applied(span);
         Some(self.rewrite(statement, form, terminal, &plan, ctx))
     }

@@ -49,7 +49,8 @@ function partialVar() {
 			if (!(i in xs)) continue;
 			const x = xs[i];
 			if (x === 30) throw new Error("stop");
-			result2[i] = x;
+			const v = x;
+			result2[i] = v;
 		}
 		var r = result2;
 	} catch {}

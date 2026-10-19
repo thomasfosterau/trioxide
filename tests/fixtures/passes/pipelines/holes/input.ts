@@ -22,7 +22,7 @@ function grown(): number[] {
 
 function report(): void {
   const a = holey();
-  const doubled = a.map((x) => (x ?? 0) * 2);
+  const doubled = a.map((x) => (x ?? 0) * 2).map((v) => v);
   console.log(doubled, 1 in doubled, doubled.length);
   const kept = a.filter(() => true);
   console.log(kept, kept.length);
@@ -47,7 +47,7 @@ function report(): void {
   const total = d.reduce((s, x) => s + x, 0);
   console.log(plusOne, total);
   const g = grown();
-  const tripled = g.map((x) => x * 3);
+  const tripled = g.map((x) => x * 3).map((v) => v);
   const positive = g.filter((x) => x > 0);
   console.log(tripled, positive);
 }

@@ -42,7 +42,8 @@ function report() {
 	for (let i = 0, length = a.length; i < length; i++) {
 		if (!(i in a)) continue;
 		const x = a[i];
-		result[i] = (x ?? 0) * 2;
+		const v = (x ?? 0) * 2;
+		result[i] = v;
 	}
 	const doubled = result;
 	console.log(doubled, 1 in doubled, doubled.length);
@@ -128,7 +129,8 @@ function report() {
 	for (let i = 0, length = g.length; i < length; i++) {
 		if (!(i in g)) continue;
 		const x = g[i];
-		result4[i] = x * 3;
+		const v = x * 3;
+		result4[i] = v;
 	}
 	const tripled = result4;
 	const result5 = [];
