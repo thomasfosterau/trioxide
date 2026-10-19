@@ -225,7 +225,10 @@ back to TS where it knows nothing:
 - *Effects* are computed twice, once counting only `Proven` facts and once counting
   `Declared` ones as proof, so `Facts::effects` honours `trustTypes`.
 - *Ranges* use IEEE-exact interval arithmetic with `int`/`nonNaN`/`nonNegZero` flags;
-  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged.
+  `i < a.length` bounds make `a[i]` an in-bounds fact while `a`'s length is unchanged. A
+  comparison narrows its locals (`x + k < n` narrows an integer `x` too, for integer `k` and
+  `n` within ±2^52, where the rounded sum compares as the exact one does), and one that leaves
+  a proven value no number narrows it to `never`, so the branch is unreachable there.
 
 Beyond types, the `Facts` API answers per call site (callees and whether that is all that
 can run there), per expression (effects including callees and implicit calls, `is_pure`,
