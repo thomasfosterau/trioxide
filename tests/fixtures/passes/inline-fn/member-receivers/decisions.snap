@@ -1,0 +1,24 @@
+---
+source: crates/trioxide_js/tests/decisions.rs
+description: tests/fixtures/passes/inline-fn/member-receivers
+input_file: tests/fixtures/passes/inline-fn/member-receivers/input.ts
+---
+//- input.ts
+17:12 inline-fn applied
+36:12 inline-fn applied
+43:12 inline-fn applied
+43:34 inline-fn applied
+59:32 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+59:17 inline-fn applied
+60:33 inline-fn applied
+60:61 inline-fn applied
+62:34 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+62:16 inline-fn applied
+66:13 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+66:36 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+66:13 inline-fn applied
+70:15 inline-fn applied
+70:35 inline-fn applied
+70:65 inline-fn applied
+70:96 inline-fn skipped: the body isn't a single `return`, and the call isn't a statement, declaration, `return` or assignment of its own
+70:65 inline-fn skipped: the receiver of `add` isn't proven to be an object (the call would throw on `null` or `undefined`)

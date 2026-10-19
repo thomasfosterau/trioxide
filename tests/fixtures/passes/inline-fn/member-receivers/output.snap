@@ -1,0 +1,86 @@
+---
+source: crates/trioxide/tests/fixtures.rs
+description: tests/fixtures/passes/inline-fn/member-receivers
+input_file: tests/fixtures/passes/inline-fn/member-receivers/input.ts
+---
+//- input.ts
+// Methods called on member receivers (`p.velocity.add(…)`): the receiver is evaluated once,
+// before the arguments, into a local that stands for `this`.
+const log = [];
+class Vec {
+	x;
+	y;
+	constructor(x, y) {
+		this.x = x;
+		this.y = y;
+	}
+	add(other) {
+		return new Vec(this.x + other.x, this.y + other.y);
+	}
+	dot(other) {
+		return this.x * other.x + this.y * other.y;
+	}
+	norm() {
+		return this.x * this.x + this.y * this.y;
+	}
+	tag(label) {
+		return `${label}:${this.x},${this.y}`;
+	}
+}
+class Particle {
+	position;
+	velocity;
+	reads = 0;
+	constructor(position) {
+		this.position = position;
+		this.velocity = new Vec(1, 2);
+	}
+	get speedVector() {
+		this.reads++;
+		log.push("get");
+		return this.velocity;
+	}
+	energy() {
+		const velocity = this.velocity, other = this.velocity;
+		return velocity.x * other.x + velocity.y * other.y;
+	}
+}
+class Pair {
+	inner;
+	constructor(inner) {
+		this.inner = inner;
+	}
+	innerEnergy() {
+		let inner, velocity_1;
+		return (inner = this.inner, inner.velocity.dot(inner.velocity)) + (velocity_1 = this.inner.velocity, velocity_1.dot(velocity_1));
+	}
+}
+function arg(value) {
+	log.push(`arg ${value}`);
+	return new Vec(value, value);
+}
+function make(label) {
+	log.push(`make ${label}`);
+	return new Particle(new Vec(0, 0));
+}
+export function main() {
+	const p = new Particle(new Vec(3, 4));
+	const velocity_2 = p.velocity, other_1 = arg(5);
+	const moved = new Vec(velocity_2.x + other_1.x, velocity_2.y + other_1.y);
+	let velocity_3, other_2, velocity_4;
+	console.log(moved.x, moved.y, (velocity_3 = p.velocity, other_2 = p.position, velocity_3.x * other_2.x + velocity_3.y * other_2.y), (velocity_4 = p.velocity, velocity_4.dot(velocity_4)));
+	// A getter receiver runs once, before the argument.
+	const speedVector = p.speedVector, other_3 = arg(1);
+	const fast = new Vec(speedVector.x + other_3.x, speedVector.y + other_3.y);
+	console.log(fast.x, p.reads, log.join("|"));
+	log.length = 0;
+	// A call as the receiver's object: evaluated once, in order.
+	const velocity_5 = make("a").velocity, other_4 = arg(2);
+	const e = velocity_5.x * other_4.x + velocity_5.y * other_4.y;
+	console.log(e, log.join("|"));
+	log.length = 0;
+	const pair = new Pair(p);
+	let velocity_6, position, other_5;
+	console.log(pair.inner.energy() + pair.inner.velocity.norm(), (velocity_6 = pair.inner.velocity, `${"v"}:${velocity_6.x},${velocity_6.y}`), (position = p.position, other_5 = p.velocity, new Vec(position.x + other_5.x, position.y + other_5.y)).add(arg(1)).x);
+	console.log(log.join("|"));
+}
