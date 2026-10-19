@@ -616,8 +616,11 @@ backend still generates in `f64` (`benchmarks/README.md`):
   a multiple per byte, as it is converted element by element), plus a fixed instantiation
   cost per island (per module of its exports). Crossings count only the calls the facade
   redirects: direct calls of an exported, never-reassigned binding from its own module or a
-  module importing it directly, weighted by the trip counts of the loops around the call
-  (only the caller's own loops: a caller itself called from a hot loop counts once). The host
+  module importing it directly, weighted by the trip counts of the loops around the call and
+  by how often the caller itself runs: frequencies propagate over the call graph's strongly
+  connected components, callers first, a cycle's members running as often as calls from
+  outside it reach it, and a unit unknown code may call (module code, the host's entries)
+  running at least once (recursion inside a cycle is the work estimate's, as a loop). The host
   calling an entry module's export, callbacks, namespace imports and re-exports run the JS
   version, so they don't count, and a function only they call is never an export.
 - an island is kept if `benefit − cost > threshold` (`threshold`, 0 in `auto`;
