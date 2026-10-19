@@ -181,6 +181,53 @@ operand unwrapping with #19's throw rule on the unwrapped member, its new `Facts
 - Every sequential change has to keep working under stale reads; run
   `facts_do_not_depend_on_chunk_size` and the tiny-chunk runtime harness.
 
+## S10 changes (cross-stream follow-ups)
+
+Every one has a runtime-harness fixture that passes in all three runs (default chunks,
+`chunk_units=1`, forced give-ups).
+
+- **Soundness:**
+  - **Polymorphic `new`** (#21, `interp/call.rs` `construct`): a site whose callee may be
+    classes (or functions) that make different kinds of objects isn't followed. Every
+    constructor it may run escapes. One site holds one kind of object. `polymorphic-new*`.
+  - **What a read loses track of escapes** (#22, `Cx::lose`): a dynamic index read, a
+    `Key::Unknown` read of an array, a computed-key read or a read of a dynamic object gives
+    any value, so the objects the receiver holds escape to unknown code. That counts a
+    function stored under a computed key as called. Computed-key stores escape the value to
+    `Unknown`. `computed-key-callback*`.
+  - **Replacing a prototype** (#33): a `__proto__` write to a followed object poisons it.
+    A poisoned instance site is typed `object` in `summary::refine`. When the program names
+    `__proto__`, `setPrototypeOf`, `Reflect`, `Function` or `eval`
+    (`interp::may_reprototype`, `State::reprototypes`), so is any instance that reaches
+    unknown code. `proto-writes`.
+- **Precision:**
+  - **Integer ranges** (#23, `narrow.rs`, `numeric.rs`): `x + k < n` narrows integer `x`;
+    a comparison that leaves no number narrows to `never`; `mul` keeps `nonNegZero` for
+    non-negative integers. `boxBlur`'s `ny * width` is int32. `int-ranges`.
+  - **Arrays indexed inside their length** (#28, `expr.rs`): `Key::Never` for a
+    `never@proven` key (no access); `Key::index_range` keeps an array packed, and its length
+    known, when the index's range lies below the known length. `array-fill-index`.
+  - **Constructors that keep `this`** (#32, `shapes::keeps_this`,
+    `ClassInfo::constructor_keeps_this`): a constructor with no closure and no direct `eval`
+    receives `this` without the blanket escape `call_unit` gives every argument, so a
+    plain `new C(…)` site can be `escape=none`. `constructor-this`.
+- **Tried and not landed:** `Facts::in_import_cycle`, for closure hoisting. The analysis has
+  the import cycles, and the fact was easy to expose, but hoisting by it measured no faster
+  (`benchmarks/README.md`, M4).
+
+Gap 6 below: counters bounded by a parameter or `.length` were already int32 before S10
+(`benchmarks/README.md`). S10 adds counters stepped by `k` against a length
+(`i + 3 < a.length; i += 4`) and keeps the flags on products of non-negative integers.
+Widening itself is unchanged.
+
+**New, from S10:**
+- A runtime-computed key that happens to be `"__proto__"` is detected only if the program
+  names `__proto__` somewhere. Instance types also assume that unknown code doesn't replace
+  prototypes unless the program itself names a way to (the same assumption builtin
+  integrity makes).
+- `keeps_this` is syntactic: any closure in a constructor keeps the old blanket escape. An
+  arrow that never touches `this` could be allowed.
+
 ## Known gaps and requests, most important first
 
 1. **Entry-function argument facts** (S8, S7). Arguments the host passes to exported entry
