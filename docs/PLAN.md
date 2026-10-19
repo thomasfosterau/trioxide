@@ -876,7 +876,10 @@ the plugin options, decide app/library: `library` only for `build.lib`), `buildS
 (create the Project and run whole-program analysis from Rollup inputs, taking the module
 scripts of HTML inputs as entries), `resolveId`/`load` for `\0trioxide:island/<id>` glue
 modules, `transform` (serve `ModuleOutput`, `moduleType: 'js'`), `generateBundle` (emit
-`.wasm` assets with hashed names and point the glue at them), `hotUpdate` (Vite 6+'s
+`.wasm` assets with hashed names and point the glue at them; the glue's `new URL` carries
+`/* @vite-ignore */`, so Vite doesn't look for the placeholder as a file), `writeBundle` (write
+the `.wasm` files an SSR build dropped, since it drops assets unless `build.ssrEmitAssets` is
+on), `hotUpdate` (Vite 6+'s
 replacement for `handleHotUpdate`: `Project::update`, then invalidate the dependants whose
 output actually changed, so ordinary edits keep Vite's normal HMR propagation). In dev, WASM
 is off unless `dev.wasm: true`; dev glue gets its `.wasm` inlined as a `data:` URL, which

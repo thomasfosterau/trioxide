@@ -62,13 +62,31 @@ function tempProject(files) {
   return root;
 }
 
+/** A Vite logger that only collects warnings into `warnings`. */
+function collectingLogger(warnings) {
+  return {
+    hasWarned: false,
+    info() {},
+    warn(message) {
+      warnings.push(message);
+    },
+    warnOnce(message) {
+      warnings.push(message);
+    },
+    error() {},
+    clearScreen() {},
+    hasErrorLogged: () => false,
+  };
+}
+
 /** Builds `main.ts` as an ES module that keeps its exports, and imports the result. */
-async function buildAndImport(root, plugin, extra = {}) {
+async function buildAndImport(root, plugin, extra = {}, warnings = []) {
   const outDir = path.join(root, 'dist');
   await build({
     root,
     configFile: false,
-    logLevel: 'silent',
+    logLevel: 'warn',
+    customLogger: collectingLogger(warnings),
     plugins: [plugin],
     build: {
       outDir,
@@ -162,15 +180,50 @@ describe('build', () => {
     const fetchBefore = globalThis.fetch;
     globalThis.fetch = async (url) => new Response(readFileSync(new URL(url)));
     try {
-      const { outDir, module } = await buildAndImport(root, plugin);
+      const warnings = [];
+      const { outDir, module } = await buildAndImport(root, plugin, {}, warnings);
       assert.equal(module.main(), 5);
       const assets = readdirSync(path.join(outDir, 'assets'));
       const wasm = assets.find((name) => /^fake-[\w-]{8}\.wasm$/.test(name));
       assert.ok(wasm, assets.join());
       assert.deepEqual(readFileSync(path.join(outDir, 'assets', wasm)), WASM_ADD);
       const code = readFileSync(path.join(outDir, 'main.js'), 'utf8');
-      assert.ok(code.includes(`new URL("./assets/${wasm}", `), code);
+      assert.match(code, new RegExp(`new URL\\(\\s*/\\* @vite-ignore \\*/\\s*"\\./assets/${wasm.replace('.', '\\.')}",`));
       assert.ok(!code.includes('__TRIOXIDE_WASM'), code);
+      // Vite doesn't look for the token as a file at build time.
+      assert.deepEqual(warnings.filter((warning) => warning.includes("doesn't exist at build time")), []);
+    } finally {
+      globalThis.fetch = fetchBefore;
+    }
+  });
+
+  test('an SSR build writes the .wasm too', async () => {
+    const root = tempProject({
+      'main.ts': 'declare function island(): number;\nexport function main(): number {\n  return island();\n}\n',
+    });
+    const plugin = createPlugin({ configFile: false }, { createProject: withFakeIsland });
+    const outDir = path.join(root, 'dist');
+    await build({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [plugin],
+      build: {
+        ssr: path.join(root, 'main.ts'),
+        outDir,
+        minify: false,
+        rolldownOptions: { output: { entryFileNames: '[name].js' } },
+      },
+    });
+    const assets = readdirSync(path.join(outDir, 'assets'));
+    const wasm = assets.find((name) => /^fake-[\w-]{8}\.wasm$/.test(name));
+    assert.ok(wasm, assets.join());
+    assert.deepEqual(readFileSync(path.join(outDir, 'assets', wasm)), WASM_ADD);
+    const fetchBefore = globalThis.fetch;
+    globalThis.fetch = async (url) => new Response(readFileSync(new URL(url)));
+    try {
+      const module = await import(`${pathToFileURL(path.join(outDir, 'main.js'))}?${Date.now()}`);
+      assert.equal(module.main(), 5);
     } finally {
       globalThis.fetch = fetchBefore;
     }
