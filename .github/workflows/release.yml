@@ -70,20 +70,20 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Set the crate version
         # The first `version` in the root manifest is `[workspace.package]`'s. Cargo.lock follows.
         run: perl -pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/ && $n++ unless $n' Cargo.toml && grep -m1 '^version' Cargo.toml
       - name: Install the pinned Rust toolchain and the target
         run: rustup toolchain install && rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           shared-key: release-${{ matrix.target }}
       - name: Install zig and cargo-zigbuild
         if: matrix.zig
         run: pip3 install --user cargo-zigbuild && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4.3.0
+      - uses: actions/setup-node@v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -127,12 +127,12 @@ jobs:
           out/trioxide* transform smoke.ts | tee smoke.js
           grep -q 'const x = 1;' smoke.js
           node -e "const b = require('./packages/trioxide/binding/trioxide.${{ matrix.platform }}.node'); if (b.transform('export let y: number = 2', 'a.ts').code !== 'export let y = 2;\n') process.exit(1)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: cli-${{ matrix.target }}
           path: trioxide-*.*
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: binding-${{ matrix.platform }}
           path: packages/trioxide/binding/trioxide.${{ matrix.platform }}.node
@@ -149,13 +149,13 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v4.4.0
+      - uses: pnpm/action-setup@v4.3.0
+      - uses: actions/setup-node@v4.4.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4.3.0
         with:
           pattern: binding-*
           path: artifacts
@@ -189,7 +189,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4.3.0
         with:
           pattern: cli-*
           path: dist
@@ -199,7 +199,7 @@ jobs:
         run: sha256sum trioxide-* | tee SHA256SUMS
       - name: Create the release
         if: needs.version.outputs.release == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.2
         with:
           files: |
             dist/trioxide-*

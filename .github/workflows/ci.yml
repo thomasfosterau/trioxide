@@ -20,10 +20,10 @@ jobs:
     name: fmt + clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           shared-key: lint
       - run: cargo fmt --all --check
@@ -37,14 +37,14 @@ jobs:
     name: cargo test + pnpm test + differential
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Install the pinned Rust toolchain (rust-toolchain.toml, includes wasm32)
         run: rustup toolchain install && rustup show active-toolchain && rustup target list --installed
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           shared-key: test
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4.3.0
+      - uses: actions/setup-node@v4.4.0
         with:
           node-version: 22
           cache: pnpm
