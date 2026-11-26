@@ -7,6 +7,6 @@
     "test": "node --test \"*.test.js\""
   },
   "devDependencies": {
-    "@oxc-project/runtime": "0.154.0"
+    "@oxc-project/runtime": "0.160.0"
   }
 }
