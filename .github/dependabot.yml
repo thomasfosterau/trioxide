@@ -1,0 +1,86 @@
+# Shared policy (one copy per thomasfosterau repository; the source is
+# thomasfosterau/create's docs/dependencies.md): weekly on Wednesday morning in
+# Melbourne. Security updates ignore the schedule and open as soon as an
+# advisory lands, one PR each.
+#
+# Not seen by Dependabot, and moved by hand: the tsrs git `rev` and the Rust
+# toolchain in rust-toolchain.toml (tsrs's MSRV).
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+      timezone: "Australia/Melbourne"
+    open-pull-requests-limit: 10
+    assignees:
+      - thomasfosterau
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 1
+    ignore:
+      # A git dependency pinned by `rev`; only trioxide_types may use it.
+      - dependency-name: "tsrs_*"
+    groups:
+      # Every oxc monorepo crate is pinned to one exact version and moves
+      # together. oxc_resolver and oxc_sourcemap have their own version lines
+      # (oxc_sourcemap must match what oxc_codegen uses).
+      oxc:
+        patterns:
+          - "oxc_*"
+        exclude-patterns:
+          - "oxc_resolver"
+          - "oxc_sourcemap"
+      toolchain:
+        dependency-type: "development"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+      timezone: "Australia/Melbourne"
+    open-pull-requests-limit: 10
+    assignees:
+      - thomasfosterau
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 1
+    groups:
+      toolchain:
+        dependency-type: "development"
+        patterns:
+          - "*"
+
+  # Workflows pin each action to a commit SHA with a version comment, which
+  # Dependabot keeps current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "06:00"
+      timezone: "Australia/Melbourne"
+    assignees:
+      - thomasfosterau
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 1
+    groups:
+      actions:
+        patterns:
+          - "*"
