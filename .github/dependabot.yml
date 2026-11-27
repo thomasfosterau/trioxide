@@ -28,16 +28,15 @@ updates:
       - dependency-name: "tsrs_*"
     groups:
       # Every oxc monorepo crate is pinned to one exact version and moves
-      # together. oxc_resolver and oxc_sourcemap have their own version lines
-      # (oxc_sourcemap must match what oxc_codegen uses).
+      # together; oxc_sourcemap rides along because it must match what
+      # oxc_codegen uses. oxc_resolver has its own version line.
       oxc:
         patterns:
           - "oxc_*"
         exclude-patterns:
           - "oxc_resolver"
-          - "oxc_sourcemap"
-      toolchain:
-        dependency-type: "development"
+      # Every other crate, dependencies and dev-dependencies alike, in one PR.
+      crates:
         patterns:
           - "*"
 
@@ -58,8 +57,8 @@ updates:
     cooldown:
       default-days: 1
     groups:
-      toolchain:
-        dependency-type: "development"
+      # Every npm package, runtime and development alike, in one PR.
+      npm:
         patterns:
           - "*"
 
