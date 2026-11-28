@@ -85,8 +85,8 @@ const { code, map } = transform('const x: number = 1;', 'src/x.ts');
 
 ## Building
 
-Requirements: [rustup](https://rustup.rs), Node 22+ and pnpm 10. The Rust toolchain
-(1.99.1 with the `wasm32-unknown-unknown` target) comes from `rust-toolchain.toml`; run
+Requirements: [rustup](https://rustup.rs), Node 22+ and pnpm 12 (`packageManager`). The Rust
+toolchain (1.99.1 with the `wasm32-unknown-unknown` target) comes from `rust-toolchain.toml`; run
 `rustup toolchain install` in the checkout if rustup doesn't install it on first use.
 
 ```sh

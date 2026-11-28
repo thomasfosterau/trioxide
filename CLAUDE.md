@@ -112,3 +112,9 @@ Sessions and waves are listed in `docs/sessions/README.md`.
 - Islands: `trioxide_wasm::IslandSource` (an `IslandSpec` plus Rust files, shaped as
   `docs/ABI.md` says) built by an `IslandBuilder`; results go in `BuildOutput.islands`.
   Hand-written islands live in `tests/islands/<case>/island/`.
+
+## Pull requests
+
+The pull request rules are in AGENTS.md:
+
+@AGENTS.md
