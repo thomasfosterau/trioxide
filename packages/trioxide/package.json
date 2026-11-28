@@ -73,10 +73,10 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "3.11.1",
-    "@types/node": "26.6.10",
+    "@types/node": "26.6.11",
     "playwright-core": "1.65.1",
     "typescript": "7.0.2",
-    "vite": "8.3.8",
+    "vite": "8.4.0",
     "vitest": "5.1.2"
   }
 }
