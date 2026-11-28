@@ -31,7 +31,7 @@
 //!
 //! [`Facts::symbol_constant`]: trioxide_analysis::Facts::symbol_constant
 
-use std::{fmt::Write as _, rc::Rc};
+use std::rc::Rc;
 
 use oxc_allocator::ArenaVec;
 use oxc_ast::ast::{
@@ -44,6 +44,7 @@ use oxc_ast::ast::{
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::Scoping;
 use oxc_span::Span;
+use oxc_str::JSStrBuilder;
 use oxc_syntax::{number::ToJsString, scope::ScopeFlags, symbol::SymbolId};
 use oxc_traverse::{Traverse, TraverseCtx};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -832,12 +833,10 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
         self.step(1)?;
         match expression {
             Expression::NumericLiteral(literal) => Ok(Value::Number(literal.value)),
-            Expression::StringLiteral(literal) => {
-                if literal.lone_surrogates {
-                    return unsupported("strings with lone surrogates");
-                }
-                Ok(Value::String(units(&literal.value)))
-            }
+            Expression::StringLiteral(literal) => match literal.value.as_str() {
+                Some(value) => Ok(Value::String(units(value))),
+                None => unsupported("strings with lone surrogates"),
+            },
             Expression::BooleanLiteral(literal) => Ok(Value::Boolean(literal.value)),
             Expression::NullLiteral(_) => Ok(Value::Null),
             Expression::TemplateLiteral(template) => {
@@ -846,11 +845,10 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                     let cooked = quasi
                         .value
                         .cooked
-                        .as_ref()
                         .ok_or(Stop::Unsupported("invalid escapes"))?;
-                    if quasi.lone_surrogates {
+                    let Some(cooked) = cooked.as_str() else {
                         return unsupported("strings with lone surrogates");
-                    }
+                    };
                     text.extend(cooked.encode_utf16());
                     if let Some(expression) = template.expressions.get(index) {
                         let value = self.expression(expression)?;
@@ -885,14 +883,18 @@ impl<'a> Interpreter<'_, '_, '_, '_, 'a> {
                     let ObjectPropertyKind::ObjectProperty(property) = property else {
                         return unsupported("object spread");
                     };
-                    if property.kind != PropertyKind::Init || property.method || property.computed {
+                    if property.kind != PropertyKind::Init
+                        || property.method
+                        || property.key.is_computed()
+                    {
                         return unsupported("accessors, methods or computed keys");
                     }
                     let key = match &property.key {
                         PropertyKey::StaticIdentifier(ident) => ident.name.to_string(),
-                        PropertyKey::StringLiteral(literal) if !literal.lone_surrogates => {
-                            literal.value.to_string()
-                        }
+                        PropertyKey::StaticStringLiteral(literal) => match literal.value.as_str() {
+                            Some(value) => value.to_owned(),
+                            None => return unsupported("strings with lone surrogates"),
+                        },
                         _ => return unsupported("this property key"),
                     };
                     if !plain_key(&key) {
@@ -1776,21 +1778,10 @@ fn build<'a>(literal: &Literal, span: Span, ctx: &mut TraverseCtx<'a, ()>) -> Ex
     match literal {
         Literal::Constant(constant) => constant_expr(constant, span, ctx),
         Literal::Units(units) => {
-            // oxc's encoding of lone surrogates: U+FFFD then the code unit in hex.
-            let mut text = String::new();
-            for unit in char::decode_utf16(units.iter().copied()) {
-                match unit {
-                    Ok('\u{FFFD}') => text.push_str("\u{FFFD}fffd"),
-                    Ok(c) => text.push(c),
-                    Err(error) => {
-                        text.push('\u{FFFD}');
-                        let _ = write!(text, "{:04x}", error.unpaired_surrogate());
-                    }
-                }
-            }
-            let mut literal =
-                oxc_ast::ast::StringLiteral::new(span, Str::from_str_in(&text, ctx), None, ctx);
-            literal.lone_surrogates = true;
+            // `JSStr` holds lone surrogates as they are.
+            let mut text = JSStrBuilder::with_capacity_in(units.len(), ctx);
+            text.push_utf16(units);
+            let literal = oxc_ast::ast::StringLiteral::new(span, text.into_js_str(), None, ctx);
             Expression::StringLiteral(ctx.alloc(literal))
         }
         Literal::Array(elements) => {
@@ -1811,12 +1802,14 @@ fn build<'a>(literal: &Literal, span: Span, ctx: &mut TraverseCtx<'a, ()>) -> Ex
                             ctx,
                         )))
                     } else {
-                        PropertyKey::StringLiteral(ctx.alloc(oxc_ast::ast::StringLiteral::new(
-                            span,
-                            Str::from_str_in(key, ctx),
-                            None,
-                            ctx,
-                        )))
+                        PropertyKey::StaticStringLiteral(ctx.alloc(
+                            oxc_ast::ast::StringLiteral::new(
+                                span,
+                                Str::from_str_in(key, ctx),
+                                None,
+                                ctx,
+                            ),
+                        ))
                     };
                     let value = build(value, span, ctx);
                     ObjectPropertyKind::ObjectProperty(ctx.alloc(
@@ -1825,7 +1818,6 @@ fn build<'a>(literal: &Literal, span: Span, ctx: &mut TraverseCtx<'a, ()>) -> Ex
                             PropertyKind::Init,
                             key,
                             value,
-                            false,
                             false,
                             false,
                             ctx,

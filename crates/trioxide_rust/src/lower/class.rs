@@ -73,7 +73,7 @@ impl<'a> ClassModel<'a> {
                     if property.r#static {
                         return Err((property.span, "has a static field".into()));
                     }
-                    let Some(name) = static_key(&property.key, property.computed) else {
+                    let Some(name) = static_key(&property.key) else {
                         return Err((
                             property.key.span(),
                             "has a computed or private field".into(),
@@ -99,8 +99,10 @@ impl<'a> ClassModel<'a> {
                             model.ctor = function_id;
                             model.ctor_func = Some(&method.value);
                         }
-                        MethodDefinitionKind::Method if !method.r#static && !method.computed => {
-                            let Some(name) = static_key(&method.key, false) else {
+                        MethodDefinitionKind::Method
+                            if !method.r#static && !method.key.is_computed() =>
+                        {
+                            let Some(name) = static_key(&method.key) else {
                                 return Err((method.key.span(), "has a private method".into()));
                             };
                             model.methods.insert(name, function_id);
@@ -178,10 +180,7 @@ impl<'a> ClassModel<'a> {
     }
 }
 
-fn static_key(key: &PropertyKey<'_>, computed: bool) -> Option<String> {
-    if computed {
-        return None;
-    }
+fn static_key(key: &PropertyKey<'_>) -> Option<String> {
     match key {
         PropertyKey::StaticIdentifier(id) => Some(id.name.to_string()),
         _ => None,

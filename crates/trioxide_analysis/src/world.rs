@@ -660,7 +660,7 @@ impl<'a> World<'a> {
                 constructor_keeps_this: true,
             };
             for element in &class.body.body {
-                let (key, computed, is_static, role, unit, node) = match element {
+                let (key, is_static, role, unit, node) = match element {
                     ClassElement::MethodDefinition(method) => {
                         let role = match method.kind {
                             MethodDefinitionKind::Constructor => MethodRole::Constructor,
@@ -675,7 +675,6 @@ impl<'a> World<'a> {
                         }
                         (
                             &method.key,
-                            method.computed,
                             method.r#static,
                             Some(role),
                             Some(unit),
@@ -684,7 +683,6 @@ impl<'a> World<'a> {
                     }
                     ClassElement::PropertyDefinition(property) => (
                         &property.key,
-                        property.computed,
                         property.r#static,
                         None,
                         None,
@@ -692,7 +690,6 @@ impl<'a> World<'a> {
                     ),
                     ClassElement::AccessorProperty(property) => (
                         &property.key,
-                        property.computed,
                         property.r#static,
                         Some(MethodRole::Getter),
                         None,
@@ -700,7 +697,7 @@ impl<'a> World<'a> {
                     ),
                     ClassElement::StaticBlock(_) | ClassElement::TSIndexSignature(_) => continue,
                 };
-                let Some(name) = static_key(key, computed) else {
+                let Some(name) = static_key(key) else {
                     info.computed_members = true;
                     continue;
                 };
@@ -939,8 +936,7 @@ fn method_role(
                     AstKind::Class(class) => class.id.as_ref().map(|id| id.name.to_string()),
                     _ => None,
                 };
-            let key =
-                static_key(&method.key, method.computed).unwrap_or_else(|| "[computed]".into());
+            let key = static_key(&method.key).unwrap_or_else(|| "[computed]".into());
             let name = match class_name {
                 Some(class) => format!("{class}.{key}"),
                 None => key,
@@ -964,19 +960,24 @@ fn binding_name(module: &Module<'_>, node: NodeId) -> Option<String> {
             .id
             .get_binding_identifier()
             .map(|id| id.name.to_string()),
-        AstKind::ObjectProperty(property) => static_key(&property.key, property.computed),
-        AstKind::PropertyDefinition(property) => static_key(&property.key, property.computed),
+        AstKind::ObjectProperty(property) => static_key(&property.key),
+        AstKind::PropertyDefinition(property) => static_key(&property.key),
         _ => None,
     }
 }
 
-/// The name of a property key that is not computed (or is a computed string literal).
-pub fn static_key(key: &PropertyKey<'_>, computed: bool) -> Option<String> {
+/// The name of a property key that is not computed (or is a computed string or number
+/// literal). `None` for other keys and for a string with a lone surrogate.
+pub fn static_key(key: &PropertyKey<'_>) -> Option<String> {
     match key {
-        PropertyKey::StaticIdentifier(ident) if !computed => Some(ident.name.to_string()),
+        PropertyKey::StaticIdentifier(ident) => Some(ident.name.to_string()),
         PropertyKey::PrivateIdentifier(ident) => Some(format!("#{}", ident.name)),
-        PropertyKey::StringLiteral(literal) => Some(literal.value.to_string()),
-        PropertyKey::NumericLiteral(literal) => Some(number_key(literal.value)),
+        PropertyKey::StaticStringLiteral(literal) | PropertyKey::StringLiteral(literal) => {
+            literal.value.as_str().map(str::to_owned)
+        }
+        PropertyKey::StaticNumericLiteral(literal) | PropertyKey::NumericLiteral(literal) => {
+            Some(number_key(literal.value))
+        }
         _ => None,
     }
 }

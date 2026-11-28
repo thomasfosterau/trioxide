@@ -1,5 +1,6 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
 description: tests/fixtures/analysis/review-num
 input_file: tests/fixtures/analysis/review-num/input.ts
 ---
@@ -62,10 +63,10 @@ export function main() {
 		Infinity,
 		-Infinity,
 		NaN,
-		2147483648,
-		-2147483649,
+		0x80000000,
+		-0x80000001,
 		4294967296,
-		9007199254740992,
+		0x20000000000000,
 		1e-320,
 		-1e-320,
 		3,
@@ -80,5 +81,5 @@ export function main() {
 			ops(a, b, "  -12.5e3 ");
 		}
 	}
-	console.log(inc(9007199254740992), inc(1));
+	console.log(inc(0x20000000000000), inc(1));
 }

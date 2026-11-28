@@ -282,7 +282,7 @@ fn literal_keys(init: &Expression<'_>) -> Result<Vec<String>, &'static str> {
                 if property.kind != PropertyKind::Init || property.method {
                     return Err("the literal has accessors or methods");
                 }
-                if property.computed {
+                if property.key.is_computed() {
                     return Err("the literal has a computed key");
                 }
                 let key = static_key(&property.key).ok_or("the literal has an unusual key")?;
@@ -327,10 +327,8 @@ fn literal_keys(init: &Expression<'_>) -> Result<Vec<String>, &'static str> {
 fn static_key(key: &PropertyKey<'_>) -> Option<String> {
     match key {
         PropertyKey::StaticIdentifier(ident) => Some(ident.name.to_string()),
-        PropertyKey::StringLiteral(literal) if !literal.lone_surrogates => {
-            Some(literal.value.to_string())
-        }
-        PropertyKey::NumericLiteral(literal) => integer_key(literal.value),
+        PropertyKey::StaticStringLiteral(literal) => literal.value.as_str().map(str::to_owned),
+        PropertyKey::StaticNumericLiteral(literal) => integer_key(literal.value),
         _ => None,
     }
 }
@@ -349,9 +347,7 @@ fn integer_key(value: f64) -> Option<String> {
 /// The key a computed member's expression names, if it is a literal.
 fn computed_key(expression: &Expression<'_>) -> Option<String> {
     match expression.without_parentheses() {
-        Expression::StringLiteral(literal) if !literal.lone_surrogates => {
-            Some(literal.value.to_string())
-        }
+        Expression::StringLiteral(literal) => literal.value.as_str().map(str::to_owned),
         Expression::NumericLiteral(literal) => integer_key(literal.value),
         _ => None,
     }
@@ -386,9 +382,7 @@ impl Constant {
                     negative: true,
                 }
             }
-            Expression::StringLiteral(literal) if !literal.lone_surrogates => {
-                Self::String(literal.value.to_string())
-            }
+            Expression::StringLiteral(literal) => Self::String(literal.value.as_str()?.to_owned()),
             Expression::BooleanLiteral(literal) => Self::Boolean(literal.value),
             Expression::NullLiteral(_) => Self::Null,
             _ => return None,
@@ -396,9 +390,8 @@ impl Constant {
     }
 
     fn expression<'a>(&self, span: Span, ast: &AstBuilder<'a>) -> Expression<'a> {
-        use oxc_syntax::{number::NumberBase, operator::UnaryOperator};
-        let number =
-            |value| Expression::new_numeric_literal(span, value, None, NumberBase::Decimal, ast);
+        use oxc_syntax::operator::UnaryOperator;
+        let number = |value| Expression::new_numeric_literal(span, value, None, ast);
         match self {
             Self::Number { value, negative } => {
                 if *negative {
@@ -480,7 +473,7 @@ impl ClassPlan {
                     if property.r#static || property.declare {
                         continue;
                     }
-                    if !property.decorators.is_empty() || property.computed {
+                    if !property.decorators.is_empty() || property.key.is_computed() {
                         return Err("a field is decorated or has a computed key");
                     }
                     let key = static_key(&property.key).ok_or("a field has an unusual key")?;

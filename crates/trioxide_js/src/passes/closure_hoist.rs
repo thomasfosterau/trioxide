@@ -556,6 +556,7 @@ impl<'a> Visit<'a> for Find<'_, '_> {
         }
         if let Some(member) = call.callee.get_member_expr()
             && let Some(method) = member.static_property_name()
+            && let Some(method) = method.as_str()
         {
             for argument in &call.arguments {
                 if let Some(argument) = argument.as_expression()

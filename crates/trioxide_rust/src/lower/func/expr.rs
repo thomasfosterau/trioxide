@@ -1649,7 +1649,7 @@ impl<'a> FnCx<'_, '_, 'a> {
                 return self.fail(o.span, "spreads an object");
             };
             let name = match &property.key {
-                PropertyKey::StaticIdentifier(id) if !property.computed => id.name.to_string(),
+                PropertyKey::StaticIdentifier(id) => id.name.to_string(),
                 _ => {
                     return self.fail(
                         property.span,

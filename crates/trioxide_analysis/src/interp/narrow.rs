@@ -121,9 +121,10 @@ impl<'a> Cx<'_, '_, 'a> {
                     if let Expression::UnaryExpression(unary) = one.without_parentheses()
                         && unary.operator == UnaryOperator::Typeof
                         && let Expression::StringLiteral(literal) = other.without_parentheses()
+                        && let Some(tag) = literal.value.as_str()
                         && let Some(symbol) = self.tracked_in(binary.span, &unary.argument)
                     {
-                        let tag = literal.value.as_str().to_string();
+                        let tag = tag.to_owned();
                         update(env, symbol, |value| narrow_typeof(value, &tag, equal));
                         return;
                     }

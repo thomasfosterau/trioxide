@@ -13,7 +13,7 @@
 use oxc_allocator::ArenaVec;
 use oxc_ast::{
     AstKind,
-    ast::{Expression, NumberBase, Program},
+    ast::{Expression, Program},
     builder::AstBuilder,
 };
 use oxc_ast_visit::Visit;
@@ -150,7 +150,7 @@ pub fn unnamed<'a>(value: Expression<'a>, ast: &AstBuilder<'a>) -> Expression<'a
         return value;
     }
     let span = value.span();
-    let zero = Expression::new_numeric_literal(span, 0.0, None, NumberBase::Decimal, ast);
+    let zero = Expression::new_numeric_literal(span, 0.0, None, ast);
     let sequence =
         Expression::new_sequence_expression(span, ArenaVec::from_iter_in([zero, value], ast), ast);
     Expression::new_parenthesized_expression(span, sequence, ast)

@@ -398,13 +398,13 @@ fn user_iterators_are_not_summarised_from_declared_types() {
     for node in semantic.nodes().iter() {
         let protocol = match semantic.nodes().parent_kind(node.id()) {
             AstKind::ObjectProperty(property) if property.method => {
-                property.computed
+                property.key.is_computed()
                     || property
                         .key
                         .static_name()
                         .is_some_and(|name| name == "next" || name == "toJSON")
             }
-            AstKind::MethodDefinition(method) => method.computed,
+            AstKind::MethodDefinition(method) => method.key.is_computed(),
             _ => false,
         };
         if protocol && matches!(node.kind(), AstKind::Function(_)) {

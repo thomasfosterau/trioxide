@@ -1,5 +1,6 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
 description: tests/fixtures/analysis/numeric-ranges
 input_file: tests/fixtures/analysis/numeric-ranges/input.ts
 ---
@@ -7,7 +8,7 @@ input_file: tests/fixtures/analysis/numeric-ranges/input.ts
 // Interval, integer, NaN and -0 facts through arithmetic and Math.
 export function main() {
 	const r = Math.random();
-	const unsigned = 4294967295;
+	const unsigned = 0xffffffff;
 	console.log(
 		unsigned
 		/*@proven number int nonNaN*/
@@ -33,7 +34,7 @@ export function main() {
 	const big = 2 ** 53 + 1;
 	console.log(
 		big,
-		9007199254740991
+		0x1fffffffffffff
 		/*@proven number int*/
 	);
 	let i = 0;

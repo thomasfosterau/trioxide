@@ -1,5 +1,6 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
 description: tests/fixtures/numeric
 input_file: tests/fixtures/numeric/input.ts
 ---
@@ -27,7 +28,7 @@ function blur(src, width, height) {
 	return dst;
 }
 function hash(values) {
-	let h = 2166136261;
+	let h = 0x811c9dc5;
 	for (let i = 0, length = values.length; i < length; i++) {
 		const value = values[i];
 		h ^= value & 255;

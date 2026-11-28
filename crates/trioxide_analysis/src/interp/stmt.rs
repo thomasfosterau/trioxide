@@ -351,12 +351,10 @@ impl<'a> Cx<'_, '_, 'a> {
                 // the CommonJS interop may hand out wholesale, so its exports escape.
                 if let oxc_ast::ast::TSModuleReference::ExternalModuleReference(reference) =
                     &declaration.module_reference
-                    && let Some(module) = self
-                        .module
-                        .imports
-                        .get(reference.expression.value.as_str())
-                        .copied()
-                        .flatten()
+                    && let Some(module) =
+                        reference.expression.value.as_str().and_then(|specifier| {
+                            self.module.imports.get(specifier).copied().flatten()
+                        })
                 {
                     let unit = self.unit.id;
                     let namespace = self.an.namespace(module, unit);
@@ -437,7 +435,7 @@ impl<'a> Cx<'_, '_, 'a> {
             BindingPattern::ObjectPattern(object) => {
                 self.require_object(&value);
                 for property in &object.properties {
-                    let key = if property.computed {
+                    let key = if property.key.is_computed() {
                         match property.key.as_expression() {
                             Some(key) => {
                                 let key = self.expr(key);
@@ -446,7 +444,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             None => Key::Unknown,
                         }
                     } else {
-                        static_key(&property.key, false).map_or(Key::Unknown, Key::Name)
+                        static_key(&property.key).map_or(Key::Unknown, Key::Name)
                     };
                     let read = self.read_prop(&value, &key, property.node_id.get());
                     self.bind_pattern(&property.value, read);

@@ -193,14 +193,21 @@ fn plan(
     for element in &class.body.body {
         match element {
             ClassElement::MethodDefinition(method) if !method.r#static => {
-                if method.computed {
+                if method.key.is_computed() {
                     decline(decisions, "the class has a computed method name");
                     return None;
                 }
                 if method.kind == MethodDefinitionKind::Constructor {
                     constructor = Some(method);
                 } else if let Some(name) = method.key.static_name() {
-                    inherited.insert(name.to_string());
+                    let Some(name) = name.as_str() else {
+                        decline(
+                            decisions,
+                            "the class has a method name with a lone surrogate",
+                        );
+                        return None;
+                    };
+                    inherited.insert(name.to_owned());
                 }
             }
             // `declare` and abstract fields don't exist at run time.
@@ -209,12 +216,19 @@ fn plan(
                     && !property.declare
                     && property.r#type == PropertyDefinitionType::PropertyDefinition =>
             {
-                if property.computed {
+                if property.key.is_computed() {
                     decline(decisions, "the class has a computed field name");
                     return None;
                 }
                 if let Some(name) = property.key.static_name() {
-                    fields.insert(name.to_string());
+                    let Some(name) = name.as_str() else {
+                        decline(
+                            decisions,
+                            "the class has a field name with a lone surrogate",
+                        );
+                        return None;
+                    };
+                    fields.insert(name.to_owned());
                 }
             }
             ClassElement::AccessorProperty(_) => {
@@ -374,7 +388,6 @@ impl<'a> Traverse<'a, ()> for Visitor<'_> {
                 key,
                 None,
                 Some(value),
-                false,
                 false,
                 false,
                 false,

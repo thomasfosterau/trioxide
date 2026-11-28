@@ -211,7 +211,7 @@ pub(crate) fn rewrite_calls<'a>(
         let target = rewrite
             .imports
             .iter()
-            .find(|(specifier, _)| specifier == declaration.source.value.as_str())
+            .find(|(specifier, _)| declaration.source.value == specifier.as_str())
             .and_then(|(_, target)| *target);
         let link = target.and_then(|target| {
             rewrite

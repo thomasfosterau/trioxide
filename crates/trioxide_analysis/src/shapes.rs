@@ -88,7 +88,7 @@ fn fields_and_constructor_assignments(
         if property.r#static || property.declare {
             continue;
         }
-        let Some(name) = static_key(&property.key, property.computed) else {
+        let Some(name) = static_key(&property.key) else {
             return (fields, Vec::new());
         };
         if name == "__proto__" {
@@ -246,7 +246,7 @@ fn is_quiet(world: &World<'_>, class: NodeRef, depth: usize) -> bool {
     for element in &info.class.body.body {
         match element {
             ClassElement::PropertyDefinition(property) if !property.r#static => {
-                if property.computed || property.value.as_ref().is_some_and(uses_this) {
+                if property.key.is_computed() || property.value.as_ref().is_some_and(uses_this) {
                     return false;
                 }
             }

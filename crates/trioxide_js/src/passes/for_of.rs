@@ -31,7 +31,7 @@
 use oxc_allocator::{ArenaVec, TakeIn};
 use oxc_ast::ast::{
     Argument, ArrayExpressionElement, AssignmentOperator, AssignmentTarget, BinaryOperator,
-    Expression, ForStatementInit, ForStatementLeft, IdentifierName, NumberBase, Program, Statement,
+    Expression, ForStatementInit, ForStatementLeft, IdentifierName, Program, Statement,
     UpdateOperator, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
@@ -457,7 +457,7 @@ pub fn generate_named<'a>(
 
 /// `0`.
 pub fn zero<'a>(ctx: &TraverseCtx<'a, ()>) -> Expression<'a> {
-    Expression::new_numeric_literal(SPAN, 0.0, None, NumberBase::Decimal, ctx)
+    Expression::new_numeric_literal(SPAN, 0.0, None, ctx)
 }
 
 /// `array.length`, reading `array` at `at`.

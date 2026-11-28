@@ -328,12 +328,13 @@ impl<'a> Index<'a> {
 
             fn visit_method_definition(&mut self, method: &oxc_ast::ast::MethodDefinition<'a>) {
                 if method.kind == oxc_ast::ast::MethodDefinitionKind::Method
-                    && !method.computed
+                    && !method.key.is_computed()
                     && let Some(name) = method.key.static_name()
+                    && let Some(name) = name.as_str()
                 {
                     let function = &method.value;
                     let island = is_island(self.keep, self.query.node(function.node_id()), false);
-                    let callee = self.callee(function, None, island, Some(&name));
+                    let callee = self.callee(function, None, island, Some(name));
                     self.index.callees.insert(function.node_id(), callee);
                 }
                 if method.kind == oxc_ast::ast::MethodDefinitionKind::Constructor
@@ -1016,13 +1017,7 @@ fn undefined<'a>(span: Span, scope: ScopeId, ctx: &TraverseCtx<'a, ()>) -> Expre
         Expression::new_unary_expression(
             span,
             UnaryOperator::Void,
-            Expression::new_numeric_literal(
-                span,
-                0.0,
-                None,
-                oxc_ast::ast::NumberBase::Decimal,
-                ctx,
-            ),
+            Expression::new_numeric_literal(span, 0.0, None, ctx),
             ctx,
         )
     }
@@ -1422,12 +1417,9 @@ impl<'a> Visitor<'a, '_> {
             Expression::NumericLiteral(_)
             | Expression::BooleanLiteral(_)
             | Expression::NullLiteral(_) => true,
-            Expression::StringLiteral(literal) => {
-                !literal.lone_surrogates
-                    && small_enough(&trioxide_analysis::Constant::String(
-                        literal.value.to_string(),
-                    ))
-            }
+            Expression::StringLiteral(literal) => literal.value.as_str().is_some_and(|value| {
+                small_enough(&trioxide_analysis::Constant::String(value.to_owned()))
+            }),
             Expression::UnaryExpression(unary) => {
                 unary.operator == UnaryOperator::UnaryNegation
                     && matches!(unary.argument, Expression::NumericLiteral(_))
@@ -1956,7 +1948,7 @@ fn is_defined_literal(expression: &Expression<'_>) -> bool {
         Expression::NumericLiteral(_)
         | Expression::BooleanLiteral(_)
         | Expression::NullLiteral(_) => true,
-        Expression::StringLiteral(literal) => !literal.lone_surrogates,
+        Expression::StringLiteral(literal) => literal.value.as_str().is_some(),
         Expression::UnaryExpression(unary) => {
             unary.operator == UnaryOperator::UnaryNegation
                 && matches!(unary.argument, Expression::NumericLiteral(_))
@@ -2012,13 +2004,7 @@ impl<'a> Rename<'_, 'a> {
                     Expression::new_unary_expression(
                         span,
                         UnaryOperator::Void,
-                        Expression::new_numeric_literal(
-                            span,
-                            0.0,
-                            None,
-                            oxc_ast::ast::NumberBase::Decimal,
-                            ast,
-                        ),
+                        Expression::new_numeric_literal(span, 0.0, None, ast),
                         ast,
                     )
                 });
@@ -2558,9 +2544,7 @@ fn literal_constant(expression: &Expression<'_>) -> Option<trioxide_analysis::Co
         Expression::NumericLiteral(literal) => Constant::Number(literal.value),
         Expression::BooleanLiteral(literal) => Constant::Boolean(literal.value),
         Expression::NullLiteral(_) => Constant::Null,
-        Expression::StringLiteral(literal) if !literal.lone_surrogates => {
-            Constant::String(literal.value.to_string())
-        }
+        Expression::StringLiteral(literal) => Constant::String(literal.value.as_str()?.to_owned()),
         Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::UnaryNegation => {
             match &unary.argument {
                 Expression::NumericLiteral(literal) => Constant::Number(-literal.value),
@@ -2595,13 +2579,7 @@ fn constant_literal<'a>(
     use trioxide_analysis::Constant;
     match constant {
         Constant::Number(value) => {
-            let magnitude = Expression::new_numeric_literal(
-                span,
-                value.abs(),
-                None,
-                oxc_ast::ast::NumberBase::Decimal,
-                ast,
-            );
+            let magnitude = Expression::new_numeric_literal(span, value.abs(), None, ast);
             if value.is_sign_negative() {
                 Expression::new_unary_expression(span, UnaryOperator::UnaryNegation, magnitude, ast)
             } else {
