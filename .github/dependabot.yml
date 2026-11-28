@@ -56,6 +56,14 @@ updates:
       prefix: "chore"
     cooldown:
       default-days: 1
+    ignore:
+      # The vendored conformance tests (tests/conformance/) are the libraries'
+      # own, written against chai 4 (`import chai from 'chai'`); chai 5+ is
+      # ESM-only with no default export, and sinon-chai 4 needs chai 5.
+      - dependency-name: "chai"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "sinon-chai"
+        update-types: ["version-update:semver-major"]
     groups:
       # Every npm package, runtime and development alike, in one PR.
       npm:
