@@ -7,11 +7,6 @@
 //! cargo bench -p trioxide_analysis
 //! ```
 
-#![expect(
-    missing_docs,
-    reason = "`criterion_group!` generates an undocumented function"
-)]
-
 use std::path::{Path, PathBuf};
 
 use criterion::{Criterion, criterion_group, criterion_main};
