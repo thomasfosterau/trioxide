@@ -75,7 +75,7 @@ Also useful:
 
 ## Pins
 
-- All `oxc_*` crates from the oxc monorepo: exactly `=0.154.0`, bumped together in a
+- All `oxc_*` crates from the oxc monorepo: exactly `=0.160.0`, bumped together in a
   dedicated PR. `oxc_resolver` and `oxc_sourcemap` are versioned separately and also pinned
   exactly (`oxc_sourcemap` must match what `oxc_codegen` uses).
 - tsrs: a git dependency pinned by `rev` in the root `Cargo.toml`. Only

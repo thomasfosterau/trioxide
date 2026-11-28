@@ -335,7 +335,7 @@ impl Visitor<'_> {
                 let value = int32(expression, &Self::eval_ctx(ctx))
                     .map(oxc_ecmascript::ConstantValue::Number)
                     .or_else(|| expression.evaluate_value(&Self::eval_ctx(ctx)));
-                match value.map(|value| from_ecmascript(&value)) {
+                match value.and_then(|value| from_ecmascript(&value)) {
                     Some(value) if small_enough(&value) => Some(constant_expr(&value, span, ctx)),
                     _ => None,
                 }

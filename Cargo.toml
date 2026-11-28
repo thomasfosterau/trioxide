@@ -25,21 +25,22 @@ trioxide_types = { path = "crates/trioxide_types", default-features = false }
 trioxide_wasm = { path = "crates/trioxide_wasm" }
 
 # oxc: every crate pinned to the same exact version and bumped together (PLAN D10).
-oxc_allocator = "=0.154.0"
-oxc_ast = "=0.154.0"
-oxc_ast_visit = "=0.154.0"
-oxc_codegen = "=0.154.0"
-oxc_diagnostics = "=0.154.0"
-oxc_ecmascript = "=0.154.0"
-oxc_parser = "=0.154.0"
-oxc_semantic = "=0.154.0"
-oxc_span = "=0.154.0"
-oxc_syntax = "=0.154.0"
-oxc_transformer = "=0.154.0"
-oxc_traverse = "=0.154.0"
+oxc_allocator = "=0.160.0"
+oxc_ast = "=0.160.0"
+oxc_ast_visit = "=0.160.0"
+oxc_codegen = "=0.160.0"
+oxc_diagnostics = "=0.160.0"
+oxc_ecmascript = "=0.160.0"
+oxc_parser = "=0.160.0"
+oxc_semantic = "=0.160.0"
+oxc_span = "=0.160.0"
+oxc_str = "=0.160.0"
+oxc_syntax = "=0.160.0"
+oxc_transformer = "=0.160.0"
+oxc_traverse = "=0.160.0"
 # Released from separate oxc-project repositories with their own version lines; pinned exactly too.
 oxc_resolver = "=11.24.3"
-oxc_sourcemap = "=9.0.0"
+oxc_sourcemap = "=10.0.1"
 
 # tsrs is not on crates.io: a git dependency pinned to one commit (PLAN D10). Only trioxide_types may use it.
 tsrs_ast = { git = "https://github.com/oxc-project/tsrs", rev = "9aabfdc58d3c937d72c624fd3c4cec153324282a" }

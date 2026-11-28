@@ -883,9 +883,10 @@ fn signature_names(members: &[oxc_ast::ast::TSSignature<'_>]) -> Vec<String> {
     members
         .iter()
         .filter_map(|member| match member {
-            oxc_ast::ast::TSSignature::TSPropertySignature(property) => {
-                property.key.static_name().map(|name| name.to_string())
-            }
+            oxc_ast::ast::TSSignature::TSPropertySignature(property) => property
+                .key
+                .static_name()
+                .and_then(|name| name.as_str().map(str::to_owned)),
             _ => None,
         })
         .collect()

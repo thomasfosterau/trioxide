@@ -171,7 +171,7 @@ impl Visitor<'_> {
                 (member.property.name.as_str(), member.span)
             }
             Expression::ComputedMemberExpression(member) => match &member.expression {
-                Expression::StringLiteral(key) => (key.value.as_str(), member.span),
+                Expression::StringLiteral(key) => (key.value.as_str()?, member.span),
                 _ => return None,
             },
             _ => return None,

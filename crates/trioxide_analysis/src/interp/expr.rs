@@ -279,8 +279,10 @@ impl<'a> Cx<'_, '_, 'a> {
             Expression::ImportExpression(import) => {
                 // The promise resolves to the module's namespace, which unknown code handles.
                 if let Expression::StringLiteral(specifier) = &import.source
-                    && let Some(Some(module)) =
-                        self.module.imports.get(specifier.value.as_str()).copied()
+                    && let Some(Some(module)) = specifier
+                        .value
+                        .as_str()
+                        .and_then(|specifier| self.module.imports.get(specifier).copied())
                 {
                     let unit = self.unit.id;
                     let namespace = self.an.namespace(module, unit);
@@ -569,17 +571,17 @@ impl<'a> Cx<'_, '_, 'a> {
         for property in &object.properties {
             match property {
                 ObjectPropertyKind::ObjectProperty(property) => {
-                    let key = if property.computed {
+                    let key = if property.key.is_computed() {
                         let key = property.key.as_expression().map(|key| self.expr(key));
                         match &property.key {
-                            key if static_key(key, false).is_some()
+                            key if static_key(key).is_some()
                                 && matches!(
                                     key,
                                     oxc_ast::ast::PropertyKey::StringLiteral(_)
                                         | oxc_ast::ast::PropertyKey::NumericLiteral(_)
                                 ) =>
                             {
-                                static_key(key, false)
+                                static_key(key)
                             }
                             _ => {
                                 if let Some(key) = key {
@@ -589,7 +591,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             }
                         }
                     } else {
-                        static_key(&property.key, false)
+                        static_key(&property.key)
                     };
                     let value = self.expr(&property.value);
                     match (key, property.kind) {
@@ -776,14 +778,12 @@ impl<'a> Cx<'_, '_, 'a> {
         for element in &class.body.body {
             match element {
                 ClassElement::MethodDefinition(method) => {
-                    if method.computed
-                        && let Some(key) = method.key.as_expression()
-                    {
+                    if let Some(key) = method.key.as_expression() {
                         let key = self.expr(key);
                         self.coerce(&key, false);
                     }
                     let function = self.function_value(method.value.node_id.get());
-                    let Some(name) = static_key(&method.key, method.computed) else {
+                    let Some(name) = static_key(&method.key) else {
                         self.mark(
                             if method.r#static { class_site } else { proto },
                             move |obj| {
@@ -803,9 +803,7 @@ impl<'a> Cx<'_, '_, 'a> {
                     });
                 }
                 ClassElement::PropertyDefinition(property) => {
-                    if property.computed
-                        && let Some(key) = property.key.as_expression()
-                    {
+                    if let Some(key) = property.key.as_expression() {
                         let key = self.expr(key);
                         self.coerce(&key, false);
                         let target = if property.r#static { class_site } else { proto };
@@ -818,7 +816,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             None => Val::proven(Type::Undefined),
                         };
                         self.this = saved;
-                        match static_key(&property.key, property.computed) {
+                        match static_key(&property.key) {
                             Some(name) => {
                                 self.store_prop(class_site, &name, &value, true);
                                 self.mark(class_site, move |obj| {
@@ -861,14 +859,14 @@ impl<'a> Cx<'_, '_, 'a> {
                     Some(value) => self.expr(value),
                     None if property.declare => continue,
                     // The constructor assigns it before anything can read the `undefined`.
-                    None if static_key(&property.key, property.computed)
+                    None if static_key(&property.key)
                         .is_some_and(|key| assigned.contains(&key)) =>
                     {
                         continue;
                     }
                     None => Val::proven(Type::Undefined),
                 };
-                let key = static_key(&property.key, property.computed);
+                let key = static_key(&property.key);
                 let this = self.this.clone();
                 // Without `useDefineForClassFields`, a field initialiser is an assignment and
                 // runs an inherited setter; assume it may.
@@ -1424,7 +1422,7 @@ impl<'a> Cx<'_, '_, 'a> {
                             self.assign_identifier(&property.binding, read);
                         }
                         AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) => {
-                            let key = if property.computed {
+                            let key = if property.name.is_computed() {
                                 match property.name.as_expression() {
                                     Some(key) => {
                                         let key = self.expr(key);
@@ -1433,7 +1431,7 @@ impl<'a> Cx<'_, '_, 'a> {
                                     None => Key::Unknown,
                                 }
                             } else {
-                                static_key(&property.name, false).map_or(Key::Unknown, Key::Name)
+                                static_key(&property.name).map_or(Key::Unknown, Key::Name)
                             };
                             let read = self.read_prop(&value, &key, property.node_id.get());
                             self.assign_maybe_default(&property.binding, read, node);
@@ -1510,7 +1508,7 @@ impl<'a> Cx<'_, '_, 'a> {
     /// The value of a string literal, or of a `const` bound to one.
     pub fn constant_string(&self, expression: &Expression<'_>) -> Option<String> {
         match expression.without_parentheses() {
-            Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+            Expression::StringLiteral(literal) => literal.value.as_str().map(str::to_owned),
             Expression::Identifier(ident) => {
                 let scoping = self.module.semantic.scoping();
                 let symbol = scoping
@@ -1532,7 +1530,7 @@ impl<'a> Cx<'_, '_, 'a> {
                                 oxc_ast::ast::BindingPattern::BindingIdentifier(_)
                             ) =>
                         {
-                            Some(literal.value.to_string())
+                            literal.value.as_str().map(str::to_owned)
                         }
                         _ => None,
                     },

@@ -1,5 +1,6 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
 description: tests/fixtures/passes/review/strings
 input_file: tests/fixtures/passes/review/strings/input.ts
 ---
@@ -11,5 +12,5 @@ const joiner = "a‍b";
 const template = `\uDE00`;
 export function main() {
 	console.log(lone.length, (lone + "\ude00").codePointAt(0), bom.length, joiner.length);
-	console.log(template.length, ("\ud83d" + "\ude00").codePointAt(0));
+	console.log(template.length, "😀".codePointAt(0));
 }

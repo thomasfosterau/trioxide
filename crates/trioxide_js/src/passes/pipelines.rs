@@ -1909,5 +1909,5 @@ fn declare_with<'a>(
 
 /// A numeric literal.
 fn number<'a>(value: f64, ctx: &TraverseCtx<'a, ()>) -> Expression<'a> {
-    Expression::new_numeric_literal(SPAN, value, None, oxc_ast::ast::NumberBase::Decimal, ctx)
+    Expression::new_numeric_literal(SPAN, value, None, ctx)
 }

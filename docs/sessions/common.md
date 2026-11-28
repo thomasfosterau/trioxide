@@ -7,7 +7,7 @@
   everything. If you need a change to another stream's public interface, keep it minimal
   and additive, and call it out under a "Cross-stream changes" heading in the PR
   description. Never rework another stream's internals.
-- Pins: all `oxc_*` crates `=0.154.0`; tsrs is a git dependency pinned to a commit; Rust
+- Pins: all `oxc_*` crates `=0.160.0`; tsrs is a git dependency pinned to a commit; Rust
   1.99.1 via `rust-toolchain.toml`. Don't bump any of these unless your prompt says so.
 - Before every push, run and pass: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`,

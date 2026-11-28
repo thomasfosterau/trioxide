@@ -192,8 +192,8 @@ fn declares_only(statement: &Statement<'_>) -> bool {
         class.heritage.is_none()
             && class.decorators.is_empty()
             && class.body.body.iter().all(|element| match element {
-                ClassElement::MethodDefinition(m) => !m.r#static && !m.computed,
-                ClassElement::PropertyDefinition(p) => !p.r#static && !p.computed,
+                ClassElement::MethodDefinition(m) => !m.r#static && !m.key.is_computed(),
+                ClassElement::PropertyDefinition(p) => !p.r#static && !p.key.is_computed(),
                 ClassElement::TSIndexSignature(_) => true,
                 _ => false,
             })
@@ -376,9 +376,10 @@ impl<'a> World<'a> {
                         _ => Role::Free,
                     };
                     let name = match (&name, parent) {
-                        (None, AstKind::MethodDefinition(method)) => {
-                            method.key.static_name().map(|key| key.to_string())
-                        }
+                        (None, AstKind::MethodDefinition(method)) => method
+                            .key
+                            .static_name()
+                            .and_then(|key| key.as_str().map(str::to_owned)),
                         _ => name,
                     };
                     let mut directive = func.body.as_ref().and_then(|body| {

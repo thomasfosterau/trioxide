@@ -63,18 +63,13 @@ pub fn record(world: &World<'_>, links: &Links, options: &AnalysisOptions, facts
 fn literal(module: &Module<'_>, expression: &Expression<'_>) -> Option<Constant> {
     Some(match expression {
         Expression::NumericLiteral(literal) => Constant::Number(literal.value),
-        // A lone surrogate is encoded lossily in `value`.
-        Expression::StringLiteral(literal) if !literal.lone_surrogates => {
-            Constant::String(literal.value.to_string())
-        }
+        // A lone surrogate has no UTF-8 form, so such a string is not a known constant.
+        Expression::StringLiteral(literal) => Constant::String(literal.value.as_str()?.to_owned()),
         Expression::BooleanLiteral(literal) => Constant::Boolean(literal.value),
         Expression::NullLiteral(_) => Constant::Null,
         Expression::BigIntLiteral(literal) => Constant::BigInt(literal.value.to_string()),
-        Expression::TemplateLiteral(template)
-            if template.expressions.is_empty()
-                && template.quasis.iter().all(|quasi| !quasi.lone_surrogates) =>
-        {
-            Constant::String(template.quasis.first()?.value.cooked?.to_string())
+        Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
+            Constant::String(template.quasis.first()?.value.cooked?.as_str()?.to_owned())
         }
         Expression::Identifier(ident) if ident.name == "undefined" => {
             let reference = module
@@ -215,7 +210,10 @@ fn sound_enums(
                     let name = match &member.id {
                         TSEnumMemberName::Identifier(ident) => ident.name.as_str(),
                         TSEnumMemberName::String(name) | TSEnumMemberName::ComputedString(name) => {
-                            name.value.as_str()
+                            let Some(name) = name.value.as_str() else {
+                                continue;
+                            };
+                            name
                         }
                         TSEnumMemberName::ComputedTemplateString(_) => continue,
                     };

@@ -24,6 +24,7 @@ oxc_diagnostics.workspace = true
 oxc_ecmascript = { workspace = true, features = ["constant_evaluation"] }
 oxc_semantic.workspace = true
 oxc_span.workspace = true
+oxc_str.workspace = true
 oxc_syntax.workspace = true
 oxc_transformer.workspace = true
 oxc_traverse.workspace = true

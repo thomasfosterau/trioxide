@@ -1,5 +1,6 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
 description: tests/fixtures/passes/partial-eval/adversarial
 input_file: tests/fixtures/passes/partial-eval/adversarial/input.ts
 ---
@@ -97,8 +98,8 @@ const C12 = transcendental();
 const C13 = [
 	1.4142135623730951,
 	.10000000149011612,
-	4503599627370497,
-	-2147483648,
+	0x10000000000001,
+	-0x80000000,
 	1,
 	-1,
 	-Infinity

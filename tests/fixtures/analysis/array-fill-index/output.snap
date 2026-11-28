@@ -1,5 +1,6 @@
 ---
 source: crates/trioxide/tests/fixtures.rs
+assertion_line: 101
 description: tests/fixtures/analysis/array-fill-index
 input_file: tests/fixtures/analysis/array-fill-index/input.ts
 ---
@@ -50,7 +51,7 @@ export function makeRows(count) {
 	const rows = [];
 	let state = 7;
 	for (let i = 0; i < count; i++) {
-		state = Math.imul(state, 1664525) + 1013904223 >>> 0;
+		state = Math.imul(state, 1664525) + 0x3c6ef35f >>> 0;
 		rows.push({
 			key: Math.floor(state / 4294967296 * 8),
 			amount: state % 100 / 10

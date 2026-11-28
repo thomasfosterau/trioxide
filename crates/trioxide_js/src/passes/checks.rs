@@ -300,7 +300,8 @@ fn typeof_test<'e, 'a>(
     let Expression::StringLiteral(name) = other.without_parentheses() else {
         return None;
     };
-    (unary.operator == UnaryOperator::Typeof).then_some((&unary.argument, name.value.as_str()))
+    let name = name.value.as_str()?;
+    (unary.operator == UnaryOperator::Typeof).then_some((&unary.argument, name))
 }
 
 /// The operand compared with `null` or `undefined` (`other`).

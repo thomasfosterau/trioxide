@@ -635,27 +635,26 @@ pub(crate) fn patched_builtins(world: &World<'_>) -> FxHashSet<String> {
                     || (property == "prototype" && !names_program_symbol(module, &member.object))
             }
             AstKind::ComputedMemberExpression(member) => match &member.expression {
-                oxc_ast::ast::Expression::StringLiteral(key) => {
-                    let key = key.value.as_str();
-                    HATCH_PROPERTIES.contains(&key) || key == "prototype"
-                }
+                oxc_ast::ast::Expression::StringLiteral(key) => key
+                    .value
+                    .as_str()
+                    .is_some_and(|key| HATCH_PROPERTIES.contains(&key) || key == "prototype"),
                 _ => false,
             },
-            AstKind::ObjectProperty(property) => {
-                !property.computed
-                    && property
-                        .key
-                        .static_name()
-                        .is_some_and(|key| key == "__proto__")
-            }
-            AstKind::BindingProperty(property) => property
+            AstKind::ObjectProperty(property) => property
                 .key
-                .static_name()
-                .is_some_and(|key| HATCH_PROPERTIES.contains(&key.as_ref())),
-            AstKind::AssignmentTargetPropertyProperty(property) => property
-                .name
-                .static_name()
-                .is_some_and(|key| HATCH_PROPERTIES.contains(&key.as_ref())),
+                .literal_name()
+                .is_some_and(|key| key == "__proto__"),
+            AstKind::BindingProperty(property) => property.key.static_name().is_some_and(|key| {
+                key.as_str()
+                    .is_some_and(|key| HATCH_PROPERTIES.contains(&key))
+            }),
+            AstKind::AssignmentTargetPropertyProperty(property) => {
+                property.name.static_name().is_some_and(|key| {
+                    key.as_str()
+                        .is_some_and(|key| HATCH_PROPERTIES.contains(&key))
+                })
+            }
             _ => false,
         });
         if hatch {
@@ -682,7 +681,7 @@ fn instance_fields(world: &World<'_>) -> FxHashMap<NodeRef, FxHashSet<String>> {
                     oxc_ast::ast::ClassElement::PropertyDefinition(property)
                         if !property.r#static && !property.declare =>
                     {
-                        crate::world::static_key(&property.key, property.computed)
+                        crate::world::static_key(&property.key)
                     }
                     _ => None,
                 })
@@ -870,7 +869,7 @@ pub(crate) fn may_reprototype(world: &World<'_>) -> bool {
                 AstKind::ComputedMemberExpression(member) => matches!(
                     &member.expression,
                     oxc_ast::ast::Expression::StringLiteral(key)
-                        if NAMES.contains(&key.value.as_str())
+                        if key.value.as_str().is_some_and(|key| NAMES.contains(&key))
                 ),
                 _ => false,
             })

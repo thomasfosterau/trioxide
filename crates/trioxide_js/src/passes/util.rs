@@ -3,10 +3,7 @@
 
 use oxc_allocator::{Allocator, GetAllocator};
 use oxc_ast::{
-    ast::{
-        BinaryOperator, Expression, IdentifierReference, NumberBase, Program, Statement,
-        UnaryOperator,
-    },
+    ast::{BinaryOperator, Expression, IdentifierReference, Program, Statement, UnaryOperator},
     builder::{AstBuilder, GetAstBuilder},
 };
 use oxc_ast_visit::{Visit, walk};
@@ -207,7 +204,7 @@ pub fn constant_expr<'a, S>(
         Constant::Number(value) => {
             let value = *value;
             let number = |value: f64, ctx: &TraverseCtx<'a, S>| {
-                Expression::new_numeric_literal(span, value, None, NumberBase::Decimal, ctx)
+                Expression::new_numeric_literal(span, value, None, ctx)
             };
             if value.is_nan() {
                 return if global(ctx, "NaN") {
@@ -252,7 +249,6 @@ pub fn constant_expr<'a, S>(
             span,
             oxc_ast::ast::Str::from_str_in(digits, ctx),
             None,
-            oxc_syntax::number::BigintBase::Decimal,
             ctx,
         ),
         Constant::Null => Expression::new_null_literal(span, ctx),
@@ -263,7 +259,7 @@ pub fn constant_expr<'a, S>(
                 Expression::new_unary_expression(
                     span,
                     UnaryOperator::Void,
-                    Expression::new_numeric_literal(span, 0.0, None, NumberBase::Decimal, ctx),
+                    Expression::new_numeric_literal(span, 0.0, None, ctx),
                     ctx,
                 )
             }
@@ -423,7 +419,7 @@ impl Slot {
         };
         if self == Self::Callee && rebinds {
             let span = replacement.span();
-            let zero = Expression::new_numeric_literal(span, 0.0, None, NumberBase::Decimal, ctx);
+            let zero = Expression::new_numeric_literal(span, 0.0, None, ctx);
             let sequence = Expression::new_sequence_expression(
                 span,
                 oxc_allocator::ArenaVec::from_iter_in([zero, replacement], &ctx.ast),
@@ -474,16 +470,17 @@ pub fn is_canonical_literal(expression: &Expression<'_>) -> bool {
     }
 }
 
-/// Converts an `oxc_ecmascript` constant.
-pub fn from_ecmascript(value: &ConstantValue<'_>) -> Constant {
-    match value {
+/// Converts an `oxc_ecmascript` constant; `None` for a string with a lone surrogate, which
+/// [`Constant::String`] can't hold.
+pub fn from_ecmascript(value: &ConstantValue<'_>) -> Option<Constant> {
+    Some(match value {
         ConstantValue::Number(value) => Constant::Number(*value),
         ConstantValue::BigInt(value) => Constant::BigInt(value.to_string()),
-        ConstantValue::String(value) => Constant::String(value.to_string()),
+        ConstantValue::String(value) => Constant::String(value.as_str()?.to_owned()),
         ConstantValue::Boolean(value) => Constant::Boolean(*value),
         ConstantValue::Undefined => Constant::Undefined,
         ConstantValue::Null => Constant::Null,
-    }
+    })
 }
 
 /// Whether evaluating `expression` provably does nothing and can't throw, from syntax alone:
